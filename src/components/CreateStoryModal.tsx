@@ -25,13 +25,12 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
   const [caption, setCaption] = useState('');
   const [urlInput, setUrlInput] = useState('');
+  const [isCompressing, setIsCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = translations[currentLanguage];
 
   if (!isOpen) return null;
-
-  const [isCompressing, setIsCompressing] = useState(false);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -19,6 +19,10 @@ import { profileHighlights } from '../data/mockData';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
 import { UpiShagunSheet } from './UpiShagunSheet';
 import { safeSetItem } from '../utils/safeStorage';
+import {
+  createVideoFallbackDataUrl,
+  createPhotoFallbackDataUrl,
+} from '../utils/imageCompressor';
 
 interface ProfileViewProps {
   user: User;
@@ -60,38 +64,120 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const t = translations[currentLanguage];
   const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLanguage);
 
-  // Load and display all user-uploaded posts in the grid, ensuring count and posts never reset to 0 or disappear on refresh
+  // Helper to determine if a post belongs to the current profile user
+  const isMatchingUser = (p: any): boolean => {
+    if (!p || typeof p !== 'object' || !p.id) return false;
+    const targetId = (user.id || '').trim().toLowerCase();
+    const targetUsername = (user.username || '').trim().toLowerCase();
+    const targetEmail = (user.email || '').trim().toLowerCase();
+    const targetEmailPrefix = targetEmail ? targetEmail.split('@')[0] : '';
+
+    const postUserId = (p.userId || '').trim().toLowerCase();
+    const postUsername = (p.username || '').trim().toLowerCase();
+
+    // 1. Direct match by ID or username
+    if (targetId && postUserId && targetId === postUserId) return true;
+    if (targetUsername && postUsername && targetUsername === postUsername) return true;
+
+    // 2. Default user aliases (user-me, brijmohan, brijmohan83097, user-brijmohan)
+    const defaultAliases = ['user-me', 'brijmohan', 'brijmohan83097', 'user-brijmohan'];
+    const isTargetDefault = defaultAliases.includes(targetId) || defaultAliases.includes(targetUsername);
+    const isPostDefault = defaultAliases.includes(postUserId) || defaultAliases.includes(postUsername);
+    if (isTargetDefault && isPostDefault) return true;
+
+    // 3. Email prefix matching
+    if (targetEmailPrefix && (postUsername === targetEmailPrefix || postUserId === targetEmailPrefix)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  // Load and display all user-uploaded posts in the grid, directly reading from localStorage to avoid count mismatch
   const resolvedUserPosts = React.useMemo(() => {
     const postMap = new Map<string, Post>();
 
+    const addIfMatching = (p: any) => {
+      if (p && p.id && isMatchingUser(p)) {
+        if (!postMap.has(p.id)) {
+          postMap.set(p.id, p);
+        }
+      }
+    };
+
     // 1. Posts from props
-    (userPosts || []).forEach((p) => {
-      if (p && p.id) postMap.set(p.id, p);
-    });
+    (userPosts || []).forEach(addIfMatching);
 
     // 2. Posts directly attached to current user's profile object
-    (user.userPosts || user.posts || []).forEach((p) => {
-      if (p && p.id && !postMap.has(p.id)) postMap.set(p.id, p);
-    });
+    (user.userPosts || user.posts || []).forEach(addIfMatching);
 
-    // 3. Persistent user posts from localStorage under user's profile
+    // 3. Persistent user posts from localStorage under user's profile and feed
     try {
-      const storageKeys = [
+      const explicitKeys = [
+        'ig_feed_posts',
         `ig_user_posts_${user.id}`,
         `ig_user_posts_${user.username}`,
+        'ig_user_posts_user-me',
+        'ig_user_posts_brijmohan',
         'jhalak_uploaded_posts_v1',
         'jhalak_user_posts',
+        'ig_posts',
+        'posts',
       ];
-      for (const key of storageKeys) {
+
+      for (const key of explicitKeys) {
         const raw = localStorage.getItem(key);
         if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            parsed.forEach((p: Post) => {
-              if (p && p.id && !postMap.has(p.id)) {
-                postMap.set(p.id, p);
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach(addIfMatching);
+            } else if (parsed && typeof parsed === 'object') {
+              addIfMatching(parsed);
+            }
+          } catch {
+            // safe
+          }
+        }
+      }
+
+      // Check ig_current_user in localStorage
+      const userRaw = localStorage.getItem('ig_current_user');
+      if (userRaw) {
+        try {
+          const u = JSON.parse(userRaw);
+          if (u) {
+            (u.userPosts || []).forEach(addIfMatching);
+            (u.posts || []).forEach(addIfMatching);
+          }
+        } catch {
+          // safe
+        }
+      }
+
+      // 4. Dynamic scan across ALL keys in window.localStorage to find any user posts
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (
+          key &&
+          (key.includes('post') ||
+            key.includes('upload') ||
+            key.includes('user') ||
+            key.includes('feed') ||
+            key.includes('jhalak'))
+        ) {
+          const val = localStorage.getItem(key);
+          if (val && (val.startsWith('[') || val.startsWith('{'))) {
+            try {
+              const item = JSON.parse(val);
+              if (Array.isArray(item)) {
+                item.forEach(addIfMatching);
+              } else if (item && typeof item === 'object') {
+                addIfMatching(item);
               }
-            });
+            } catch {
+              // ignore non-json
+            }
           }
         }
       }
@@ -102,7 +188,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return Array.from(postMap.values());
   }, [userPosts, user]);
 
-  const effectivePostsCount = Math.max(user.postsCount || 0, resolvedUserPosts.length);
+  const effectivePostsCount =
+    resolvedUserPosts.length > 0
+      ? Math.max(user.postsCount || 0, resolvedUserPosts.length)
+      : 0;
 
   const displayPosts =
     activeTab === 'posts'
@@ -467,39 +556,51 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               className="group relative aspect-square bg-neutral-900 overflow-hidden cursor-pointer rounded-sm md:rounded-lg"
             >
               {post.mediaType === 'video' ? (
-                <video
-                  src={post.mediaUrl}
-                  muted
-                  playsInline
-                  preload="metadata"
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    if (!target.src.includes('trailer.mp4')) {
-                      target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
+                <div className="w-full h-full relative bg-neutral-950 flex items-center justify-center">
+                  <img
+                    src={
+                      post.thumbnailUrl ||
+                      (post.mediaUrl && !post.mediaUrl.startsWith('blob:')
+                        ? post.mediaUrl
+                        : createVideoFallbackDataUrl(post.caption))
                     }
-                  }}
-                  className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
-                    post.filter || ''
-                  }`}
-                />
+                    alt={post.caption || 'Video Reel'}
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.src = createVideoFallbackDataUrl(post.caption);
+                    }}
+                    className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
+                      post.filter || ''
+                    }`}
+                    loading="lazy"
+                  />
+                  {/* Video / Reel badge in top-right */}
+                  <div className="absolute top-2 right-2 p-1 rounded-full bg-black/60 backdrop-blur-md text-white drop-shadow-md z-10 flex items-center justify-center">
+                    <Film className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  {/* Keep title visible on card preview */}
+                  {post.caption && (
+                    <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none">
+                      <p className="text-[11px] font-medium text-white/95 truncate leading-tight">
+                        {post.caption}
+                      </p>
+                    </div>
+                  )}
+                </div>
               ) : (
-                <img
-                  src={post.mediaUrl}
-                  alt={post.caption}
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    target.src = 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&auto=format&fit=crop&q=80';
-                  }}
-                  className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
-                    post.filter || ''
-                  }`}
-                  loading="lazy"
-                />
-              )}
-
-              {post.mediaType === 'video' && (
-                <div className="absolute top-2 right-2 text-white drop-shadow-md z-10">
-                  <Film className="w-4 h-4" />
+                <div className="w-full h-full relative bg-neutral-950">
+                  <img
+                    src={post.mediaUrl}
+                    alt={post.caption || 'Post image'}
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.src = createPhotoFallbackDataUrl(post.caption);
+                    }}
+                    className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
+                      post.filter || ''
+                    }`}
+                    loading="lazy"
+                  />
                 </div>
               )}
               {/* Hover Overlay */}

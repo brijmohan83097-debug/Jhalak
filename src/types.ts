@@ -78,6 +78,7 @@ export interface Post {
   isVerified?: boolean;
   location?: string;
   mediaUrl: string;
+  thumbnailUrl?: string;
   mediaType: 'image' | 'video';
   caption: string;
   tags: string[];
@@ -102,6 +103,7 @@ export interface Reel {
   isVerified?: boolean;
   location?: string;
   videoUrl: string;
+  thumbnailUrl?: string;
   caption: string;
   category?: ContentCategory;
   audioTitle: string;

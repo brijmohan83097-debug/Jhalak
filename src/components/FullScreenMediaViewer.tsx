@@ -23,6 +23,10 @@ import {
 import { Post, User } from '../types';
 import { CommentsBottomSheet } from './CommentsBottomSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
+import {
+  createVideoFallbackDataUrl,
+  createPhotoFallbackDataUrl,
+} from '../utils/imageCompressor';
 
 interface FullScreenMediaViewerProps {
   posts: Post[];
@@ -64,6 +68,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const [showProductModal, setShowProductModal] = useState<boolean>(false);
   const [followedUsers, setFollowedUsers] = useState<Record<string, boolean>>({});
   const [videoProgress, setVideoProgress] = useState<number>(0);
+  const [mediaErrors, setMediaErrors] = useState<Record<string, boolean>>({});
 
   // Refs for video elements and swipe handling
   const videoRefs = useRef<{ [index: number]: HTMLVideoElement | null }>({});
@@ -376,24 +381,54 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                 onClick={handleMediaTap}
               >
                 {post.mediaType === 'video' ? (
-                  <video
-                    ref={(el) => {
-                      videoRefs.current[index] = el;
-                      if (el && isCurrent) {
-                        el.muted = isMuted;
-                      }
-                    }}
-                    src={post.mediaUrl}
-                    loop
-                    playsInline
-                    preload="auto"
-                    onTimeUpdate={() => handleTimeUpdate(index)}
-                    className={`max-w-full max-h-full object-contain ${post.filter || ''}`}
-                  />
+                  mediaErrors[post.id] || (!post.mediaUrl && !post.thumbnailUrl) ? (
+                    <div className="relative max-w-full max-h-full flex items-center justify-center">
+                      <img
+                        src={post.thumbnailUrl || createVideoFallbackDataUrl(post.caption)}
+                        alt={post.caption || 'Video preview'}
+                        className={`max-w-full max-h-full object-contain ${post.filter || ''} drop-shadow-2xl`}
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.src = createVideoFallbackDataUrl(post.caption);
+                        }}
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-4">
+                        <div className="w-16 h-16 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center mb-2 shadow-2xl">
+                          <Play className="w-8 h-8 fill-white ml-1 text-white" />
+                        </div>
+                        <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/20 text-white shadow-lg">
+                          🎬 Video Reel Preview
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <video
+                      ref={(el) => {
+                        videoRefs.current[index] = el;
+                        if (el && isCurrent) {
+                          el.muted = isMuted;
+                        }
+                      }}
+                      src={post.mediaUrl}
+                      poster={post.thumbnailUrl}
+                      loop
+                      playsInline
+                      preload="auto"
+                      onError={() => {
+                        setMediaErrors((prev) => ({ ...prev, [post.id]: true }));
+                      }}
+                      onTimeUpdate={() => handleTimeUpdate(index)}
+                      className={`max-w-full max-h-full object-contain ${post.filter || ''}`}
+                    />
+                  )
                 ) : (
                   <img
                     src={post.mediaUrl}
                     alt={post.caption}
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.src = createPhotoFallbackDataUrl(post.caption);
+                    }}
                     className={`max-w-full max-h-full object-contain ${post.filter || ''} drop-shadow-2xl`}
                     loading={isCurrent ? 'eager' : 'lazy'}
                   />

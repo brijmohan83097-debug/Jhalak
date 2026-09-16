@@ -106,6 +106,183 @@ export async function compressImage(
 }
 
 /**
+ * Reads a File or Blob as a base64 Data URL.
+ */
+export function fileToDataUrl(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Creates an inline SVG Data URL for video fallback cards, preserving card visibility,
+ * title, and video identity even if a video blob URL has expired.
+ */
+export function createVideoFallbackDataUrl(caption = 'Video Post'): string {
+  const safeCaption = (caption || 'Video Post').replace(/<[^>]*>?/gm, '').slice(0, 40);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+    <defs>
+      <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#18181b"/>
+        <stop offset="50%" stop-color="#09090b"/>
+        <stop offset="100%" stop-color="#27272a"/>
+      </linearGradient>
+    </defs>
+    <rect width="600" height="600" fill="url(#grad)"/>
+    <circle cx="300" cy="270" r="54" fill="#f43f5e" opacity="0.9"/>
+    <polygon points="288,245 324,270 288,295" fill="#ffffff"/>
+    <text x="300" y="375" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="600" text-anchor="middle">
+      ${safeCaption}
+    </text>
+    <text x="300" y="415" fill="#a1a1aa" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" text-anchor="middle">
+      🎬 Video Reel Preview
+    </text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/**
+ * Creates an inline SVG Data URL for photo fallback cards.
+ */
+export function createPhotoFallbackDataUrl(caption = 'Photo Post'): string {
+  const safeCaption = (caption || 'Photo Post').replace(/<[^>]*>?/gm, '').slice(0, 40);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+    <defs>
+      <linearGradient id="pgrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#262626"/>
+        <stop offset="100%" stop-color="#171717"/>
+      </linearGradient>
+    </defs>
+    <rect width="600" height="600" fill="url(#pgrad)"/>
+    <circle cx="300" cy="270" r="48" fill="#e11d48" opacity="0.8"/>
+    <path d="M280 285 L320 285 L310 265 L298 277 L290 268 Z" fill="#ffffff"/>
+    <text x="300" y="375" fill="#f5f5f5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="600" text-anchor="middle">
+      ${safeCaption}
+    </text>
+    <text x="300" y="410" fill="#737373" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="15" text-anchor="middle">
+      📸 Photo Post
+    </text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/**
+ * Generates a lightweight base64 JPEG thumbnail from a video File or Blob using HTML5 Canvas.
+ * This ensures persistent thumbnail display across sessions and page refreshes,
+ * preventing vanished or expired blob URL issues.
+ */
+export async function generateVideoThumbnail(
+  source: File | Blob | string,
+  maxWidth = 600,
+  maxHeight = 600,
+  quality = 0.7
+): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.crossOrigin = 'anonymous';
+      video.preload = 'auto';
+
+      let objectUrl: string | null = null;
+
+      const cleanup = () => {
+        if (objectUrl) {
+          try {
+            URL.revokeObjectURL(objectUrl);
+          } catch {
+            // ignore
+          }
+          objectUrl = null;
+        }
+        video.src = '';
+      };
+
+      const captureFrame = () => {
+        try {
+          const width = video.videoWidth || 480;
+          const height = video.videoHeight || 480;
+          if (width > 0 && height > 0) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
+            const targetW = Math.max(1, Math.round(width * ratio));
+            const targetH = Math.max(1, Math.round(height * ratio));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.drawImage(video, 0, 0, targetW, targetH);
+              const dataUrl = canvas.toDataURL('image/jpeg', quality);
+              cleanup();
+              return resolve(dataUrl);
+            }
+          }
+        } catch (e) {
+          console.warn('[generateVideoThumbnail] Canvas capture error, falling back:', e);
+        }
+
+        cleanup();
+        resolve(createVideoFallbackDataUrl('Video Reel'));
+      };
+
+      let captured = false;
+      const doCaptureOnce = () => {
+        if (captured) return;
+        captured = true;
+        captureFrame();
+      };
+
+      video.onloadeddata = () => {
+        try {
+          if (video.duration && video.duration > 0.3) {
+            video.currentTime = Math.min(0.5, video.duration / 2);
+          } else {
+            doCaptureOnce();
+          }
+        } catch {
+          doCaptureOnce();
+        }
+      };
+
+      video.onseeked = () => {
+        doCaptureOnce();
+      };
+
+      video.onerror = () => {
+        cleanup();
+        resolve(createVideoFallbackDataUrl('Video Reel'));
+      };
+
+      // Fallback timer in case video decoding takes too long in browser sandbox
+      setTimeout(() => {
+        if (!captured) {
+          captured = true;
+          cleanup();
+          resolve(createVideoFallbackDataUrl('Video Reel'));
+        }
+      }, 2500);
+
+      if (typeof source === 'string') {
+        video.src = source;
+      } else {
+        objectUrl = URL.createObjectURL(source);
+        video.src = objectUrl;
+      }
+      video.load();
+    } catch {
+      resolve(createVideoFallbackDataUrl('Video Reel'));
+    }
+  });
+}
+
+/**
  * Helper to process any file input: compresses if it's an image, or returns object URL if video.
  */
 export async function processMediaFile(

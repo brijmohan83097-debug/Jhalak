@@ -2,6 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { Search, X, Heart, MessageCircle, Film, MapPin, RotateCcw } from 'lucide-react';
 import { Post } from '../types';
 import { SupportedLanguage, translations } from '../translations';
+import {
+  createVideoFallbackDataUrl,
+  createPhotoFallbackDataUrl,
+} from '../utils/imageCompressor';
 
 interface ExploreViewProps {
   posts: Post[];
@@ -206,30 +210,41 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                 }`}
               >
                 {post.mediaType === 'video' ? (
-                  <video
-                    src={post.mediaUrl}
-                    muted
-                    preload="metadata"
-                    className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
-                      post.filter || ''
-                    }`}
-                  />
+                  <div className="w-full h-full relative bg-neutral-950 flex items-center justify-center">
+                    <img
+                      src={
+                        post.thumbnailUrl ||
+                        (post.mediaUrl && !post.mediaUrl.startsWith('blob:')
+                          ? post.mediaUrl
+                          : createVideoFallbackDataUrl(post.caption))
+                      }
+                      alt={post.caption || 'Video Reel'}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        target.src = createVideoFallbackDataUrl(post.caption);
+                      }}
+                      className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
+                        post.filter || ''
+                      }`}
+                      loading="lazy"
+                    />
+                    <div className="absolute top-2 right-2 p-1 rounded-full bg-black/60 backdrop-blur-md text-white drop-shadow-md z-10 flex items-center justify-center">
+                      <Film className="w-3.5 h-3.5 text-white" />
+                    </div>
+                  </div>
                 ) : (
                   <img
                     src={post.mediaUrl}
                     alt={post.caption}
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.src = createPhotoFallbackDataUrl(post.caption);
+                    }}
                     className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
                       post.filter || ''
                     }`}
                     loading="lazy"
                   />
-                )}
-
-                {/* Video / Reel badge indicator */}
-                {post.mediaType === 'video' && (
-                  <div className="absolute top-2 right-2 text-white drop-shadow-md z-10">
-                    <Film className="w-4 h-4" />
-                  </div>
                 )}
 
                 {/* Hover Overlay with Likes & Comments Count */}

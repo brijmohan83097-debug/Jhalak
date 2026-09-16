@@ -110,11 +110,32 @@ export default function App() {
       });
 
       const profileKeys = [
+        'ig_feed_posts',
         `ig_user_posts_${user.id}`,
         `ig_user_posts_${user.username}`,
+        'ig_user_posts_user-me',
+        'ig_user_posts_brijmohan',
         'jhalak_uploaded_posts_v1',
         'jhalak_user_posts',
       ];
+
+      const isMatchingProfileUser = (p: any): boolean => {
+        if (!p || typeof p !== 'object' || !p.id) return false;
+        const targetId = (user.id || '').trim().toLowerCase();
+        const targetUsername = (user.username || '').trim().toLowerCase();
+        const postUserId = (p.userId || '').trim().toLowerCase();
+        const postUsername = (p.username || '').trim().toLowerCase();
+        if (targetId && postUserId && targetId === postUserId) return true;
+        if (targetUsername && postUsername && targetUsername === postUsername) return true;
+        const aliases = ['user-me', 'brijmohan', 'brijmohan83097', 'user-brijmohan'];
+        if (
+          (aliases.includes(targetId) || aliases.includes(targetUsername)) &&
+          (aliases.includes(postUserId) || aliases.includes(postUsername))
+        ) {
+          return true;
+        }
+        return false;
+      };
 
       profileKeys.forEach((key) => {
         try {
@@ -123,8 +144,12 @@ export default function App() {
             const list = JSON.parse(raw);
             if (Array.isArray(list)) {
               list.forEach((p: Post) => {
-                if (p && p.id) profilePostsMap.set(p.id, p);
+                if (p && p.id && isMatchingProfileUser(p)) {
+                  profilePostsMap.set(p.id, p);
+                }
               });
+            } else if (list && typeof list === 'object' && isMatchingProfileUser(list)) {
+              profilePostsMap.set(list.id, list);
             }
           }
         } catch {
@@ -133,7 +158,7 @@ export default function App() {
       });
 
       const resolvedPosts = Array.from(profilePostsMap.values());
-      const verifiedPostsCount = Math.max(user.postsCount || 0, resolvedPosts.length);
+      const verifiedPostsCount = resolvedPosts.length > 0 ? Math.max(user.postsCount || 0, resolvedPosts.length) : 0;
 
       const finalizedUser: User = {
         ...user,
@@ -1316,11 +1341,34 @@ export default function App() {
 
     // 2. Persistent storage keys for this user
     try {
+      const isMatchingAppUser = (p: any): boolean => {
+        if (!p || typeof p !== 'object' || !p.id) return false;
+        const targetId = (currentUser.id || '').trim().toLowerCase();
+        const targetUsername = (currentUser.username || '').trim().toLowerCase();
+        const postUserId = (p.userId || '').trim().toLowerCase();
+        const postUsername = (p.username || '').trim().toLowerCase();
+        if (targetId && postUserId && targetId === postUserId) return true;
+        if (targetUsername && postUsername && targetUsername === postUsername) return true;
+        const aliases = ['user-me', 'brijmohan', 'brijmohan83097', 'user-brijmohan'];
+        if (
+          (aliases.includes(targetId) || aliases.includes(targetUsername)) &&
+          (aliases.includes(postUserId) || aliases.includes(postUsername))
+        ) {
+          return true;
+        }
+        return false;
+      };
+
       const keys = [
+        'ig_feed_posts',
         `ig_user_posts_${currentUser.id}`,
         `ig_user_posts_${currentUser.username}`,
+        'ig_user_posts_user-me',
+        'ig_user_posts_brijmohan',
         'jhalak_uploaded_posts_v1',
         'jhalak_user_posts',
+        'ig_posts',
+        'posts',
       ];
       for (const k of keys) {
         const raw = localStorage.getItem(k);
@@ -1328,10 +1376,12 @@ export default function App() {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
             parsed.forEach((p: Post) => {
-              if (p && p.id && !postMap.has(p.id)) {
+              if (p && p.id && isMatchingAppUser(p) && !postMap.has(p.id)) {
                 postMap.set(p.id, p);
               }
             });
+          } else if (parsed && typeof parsed === 'object' && isMatchingAppUser(parsed) && !postMap.has(parsed.id)) {
+            postMap.set(parsed.id, parsed);
           }
         }
       }

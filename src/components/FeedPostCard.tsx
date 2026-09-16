@@ -29,6 +29,10 @@ import { SupportedLanguage, translations } from '../translations';
 import { UpiShagunSheet } from './UpiShagunSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
 import { recommendationEngine, inferLanguage } from '../services/recommendationEngine';
+import {
+  createVideoFallbackDataUrl,
+  createPhotoFallbackDataUrl,
+} from '../utils/imageCompressor';
 
 interface FeedPostCardProps {
   post: Post;
@@ -74,6 +78,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
+  const [videoError, setVideoError] = useState(false);
 
   const t = translations[currentLanguage];
 
@@ -300,16 +305,46 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         className="relative w-full aspect-square bg-neutral-950 flex items-center justify-center cursor-pointer select-none overflow-hidden"
       >
         {post.mediaType === 'video' ? (
-          <>
-            <video
-              ref={videoRef}
-              src={post.mediaUrl}
-              loop
-              playsInline
-              muted={isMuted}
-              preload="metadata"
-              className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
-            />
+          videoError || (!post.mediaUrl && !post.thumbnailUrl) ? (
+            <div className="w-full h-full relative flex items-center justify-center bg-neutral-900">
+              <img
+                src={post.thumbnailUrl || createVideoFallbackDataUrl(post.caption)}
+                alt={post.caption || 'Video preview'}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  target.src = createVideoFallbackDataUrl(post.caption);
+                }}
+              />
+              <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white p-4">
+                <div className="w-14 h-14 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center mb-2 shadow-lg">
+                  <Play className="w-6 h-6 fill-white ml-1 text-white" />
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-black/60 border border-white/20">
+                  🎬 Video Reel
+                </span>
+                {post.caption && (
+                  <p className="text-xs text-white/90 font-medium max-w-[200px] truncate mt-1.5">
+                    {post.caption}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <video
+                ref={videoRef}
+                src={post.mediaUrl}
+                poster={post.thumbnailUrl}
+                loop
+                playsInline
+                muted={isMuted}
+                preload="metadata"
+                onError={() => {
+                  setVideoError(true);
+                }}
+                className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
+              />
 
             {/* Video Badge */}
             <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[11px] font-medium pointer-events-none">
@@ -367,6 +402,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               </div>
             )}
           </>
+          )
         ) : (
           <img
             src={post.mediaUrl}

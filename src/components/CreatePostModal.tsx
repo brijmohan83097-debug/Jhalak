@@ -24,7 +24,12 @@ import {
 import { Post, User, Reel } from '../types';
 import { GoLiveStudio } from './GoLiveStudio';
 import { moderationService } from '../services/moderationService';
-import { compressImage } from '../utils/imageCompressor';
+import {
+  compressImage,
+  generateVideoThumbnail,
+  createVideoFallbackDataUrl,
+  fileToDataUrl,
+} from '../utils/imageCompressor';
 
 interface CreatePostModalProps {
   currentUser: User;
@@ -103,6 +108,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [previewMuted, setPreviewMuted] = useState(true);
   const [previewPlaying, setPreviewPlaying] = useState(true);
+  const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string | null>(null);
 
   // Combine initialSelectedAudio with trending options
   const trendingAudioOptions = React.useMemo(() => {
@@ -125,6 +131,24 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         setMediaType('video');
         setSelectedMediaUrl(objectUrl);
         setStep('edit');
+
+        // Extract persistent lightweight base64 thumbnail from the video
+        try {
+          const thumb = await generateVideoThumbnail(file, 640, 640, 0.7);
+          setThumbnailDataUrl(thumb);
+        } catch {
+          setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
+        }
+
+        // If video file is small (<= 1.8MB), convert video to persistent base64 data URL
+        if (file.size <= 1.8 * 1024 * 1024) {
+          try {
+            const dataUrl = await fileToDataUrl(file);
+            setSelectedMediaUrl(dataUrl);
+          } catch {
+            // Keep objectUrl for session playback
+          }
+        }
       } else {
         setMediaType('image');
         setIsCompressingPhoto(true);
@@ -132,16 +156,19 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
           const compressed = await compressImage(file, 800, 800, 0.7);
           setSelectedMediaUrl(compressed);
+          setThumbnailDataUrl(compressed);
           setStep('edit');
         } catch (err) {
           console.warn('Canvas compression fallback on image upload, using base64:', err);
           try {
-            const dataUrl = await readFileAsDataUrl(file);
+            const dataUrl = await fileToDataUrl(file);
             setSelectedMediaUrl(dataUrl);
+            setThumbnailDataUrl(dataUrl);
             setStep('edit');
           } catch {
             const objectUrl = URL.createObjectURL(file);
             setSelectedMediaUrl(objectUrl);
+            setThumbnailDataUrl(objectUrl);
             setStep('edit');
           }
         } finally {
@@ -172,6 +199,24 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         setMediaType('video');
         setSelectedMediaUrl(objectUrl);
         setStep('edit');
+
+        // Extract persistent lightweight base64 thumbnail from the video
+        try {
+          const thumb = await generateVideoThumbnail(file, 640, 640, 0.7);
+          setThumbnailDataUrl(thumb);
+        } catch {
+          setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
+        }
+
+        // If video file is small (<= 1.8MB), convert video to persistent base64 data URL
+        if (file.size <= 1.8 * 1024 * 1024) {
+          try {
+            const dataUrl = await fileToDataUrl(file);
+            setSelectedMediaUrl(dataUrl);
+          } catch {
+            // Keep objectUrl for session playback
+          }
+        }
       } else if (isImage) {
         setMediaType('image');
         setIsCompressingPhoto(true);
@@ -179,16 +224,19 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
           const compressed = await compressImage(file, 800, 800, 0.7);
           setSelectedMediaUrl(compressed);
+          setThumbnailDataUrl(compressed);
           setStep('edit');
         } catch (err) {
           console.warn('Canvas compression fallback on drop, using base64:', err);
           try {
-            const dataUrl = await readFileAsDataUrl(file);
+            const dataUrl = await fileToDataUrl(file);
             setSelectedMediaUrl(dataUrl);
+            setThumbnailDataUrl(dataUrl);
             setStep('edit');
           } catch {
             const objectUrl = URL.createObjectURL(file);
             setSelectedMediaUrl(objectUrl);
+            setThumbnailDataUrl(objectUrl);
             setStep('edit');
           }
         } finally {
@@ -250,6 +298,12 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         : undefined;
 
     const postId = `post-${Date.now()}`;
+    const persistedThumbnail =
+      thumbnailDataUrl ||
+      (mediaType === 'image'
+        ? selectedMediaUrl
+        : createVideoFallbackDataUrl(caption || 'Video Reel'));
+
     const newPost: Post = {
       id: postId,
       userId: currentUser.id,
@@ -258,6 +312,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       isVerified: currentUser.isVerified,
       location: location.trim() || undefined,
       mediaUrl: selectedMediaUrl,
+      thumbnailUrl: persistedThumbnail,
       mediaType: mediaType === 'video' ? 'video' : 'image',
       caption: caption.trim() || (mediaType === 'video' ? 'New Reel' : 'No caption'),
       tags: parsedTags,
@@ -281,6 +336,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         userAvatar: currentUser.avatar,
         isVerified: currentUser.isVerified,
         videoUrl: selectedMediaUrl,
+        thumbnailUrl: persistedThumbnail,
         caption: caption.trim() || 'New Reel',
         audioTitle: finalAudioTitle,
         audioArtist: currentUser.username,

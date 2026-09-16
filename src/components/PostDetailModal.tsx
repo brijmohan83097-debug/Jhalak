@@ -17,7 +17,11 @@ import {
 } from 'lucide-react';
 import { Post, User } from '../types';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
-import { compressImage } from '../utils/imageCompressor';
+import {
+  compressImage,
+  createVideoFallbackDataUrl,
+  createPhotoFallbackDataUrl,
+} from '../utils/imageCompressor';
 
 interface PostDetailModalProps {
   post: Post;
@@ -48,6 +52,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'gif' } | null>(null);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [videoError, setVideoError] = useState(false);
   const [likedComments, setLikedComments] = useState<Record<string, boolean>>({});
   const [showProductModal, setShowProductModal] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -119,30 +124,61 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
         {/* Media Side */}
         <div className="relative w-full md:w-3/5 bg-black flex items-center justify-center overflow-hidden aspect-square md:aspect-auto group">
           {post.mediaType === 'video' ? (
-            <div className="relative w-full h-full flex items-center justify-center bg-black">
-              <video
-                ref={videoRef}
-                src={post.mediaUrl}
-                autoPlay
-                loop
-                playsInline
-                muted={isMuted}
-                className="w-full h-full object-contain cursor-pointer"
+            videoError || (!post.mediaUrl && !post.thumbnailUrl) ? (
+              <div
+                className="relative w-full h-full flex items-center justify-center bg-black cursor-pointer"
                 onClick={() => onOpenFullScreen && onOpenFullScreen(post)}
-              />
-              <button
-                id="detail-mute-btn"
-                onClick={() => setIsMuted((prev) => !prev)}
-                className="absolute bottom-4 right-4 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition z-10"
-                aria-label={isMuted ? 'Unmute video' : 'Mute video'}
               >
-                {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
-              </button>
-            </div>
+                <img
+                  src={post.thumbnailUrl || createVideoFallbackDataUrl(post.caption)}
+                  alt={post.caption || 'Video preview'}
+                  className="max-w-full max-h-full object-contain"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    target.src = createVideoFallbackDataUrl(post.caption);
+                  }}
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+                  <div className="w-16 h-16 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center mb-2 shadow-2xl">
+                    <Volume2 className="w-8 h-8 text-white" />
+                  </div>
+                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-black/70 border border-white/20 text-white">
+                    🎬 Video Reel
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="relative w-full h-full flex items-center justify-center bg-black">
+                <video
+                  ref={videoRef}
+                  src={post.mediaUrl}
+                  poster={post.thumbnailUrl}
+                  autoPlay
+                  loop
+                  playsInline
+                  muted={isMuted}
+                  onError={() => setVideoError(true)}
+                  className="w-full h-full object-contain cursor-pointer"
+                  onClick={() => onOpenFullScreen && onOpenFullScreen(post)}
+                />
+                <button
+                  id="detail-mute-btn"
+                  onClick={() => setIsMuted((prev) => !prev)}
+                  className="absolute bottom-4 right-4 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition z-10"
+                  aria-label={isMuted ? 'Unmute video' : 'Mute video'}
+                >
+                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
+                </button>
+              </div>
+            )
           ) : (
             <img
               src={post.mediaUrl}
               alt={post.caption}
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.src = createPhotoFallbackDataUrl(post.caption);
+              }}
               onClick={() => onOpenFullScreen && onOpenFullScreen(post)}
               className={`w-full h-full object-cover cursor-pointer ${post.filter || ''}`}
             />
