@@ -165,7 +165,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                 : 'bg-neutral-100 dark:bg-neutral-800/80 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
-            {cat === 'All' ? t.allCategories : cat}
+            {cat === 'All' ? (t.allCategories || t.allCategory || 'All') : cat}
           </button>
         ))}
       </div>
@@ -176,12 +176,12 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           <p className="text-base font-semibold text-neutral-800 dark:text-neutral-200">
             {selectedCity !== 'All India'
               ? `No posts found for ${selectedCity}`
-              : t.noResultsFound}
+              : (t.noResultsFound || 'No results found')}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
             {selectedCity !== 'All India' || selectedCategory !== 'All' || searchQuery
               ? 'Try switching cities, resetting the category, or searching a different keyword.'
-              : t.trySearching}
+              : (t.trySearching || 'Try searching for something else')}
           </p>
           {(selectedCity !== 'All India' || selectedCategory !== 'All' || searchQuery) && (
             <button

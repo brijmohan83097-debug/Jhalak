@@ -11,6 +11,7 @@ import {
   Check,
   Globe2,
   Settings,
+  Scale,
 } from 'lucide-react';
 import { NavTab, User } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
@@ -27,6 +28,7 @@ interface MobileNavProps {
   onShowNotifications?: () => void;
   onOpenGoogleLogin?: () => void;
   onOpenSettings?: () => void;
+  onOpenLegalPolicies?: () => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -36,8 +38,10 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
   darkMode,
   onToggleDarkMode,
   onOpenCreateModal,
+  onShowNotifications,
   onOpenGoogleLogin,
   onOpenSettings,
+  onOpenLegalPolicies,
   currentLanguage = 'en',
 }) => {
   const [showNotificationToast, setShowNotificationToast] = useState(false);
@@ -108,6 +112,19 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
           </button>
         )}
 
+        {/* Legal & UGC Policies Button */}
+        {onOpenLegalPolicies && (
+          <button
+            id="mobile-legal-btn"
+            onClick={onOpenLegalPolicies}
+            aria-label="Privacy & Terms"
+            className="p-1 hover:opacity-70 transition active:scale-95 text-amber-500"
+            title="Privacy & Community Guidelines"
+          >
+            <Scale className="w-5 h-5 stroke-[1.8]" />
+          </button>
+        )}
+
         {/* Mobile Settings Gear */}
         {onOpenSettings && (
           <button
@@ -135,7 +152,13 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
 
         <button
           id="mobile-notifications-btn"
-          onClick={handleNotificationClick}
+          onClick={() => {
+            if (onShowNotifications) {
+              onShowNotifications();
+            } else {
+              handleNotificationClick();
+            }
+          }}
           aria-label={t.notifications}
           className="p-1 hover:opacity-70 transition active:scale-90 relative"
         >

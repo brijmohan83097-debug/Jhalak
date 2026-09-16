@@ -27,6 +27,25 @@
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
   }
+
+  @keyframes floatUp {
+    0% {
+      transform: translateY(0) scale(0.8) rotate(0deg);
+      opacity: 1;
+    }
+    50% {
+      transform: translateY(-160px) scale(1.2) rotate(15deg);
+      opacity: 0.9;
+    }
+    100% {
+      transform: translateY(-340px) scale(1.4) rotate(-15deg);
+      opacity: 0;
+    }
+  }
+
+  .animate-float-up {
+    animation: floatUp 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  }
 }
 
 /* Custom scrollbar for desktop feed/chat */

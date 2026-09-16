@@ -130,67 +130,80 @@ export const DirectMessagesView: React.FC<DirectMessagesViewProps> = ({
             Messages
           </div>
 
-          {filteredConversations.map((conv) => {
-            const isSelected = conv.id === selectedId;
-            const lastMessage = conv.messages[conv.messages.length - 1];
+          {filteredConversations.length === 0 ? (
+            <div className="p-6 text-center my-6">
+              <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-1">
+                {searchQuery ? 'No chats found' : 'No messages yet'}
+              </p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-[200px] mx-auto leading-relaxed">
+                {searchQuery
+                  ? 'Try searching for a different name or handle.'
+                  : 'Your direct messages and conversations will appear here.'}
+              </p>
+            </div>
+          ) : (
+            filteredConversations.map((conv) => {
+              const isSelected = conv.id === selectedId;
+              const lastMessage = conv.messages[conv.messages.length - 1];
 
-            return (
-              <button
-                key={conv.id}
-                id={`dm-conv-${conv.id}`}
-                onClick={() => handleSelectConv(conv.id)}
-                className={`w-full flex items-center gap-3 p-3.5 text-left transition ${
-                  isSelected
-                    ? 'bg-neutral-100 dark:bg-neutral-900'
-                    : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50'
-                }`}
-              >
-                <div className="relative flex-shrink-0">
-                  <img
-                    src={conv.user.avatar}
-                    alt={conv.user.username}
-                    className="w-13 h-13 rounded-full object-cover"
-                  />
-                  {conv.user.isOnline && (
-                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white dark:border-black" />
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="font-semibold text-sm text-neutral-900 dark:text-white truncate">
-                      {conv.user.username}
-                    </span>
-                    {lastMessage && (
-                      <span className="text-[11px] text-neutral-400 flex-shrink-0">
-                        {lastMessage.timestamp}
-                      </span>
+              return (
+                <button
+                  key={conv.id}
+                  id={`dm-conv-${conv.id}`}
+                  onClick={() => handleSelectConv(conv.id)}
+                  className={`w-full flex items-center gap-3 p-3.5 text-left transition ${
+                    isSelected
+                      ? 'bg-neutral-100 dark:bg-neutral-900'
+                      : 'hover:bg-neutral-50 dark:hover:bg-neutral-900/50'
+                  }`}
+                >
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={conv.user.avatar}
+                      alt={conv.user.username}
+                      className="w-13 h-13 rounded-full object-cover"
+                    />
+                    {conv.user.isOnline && (
+                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white dark:border-black" />
                     )}
                   </div>
-                  <p
-                    className={`text-xs truncate ${
-                      conv.unreadCount > 0
-                        ? 'font-bold text-neutral-900 dark:text-white'
-                        : 'text-neutral-500 dark:text-neutral-400'
-                    }`}
-                  >
-                    {lastMessage ? (
-                      <>
-                        {lastMessage.isMine && 'You: '}
-                        {lastMessage.text}
-                      </>
-                    ) : (
-                      'Started a conversation'
-                    )}
-                  </p>
-                </div>
 
-                {conv.unreadCount > 0 && (
-                  <span className="w-2.5 h-2.5 bg-sky-500 rounded-full flex-shrink-0" />
-                )}
-              </button>
-            );
-          })}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-semibold text-sm text-neutral-900 dark:text-white truncate">
+                        {conv.user.username}
+                      </span>
+                      {lastMessage && (
+                        <span className="text-[11px] text-neutral-400 flex-shrink-0">
+                          {lastMessage.timestamp}
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className={`text-xs truncate ${
+                        conv.unreadCount > 0
+                          ? 'font-bold text-neutral-900 dark:text-white'
+                          : 'text-neutral-500 dark:text-neutral-400'
+                      }`}
+                    >
+                      {lastMessage ? (
+                        <>
+                          {lastMessage.isMine && 'You: '}
+                          {lastMessage.text}
+                        </>
+                      ) : (
+                        'Started a conversation'
+                      )}
+                    </p>
+                  </div>
+
+                  {conv.unreadCount > 0 && (
+                    <span className="w-2.5 h-2.5 bg-sky-500 rounded-full flex-shrink-0" />
+                  )}
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 

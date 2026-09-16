@@ -135,6 +135,26 @@ export interface TranslationDictionary {
   googleAccount: string;
   googleVerifiedCreator: string;
   manage: string;
+
+  // Recommendation & Tuning
+  notInterested: string;
+  showMoreLikeThis: string;
+  whyAmISeeingThis: string;
+  tunedFeedToast: string;
+
+  // Additional UI keys
+  postSaved?: string;
+  postUnsaved?: string;
+  commentPosted?: string;
+  profileUpdated?: string;
+  allCategories?: string;
+  noResultsFound?: string;
+  trySearching?: string;
+  followingBtn?: string;
+  follow?: string;
+  view?: string;
+  suggestedForYou?: string;
+  seeAll?: string;
 }
 
 export const translations: Record<SupportedLanguage, TranslationDictionary> = {
@@ -166,6 +186,19 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     addComment: 'Add a comment...',
     less: 'less',
     moreCaption: 'more',
+
+    postSaved: 'Post saved to collection',
+    postUnsaved: 'Post removed from saved',
+    commentPosted: 'Comment posted successfully',
+    profileUpdated: 'Profile updated successfully',
+    allCategories: 'All',
+    noResultsFound: 'No results found',
+    trySearching: 'Try searching for something else',
+    followingBtn: 'Following',
+    follow: 'Follow',
+    view: 'View',
+    suggestedForYou: 'Suggested for you',
+    seeAll: 'See all',
 
     editProfile: 'Edit Profile',
     accountPrivacy: 'Account Privacy',
@@ -207,6 +240,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     googleAccount: 'Google Account',
     googleVerifiedCreator: 'Google Verified Creator',
     manage: 'Manage',
+
+    notInterested: 'Not Interested',
+    showMoreLikeThis: 'Show More Like This',
+    whyAmISeeingThis: 'Why am I seeing this?',
+    tunedFeedToast: 'Feed tuned to your preference',
   },
 
   hi: {
@@ -278,6 +316,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     googleAccount: 'गूगल खाता',
     googleVerifiedCreator: 'गूगल सत्यापित क्रिएटर',
     manage: 'प्रबंधित करें',
+
+    notInterested: 'कम दिखाएं',
+    showMoreLikeThis: 'ऐसी वीडियो और दिखाएं',
+    whyAmISeeingThis: 'यह मुझे क्यों दिख रहा है?',
+    tunedFeedToast: 'आपकी पसंद के अनुसार फ़ीड ट्यून हो गई',
   },
 
   bn: {
@@ -349,6 +392,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     googleAccount: 'গুগল অ্যাকাউন্ট',
     googleVerifiedCreator: 'গুগল যাচাইকৃত নির্মাতা',
     manage: 'পরিচালনা',
+
+    notInterested: 'কম দেখান',
+    showMoreLikeThis: 'এই রকম আরও ভিডিও দেখান',
+    whyAmISeeingThis: 'আমি এটি কেন দেখছি?',
+    tunedFeedToast: 'আপনার পছন্দের ভিত্তিতে ফিড আপডেট করা হয়েছে',
   },
 
   te: {
@@ -420,6 +468,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     googleAccount: 'గూగుల్ ఖాతా',
     googleVerifiedCreator: 'గూగుల్ ధృవీకరించిన సృష్టికర్త',
     manage: 'నిర్వహించు',
+
+    notInterested: 'తక్కువగా చూపించు',
+    showMoreLikeThis: 'ఇలాంటి వీడియోలు మరిన్ని చూపించు',
+    whyAmISeeingThis: 'నాకు ఇది ఎందుకు కనిపిస్తోంది?',
+    tunedFeedToast: 'మీ ప్రాధాన్యతలకు అనుగుణంగా ఫీడ్ నవీకరించబడింది',
   },
 
   mr: {
@@ -491,6 +544,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     googleAccount: 'गुगल खाते',
     googleVerifiedCreator: 'गुगल सत्यापित क्रिएटर',
     manage: 'व्यवस्थापित करा',
+
+    notInterested: 'कमी दाखवा',
+    showMoreLikeThis: 'अशा आणखी व्हिडिओ दाखवा',
+    whyAmISeeingThis: 'मला हे का दिसत आहे?',
+    tunedFeedToast: 'तुमच्या आवडीनुसार फीड अपडेट झाली आहे',
   },
 
   ta: {
@@ -562,6 +620,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     googleAccount: 'கூகிள் கணக்கு',
     googleVerifiedCreator: 'கூகிள் சரிபார்க்கப்பட்ட படைப்பாளர்',
     manage: 'நிர்வகி',
+
+    notInterested: 'குறைவாகக் காட்டு',
+    showMoreLikeThis: 'இதுபோன்ற வீடியோக்களை அதிகம் காட்டு',
+    whyAmISeeingThis: 'இதை நான் ஏன் பார்க்கிறேன்?',
+    tunedFeedToast: 'உங்கள் விருப்பத்திற்கு ஏற்ப பரிந்துரைகள் புதுப்பிக்கப்பட்டன',
   },
 
   bho: {
@@ -633,5 +696,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     googleAccount: 'गूगल खाता',
     googleVerifiedCreator: 'गूगल जाँचल क्रिएटर',
     manage: 'संभालीं',
+
+    notInterested: 'कम दिखाईं',
+    showMoreLikeThis: 'अइसन अउरी वीडियो दिखाईं',
+    whyAmISeeingThis: 'ई हमरा काहे लउकत बा?',
+    tunedFeedToast: 'रउआ पसंद के अनुसार फ़ीड ट्यून हो गइल',
   },
 };

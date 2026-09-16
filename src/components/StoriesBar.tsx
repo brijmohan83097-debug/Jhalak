@@ -46,7 +46,13 @@ export const StoriesBar: React.FC<StoriesBarProps> = ({
           <div className="relative">
             <button
               id="story-circle-me"
-              onClick={() => onOpenStory(0)}
+              onClick={() => {
+                if (stories[0]?.slides && stories[0].slides.length > 0) {
+                  onOpenStory(0);
+                } else {
+                  onAddStory();
+                }
+              }}
               className="relative p-[2px] rounded-full hover:scale-105 transition transform duration-150"
             >
               <img

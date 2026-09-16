@@ -14,9 +14,19 @@ import {
   Clapperboard,
   Music,
   Phone,
+  EyeOff,
+  Sparkles,
+  X,
+  Check,
+  Flag,
+  Ban,
+  Gift,
+  ShoppingBag,
 } from 'lucide-react';
-import { Post, User } from '../types';
+import { Post, User, ContentCategory } from '../types';
 import { SupportedLanguage, translations } from '../translations';
+import { UpiShagunSheet } from './UpiShagunSheet';
+import { ProductWhatsAppModal } from './ProductWhatsAppModal';
 
 interface FeedPostCardProps {
   post: Post;
@@ -26,7 +36,12 @@ interface FeedPostCardProps {
   onAddComment: (postId: string, text: string) => void;
   onShare: (post: Post) => void;
   onOpenDetail: (post: Post) => void;
+  onOpenComments?: (post: Post) => void;
   onViewUser: (username: string) => void;
+  onNotInterested?: (postId: string, category?: ContentCategory) => void;
+  onShowMore?: (category?: ContentCategory) => void;
+  onReportPost?: (post: Post) => void;
+  onBlockUser?: (username: string) => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -38,12 +53,20 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onAddComment,
   onShare,
   onOpenDetail,
+  onOpenComments,
   onViewUser,
+  onNotInterested,
+  onShowMore,
+  onReportPost,
+  onBlockUser,
   currentLanguage = 'en',
 }) => {
   const [commentText, setCommentText] = useState('');
   const [showFullCaption, setShowFullCaption] = useState(false);
   const [showHeartBurst, setShowHeartBurst] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [showShagunSheet, setShowShagunSheet] = useState(false);
+  const [showProductModal, setShowProductModal] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
@@ -124,6 +147,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           setIsPlaying(true);
           setShowPlayPauseIcon('play');
           setTimeout(() => setShowPlayPauseIcon(null), 600);
+        }).catch(() => {
+          setIsPlaying(false);
         });
       } else {
         videoRef.current.pause();
@@ -192,6 +217,12 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {post.category && (
+            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 px-2 py-0.5 rounded-full">
+              <Sparkles className="w-2.5 h-2.5" />
+              <span>{post.category}</span>
+            </span>
+          )}
           {post.audioTitle && (
             <div className="hidden sm:flex items-center gap-1 text-[11px] text-neutral-500 bg-neutral-100 dark:bg-neutral-800/80 px-2 py-0.5 rounded-full">
               <Music className="w-3 h-3 text-rose-500 animate-spin" style={{ animationDuration: '4s' }} />
@@ -199,7 +230,9 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
             </div>
           )}
           <button
+            id={`post-more-btn-${post.id}`}
             aria-label="More post options"
+            onClick={() => setShowOptionsMenu(true)}
             className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
           >
             <MoreHorizontal className="w-5 h-5" />
@@ -230,6 +263,26 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               <Clapperboard className="w-3.5 h-3.5 text-amber-400" />
               <span>Video</span>
             </div>
+
+            {/* Tagged Product Pill Overlay on Video */}
+            {post.productTag && (
+              <div className="absolute top-3 left-3 z-20">
+                <button
+                  id={`feed-product-tag-pill-${post.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowProductModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/75 hover:bg-black/90 backdrop-blur-md text-white text-xs font-semibold shadow-lg border border-white/20 transition active:scale-95 group"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition" />
+                  <span className="max-w-[130px] truncate">{post.productTag.title}</span>
+                  <span className="bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded text-[11px] font-bold">
+                    ₹{post.productTag.price.toLocaleString('en-IN')}
+                  </span>
+                </button>
+              </div>
+            )}
 
             {/* Floating Mute / Unmute Button */}
             <button
@@ -270,6 +323,26 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           />
         )}
 
+        {/* Tagged Product Pill Overlay on Image */}
+        {post.mediaType !== 'video' && post.productTag && (
+          <div className="absolute top-3 left-3 z-20">
+            <button
+              id={`feed-product-tag-pill-img-${post.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowProductModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/75 hover:bg-black/90 backdrop-blur-md text-white text-xs font-semibold shadow-lg border border-white/20 transition active:scale-95 group"
+            >
+              <ShoppingBag className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition" />
+              <span className="max-w-[130px] truncate">{post.productTag.title}</span>
+              <span className="bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded text-[11px] font-bold">
+                ₹{post.productTag.price.toLocaleString('en-IN')}
+              </span>
+            </button>
+          </div>
+        )}
+
         {/* Center Heart Burst on double tap */}
         {showHeartBurst && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 animate-ping duration-500">
@@ -297,7 +370,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
             <button
               id={`comment-btn-${post.id}`}
-              onClick={() => onOpenDetail(post)}
+              onClick={() => (onOpenComments ? onOpenComments(post) : onOpenDetail(post))}
               aria-label={t.comment}
               className="p-0.5 text-neutral-800 dark:text-neutral-200 hover:opacity-70 transition"
             >
@@ -331,6 +404,17 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                 <Phone className="w-2.5 h-2.5 text-white fill-white absolute -rotate-12" />
               </div>
             </a>
+
+            {/* UPI Shagun Tip Button */}
+            <button
+              id={`shagun-btn-${post.id}`}
+              onClick={() => setShowShagunSheet(true)}
+              aria-label="Send UPI Shagun Tip"
+              title="Send UPI Shagun Tip to creator"
+              className="p-0.5 text-amber-500 hover:text-amber-600 dark:text-amber-400 hover:scale-115 active:scale-95 transition-transform flex items-center justify-center"
+            >
+              <Gift className="w-5 h-5" />
+            </button>
           </div>
 
           <button
@@ -389,11 +473,51 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           </div>
         )}
 
+        {/* Product Tag Banner with WhatsApp CTA */}
+        {post.productTag && (
+          <div
+            id={`feed-product-card-${post.id}`}
+            onClick={() => setShowProductModal(true)}
+            className="mt-2.5 p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 via-amber-500/5 to-transparent border border-emerald-500/30 hover:border-emerald-500/60 transition cursor-pointer flex items-center justify-between gap-3 group"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
+                <ShoppingBag className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    Product Tag
+                  </span>
+                  <span className="text-neutral-400 text-[10px]">•</span>
+                  <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
+                    {post.productTag.title}
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                  ₹{post.productTag.price.toLocaleString('en-IN')}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowProductModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold transition flex-shrink-0 shadow-xs"
+            >
+              <span>Chat on WhatsApp</span>
+            </button>
+          </div>
+        )}
+
         {/* Comments Count / View all */}
         {post.comments.length > 0 && (
           <button
-            onClick={() => onOpenDetail(post)}
-            className="text-xs text-neutral-500 dark:text-neutral-400 mt-2 hover:underline block"
+            onClick={() => (onOpenComments ? onOpenComments(post) : onOpenDetail(post))}
+            className="text-xs text-neutral-500 dark:text-neutral-400 mt-2 hover:underline block cursor-pointer text-left"
           >
             {t.viewAllComments} ({post.comments.length})
           </button>
@@ -401,9 +525,13 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
         {/* Recent Comments Preview */}
         {post.comments.slice(-2).map((c) => (
-          <div key={c.id} className="text-xs text-neutral-800 dark:text-neutral-300 mt-1 flex items-baseline gap-1.5">
+          <div
+            key={c.id}
+            onClick={() => (onOpenComments ? onOpenComments(post) : onOpenDetail(post))}
+            className="text-xs text-neutral-800 dark:text-neutral-300 mt-1 flex items-baseline gap-1.5 cursor-pointer hover:opacity-80 transition"
+          >
             <span className="font-semibold text-neutral-900 dark:text-neutral-100">{c.username}</span>
-            <span className="text-neutral-700 dark:text-neutral-300">{c.text}</span>
+            <span className="text-neutral-700 dark:text-neutral-300 truncate">{c.text}</span>
           </div>
         ))}
       </div>
@@ -438,6 +566,185 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           {t.post}
         </button>
       </form>
+
+      {/* 3-Dot Options Bottom Sheet / Modal */}
+      {showOptionsMenu && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center transition-opacity"
+          onClick={() => setShowOptionsMenu(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 rounded-t-3xl sm:rounded-2xl border border-neutral-200 dark:border-neutral-800 p-4 shadow-2xl animate-in slide-in-from-bottom duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-neutral-300 dark:bg-neutral-700 rounded-full mx-auto mb-3 sm:hidden" />
+
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800 mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-neutral-500">Post by</span>
+                <span className="text-xs font-bold">@{post.username}</span>
+                {post.category && (
+                  <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full">
+                    {post.category}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setShowOptionsMenu(false)}
+                className="p-1 rounded-full text-neutral-400 hover:text-neutral-900 dark:hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              {/* Show More Like This */}
+              <button
+                onClick={() => {
+                  onShowMore?.(post.category);
+                  setShowOptionsMenu(false);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition"
+              >
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">{t.showMoreLikeThis}</p>
+                  <p className="text-[11px] text-neutral-500">
+                    See more content like this {post.category ? `(${post.category})` : ''}
+                  </p>
+                </div>
+              </button>
+
+              {/* Not Interested */}
+              <button
+                onClick={() => {
+                  onNotInterested?.(post.id, post.category);
+                  setShowOptionsMenu(false);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition text-rose-500"
+              >
+                <EyeOff className="w-4 h-4 text-rose-500" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">{t.notInterested}</p>
+                  <p className="text-[11px] text-neutral-500">
+                    Hide this post & reduce similar recommendations
+                  </p>
+                </div>
+              </button>
+
+              {/* Share */}
+              <button
+                onClick={() => {
+                  onShare(post);
+                  setShowOptionsMenu(false);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition"
+              >
+                <Send className="w-4 h-4 text-neutral-500" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">{t.share}</p>
+                  <p className="text-[11px] text-neutral-500">Share via direct link or social apps</p>
+                </div>
+              </button>
+
+              {/* Send UPI Shagun Tip */}
+              <button
+                id={`post-shagun-tip-btn-${post.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  setShowShagunSheet(true);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group"
+              >
+                <div className="p-1.5 rounded-lg bg-gradient-to-tr from-amber-500/20 to-rose-500/20 text-amber-500 group-hover:scale-110 transition border border-amber-500/30">
+                  <Gift className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Send UPI Shagun Tip 🎁</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    Send ₹10, ₹50, ₹100 direct to @{post.username} via UPI
+                  </p>
+                </div>
+              </button>
+
+              <div className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
+
+              {/* Report Post */}
+              <button
+                id={`post-report-btn-${post.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  onReportPost?.(post);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group"
+              >
+                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
+                  <Flag className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Report Post</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    Spam, inappropriate, or harassment
+                  </p>
+                </div>
+              </button>
+
+              {/* Block User */}
+              <button
+                id={`post-block-user-btn-${post.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  onBlockUser?.(post.username);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group"
+              >
+                <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                  <Ban className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Block @{post.username}</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    Hide all posts & content from this creator
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowOptionsMenu(false)}
+              className="w-full mt-3 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs font-semibold hover:opacity-80 transition"
+            >
+              {t.cancel}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* UPI Shagun Creator Tipping Sheet */}
+      <UpiShagunSheet
+        isOpen={showShagunSheet}
+        onClose={() => setShowShagunSheet(false)}
+        creator={{
+          username: post.username,
+          name: post.username,
+          avatar: post.userAvatar,
+        }}
+      />
+
+      {/* Product Tag & WhatsApp Enquiry Modal */}
+      {post.productTag && (
+        <ProductWhatsAppModal
+          isOpen={showProductModal}
+          onClose={() => setShowProductModal(false)}
+          product={post.productTag}
+          creator={{
+            username: post.username,
+            name: post.username,
+            avatar: post.userAvatar,
+            isVerified: post.isVerified,
+          }}
+        />
+      )}
     </article>
   );
 };

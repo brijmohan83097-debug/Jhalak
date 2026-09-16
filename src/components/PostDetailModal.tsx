@@ -12,8 +12,11 @@ import {
   VolumeX,
   Clapperboard,
   Phone,
+  ShoppingBag,
 } from 'lucide-react';
 import { Post, User } from '../types';
+import { ProductWhatsAppModal } from './ProductWhatsAppModal';
+import { compressImage } from '../utils/imageCompressor';
 
 interface PostDetailModalProps {
   post: Post;
@@ -21,10 +24,12 @@ interface PostDetailModalProps {
   onClose: () => void;
   onToggleLike: (postId: string) => void;
   onToggleSave: (postId: string) => void;
-  onAddComment: (postId: string, text: string) => void;
+  onAddComment: (postId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
   onShare: (post: Post) => void;
   onViewUser: (username: string) => void;
 }
+
+const QUICK_REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😢', '😍'];
 
 export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   post,
@@ -37,14 +42,60 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onViewUser,
 }) => {
   const [commentText, setCommentText] = useState('');
+  const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'gif' } | null>(null);
+  const [showGifPicker, setShowGifPicker] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [likedComments, setLikedComments] = useState<Record<string, boolean>>({});
+  const [showProductModal, setShowProductModal] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleCommentSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!commentText.trim()) return;
-    onAddComment(post.id, commentText.trim());
+  const handleCommentSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!commentText.trim() && !selectedMedia) return;
+    onAddComment(post.id, commentText.trim(), selectedMedia?.url, selectedMedia?.type);
     setCommentText('');
+    setSelectedMedia(null);
+    setShowGifPicker(false);
+  };
+
+  const handleReply = (username: string) => {
+    setCommentText(`@${username} `);
+    inputRef.current?.focus();
+  };
+
+  const handleEmojiClick = (emoji: string) => {
+    setCommentText((prev) => prev + emoji);
+    inputRef.current?.focus();
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      // Automatically compress/resize image using canvas to max 800px width/height and JPEG 0.7 quality
+      const compressed = await compressImage(file, 800, 800, 0.7);
+      setSelectedMedia({
+        url: compressed,
+        type: 'image',
+      });
+      setShowGifPicker(false);
+    } catch (err) {
+      console.warn('Post detail comment image compression fallback:', err);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setSelectedMedia({
+            url: event.target.result as string,
+            type: 'image',
+          });
+          setShowGifPicker(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   return (
@@ -168,6 +219,46 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               </div>
             </div>
 
+            {/* Tagged Product Details Banner */}
+            {post.productTag && (
+              <div
+                id={`detail-product-tag-${post.id}`}
+                onClick={() => setShowProductModal(true)}
+                className="p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 via-amber-500/5 to-transparent border border-emerald-500/30 hover:border-emerald-500/60 transition cursor-pointer flex items-center justify-between gap-3 group"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
+                    <ShoppingBag className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                        Product Tag
+                      </span>
+                      <span className="text-neutral-400 text-[10px]">•</span>
+                      <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
+                        {post.productTag.title}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      ₹{post.productTag.price.toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowProductModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold transition flex-shrink-0 shadow-xs"
+                >
+                  <span>Chat on WhatsApp</span>
+                </button>
+              </div>
+            )}
+
             {/* Comments list */}
             {post.comments.length === 0 ? (
               <div className="text-center py-8 text-neutral-400 text-xs">
@@ -176,23 +267,51 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             ) : (
               post.comments.map((comment) => (
                 <div key={comment.id} className="flex items-start justify-between gap-2 group">
-                  <div className="flex items-start gap-2.5">
+                  <div className="flex items-start gap-2.5 flex-1 min-w-0">
                     <img
                       src={comment.avatar}
                       alt={comment.username}
                       className="w-7 h-7 rounded-full object-cover flex-shrink-0 mt-0.5"
                     />
-                    <div className="text-xs">
-                      <span className="font-semibold text-neutral-900 dark:text-white mr-1.5">
+                    <div className="text-xs flex-1 min-w-0">
+                      <button
+                        onClick={() => {
+                          onClose();
+                          onViewUser(comment.username);
+                        }}
+                        className="font-semibold text-neutral-900 dark:text-white mr-1.5 hover:underline"
+                      >
                         {comment.username}
-                      </span>
-                      <span className="text-neutral-700 dark:text-neutral-300">
+                      </button>
+                      <span className="text-neutral-700 dark:text-neutral-300 break-words">
                         {comment.text}
                       </span>
+
+                      {/* GIF / Image preview inside comment */}
+                      {comment.mediaUrl && (
+                        <div className="mt-1.5 relative inline-block rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 max-w-[180px]">
+                          <img
+                            src={comment.mediaUrl}
+                            alt="Comment attachment"
+                            className="w-full max-h-32 object-cover rounded-lg"
+                          />
+                          {comment.mediaType === 'gif' && (
+                            <span className="absolute bottom-1 left-1 px-1 py-0.2 rounded bg-black/75 text-[8px] font-bold text-white uppercase">
+                              GIF
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-3 mt-1 text-[10px] text-neutral-400">
                         <span>{comment.timestamp}</span>
-                        <span>{comment.likesCount} likes</span>
-                        <button className="font-semibold hover:text-neutral-600 dark:hover:text-neutral-200">
+                        <span>
+                          {(likedComments[comment.id] ? (comment.likesCount || 0) + 1 : comment.likesCount) || 0} likes
+                        </span>
+                        <button
+                          onClick={() => handleReply(comment.username)}
+                          className="font-semibold hover:text-neutral-600 dark:hover:text-neutral-200"
+                        >
                           Reply
                         </button>
                       </div>
@@ -200,9 +319,18 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   </div>
                   <button
                     aria-label="Like comment"
-                    className="text-neutral-400 hover:text-rose-500 p-1 flex-shrink-0"
+                    onClick={() => {
+                      setLikedComments((prev) => ({ ...prev, [comment.id]: !prev[comment.id] }));
+                    }}
+                    className="p-1 flex-shrink-0"
                   >
-                    <Heart className="w-3.5 h-3.5" />
+                    <Heart
+                      className={`w-3.5 h-3.5 transition-colors ${
+                        likedComments[comment.id] || comment.isLiked
+                          ? 'text-rose-500 fill-rose-500'
+                          : 'text-neutral-400 hover:text-rose-500'
+                      }`}
+                    />
                   </button>
                 </div>
               ))
@@ -226,6 +354,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   />
                 </button>
                 <button
+                  onClick={() => inputRef.current?.focus()}
                   aria-label="Comment"
                   className="hover:opacity-75 text-neutral-800 dark:text-white"
                 >
@@ -281,20 +410,47 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             </div>
           </div>
 
+          {/* Attached preview */}
+          {selectedMedia && (
+            <div className="px-3 py-1.5 bg-neutral-100 dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-800 flex items-center gap-2">
+              <img
+                src={selectedMedia.url}
+                alt="preview"
+                className="w-8 h-8 rounded object-cover border border-neutral-300 dark:border-neutral-700"
+              />
+              <span className="text-[11px] text-neutral-600 dark:text-neutral-400 flex-1 truncate">
+                Attached {selectedMedia.type}
+              </span>
+              <button
+                onClick={() => setSelectedMedia(null)}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Quick-tap Reaction Emojis row */}
+          <div className="px-3 py-1 bg-neutral-50 dark:bg-neutral-950/60 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between">
+            {QUICK_REACTION_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => handleEmojiClick(emoji)}
+                className="text-lg hover:scale-125 active:scale-95 transition-transform p-0.5"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+
           {/* Add Comment Input */}
           <form
             onSubmit={handleCommentSubmit}
             className="p-3 border-t border-neutral-200 dark:border-neutral-800 flex items-center gap-2"
           >
-            <button
-              type="button"
-              aria-label="Add emoji"
-              onClick={() => setCommentText((p) => p + ' ✨')}
-              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-white"
-            >
-              <Smile className="w-5 h-5" />
-            </button>
             <input
+              ref={inputRef}
               id="detail-comment-input"
               type="text"
               value={commentText}
@@ -302,10 +458,43 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               placeholder="Add a comment..."
               className="flex-1 bg-transparent text-xs text-neutral-900 dark:text-white placeholder-neutral-500 focus:outline-none"
             />
+
+            {/* Inline GIF button */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMedia({
+                  url: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
+                  type: 'gif',
+                });
+              }}
+              title="Add Reaction GIF"
+              className="text-[10px] font-bold px-1.5 py-0.5 rounded text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            >
+              GIF
+            </button>
+
+            {/* Inline Image Upload */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach Image"
+              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-white"
+            >
+              <Smile className="w-4 h-4" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageUpload}
+            />
+
             <button
               id="detail-post-comment-btn"
               type="submit"
-              disabled={!commentText.trim()}
+              disabled={!commentText.trim() && !selectedMedia}
               className="text-xs font-semibold text-sky-500 hover:text-sky-600 disabled:opacity-40"
             >
               Post
@@ -313,6 +502,21 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
           </form>
         </div>
       </div>
+
+      {/* Product Tag & WhatsApp Enquiry Modal */}
+      {post.productTag && (
+        <ProductWhatsAppModal
+          isOpen={showProductModal}
+          onClose={() => setShowProductModal(false)}
+          product={post.productTag}
+          creator={{
+            username: post.username,
+            name: post.username,
+            avatar: post.userAvatar,
+            isVerified: post.isVerified,
+          }}
+        />
+      )}
     </div>
   );
 };

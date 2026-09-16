@@ -19,7 +19,13 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [sentMap, setSentMap] = useState<Record<string, boolean>>({});
 
   const handleCopy = () => {
-    navigator.clipboard?.writeText(window.location.href);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(window.location.href).catch(() => {});
+      }
+    } catch {
+      // ignore clipboard error in restricted iframe
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

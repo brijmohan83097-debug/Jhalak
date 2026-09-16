@@ -14,9 +14,20 @@ import {
   Lock,
   Sparkles,
   HelpCircle,
+  IndianRupee,
+  FileText,
+  Trash2,
+  UserCog,
+  AlertTriangle,
+  Scale,
+  Database,
+  ExternalLink,
+  ShieldAlert,
 } from 'lucide-react';
 import { SupportedLanguage, SUPPORTED_LANGUAGES, translations } from '../translations';
 import { User } from '../types';
+import { CreatorMonetizationView } from './CreatorMonetizationView';
+import { AccountDeletionModal } from './AccountDeletionModal';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -26,10 +37,16 @@ interface ProfileSettingsModalProps {
   onLanguageChange: (lang: SupportedLanguage) => void;
   onOpenEditProfile: () => void;
   onOpenSavedPosts: () => void;
+  onOpenLegalPolicies?: (tab?: 'privacy' | 'terms' | 'ugc') => void;
+  onOpenModerationDashboard?: () => void;
+  onDeleteAccount?: () => void;
   onLogout: () => void;
+  postsCount?: number;
+  reelsCount?: number;
+  commentsCount?: number;
 }
 
-type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications';
+type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications' | 'monetization' | 'account';
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   isOpen,
@@ -39,13 +56,20 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onLanguageChange,
   onOpenEditProfile,
   onOpenSavedPosts,
+  onOpenLegalPolicies,
+  onOpenModerationDashboard,
+  onDeleteAccount,
   onLogout,
+  postsCount = 0,
+  reelsCount = 0,
+  commentsCount = 0,
 }) => {
   const [subView, setSubView] = useState<SettingsSubView>('main');
   const [isPrivateAccount, setIsPrivateAccount] = useState(false);
   const [pauseNotifications, setPauseNotifications] = useState(false);
   const [storyAlerts, setStoryAlerts] = useState(true);
   const [dmAlerts, setDmAlerts] = useState(true);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -77,9 +101,11 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             ) : null}
             <h2 className="font-bold text-base text-neutral-900 dark:text-white flex items-center gap-2">
               {subView === 'main' && t.settings}
+              {subView === 'account' && 'Account Settings'}
               {subView === 'language' && t.switchLanguage}
               {subView === 'privacy' && t.accountPrivacy}
               {subView === 'notifications' && t.notifications}
+              {subView === 'monetization' && 'Creator Monetization / कमाई'}
             </h2>
           </div>
 
@@ -116,6 +142,31 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   <span>{activeLangObj?.name}</span>
                 </div>
               </div>
+
+              {/* Creator Monetization / कमाई (Featured Section) */}
+              <button
+                id="settings-monetization-opt"
+                onClick={() => setSubView('monetization')}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-emerald-500/10 to-transparent border border-amber-500/30 hover:border-amber-500/60 transition group text-left shadow-xs"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-emerald-500 text-neutral-950 flex items-center justify-center font-bold shadow-xs">
+                    <IndianRupee className="w-5 h-5 text-neutral-950" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                      Creator Monetization / कमाई
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.2 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                        Instant UPI
+                      </span>
+                    </span>
+                    <span className="text-xs text-neutral-500">
+                      Eligibility milestones, ₹ earnings & instant UPI payout
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-amber-600 dark:text-amber-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
 
               {/* 1. Edit Profile */}
               <button
@@ -230,9 +281,115 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
               </button>
 
+              {/* 6. Account Settings & Data Management (Google Play Compliance) */}
+              <button
+                id="settings-account-opt"
+                onClick={() => setSubView('account')}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                    <UserCog className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-neutral-900 dark:text-white block">
+                      Account Settings
+                    </span>
+                    <span className="text-xs text-neutral-500">
+                      Email, security & Delete Account & Data
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* Direct Delete Account & Data option (Google Play compliance) */}
+              <button
+                id="settings-direct-delete-account-btn"
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 border border-transparent hover:border-rose-200 dark:hover:border-rose-900/30 transition group text-left"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                      Delete Account & Data
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-bold">
+                        Google Play
+                      </span>
+                    </span>
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      Purge posts, reels, comments & profile data
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-rose-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 7. Legal, Privacy Policy & Terms of Service */}
+              <button
+                id="settings-legal-opt"
+                onClick={() => {
+                  if (onOpenLegalPolicies) {
+                    onOpenLegalPolicies('privacy');
+                  }
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                    <Scale className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
+                      Privacy Policy & Terms
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold">
+                        UGC Safe
+                      </span>
+                    </span>
+                    <span className="text-xs text-neutral-500">
+                      Play Store compliance, user rights & report guidelines
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 7. Moderation Dashboard (Admin / Mod View) */}
+              <button
+                id="settings-moderation-dashboard-btn"
+                onClick={() => {
+                  resetAndClose();
+                  if (onOpenModerationDashboard) {
+                    onOpenModerationDashboard();
+                  }
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                    <ShieldAlert className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
+                      Moderation Dashboard
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold border border-amber-500/30 uppercase tracking-wider">
+                        Admin / Mod View
+                      </span>
+                    </span>
+                    <span className="text-xs text-neutral-500">
+                      Review reported posts, auto-hidden content & ban accounts
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
               <hr className="my-2 border-neutral-200 dark:border-neutral-800" />
 
-              {/* 6. Logout */}
+              {/* 8. Logout */}
               <button
                 id="settings-logout-opt"
                 onClick={() => {
@@ -428,8 +585,136 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* VIEW 5: Creator Monetization */}
+          {subView === 'monetization' && (
+            <CreatorMonetizationView currentUser={currentUser} />
+          )}
+
+          {/* VIEW 6: Account Settings & Data Deletion (Play Store Mandatory) */}
+          {subView === 'account' && (
+            <div className="space-y-4 p-1 animate-in fade-in duration-200">
+              {/* Account Profile Details */}
+              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700/60 space-y-3">
+                <div className="flex items-center gap-3.5">
+                  <img
+                    src={currentUser.avatar}
+                    alt={currentUser.name}
+                    className="w-12 h-12 rounded-full object-cover border border-neutral-300 dark:border-neutral-700"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-neutral-900 dark:text-white truncate">
+                      {currentUser.name}
+                    </p>
+                    <p className="text-xs text-neutral-500 truncate">@{currentUser.username}</p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                        Active Account
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-neutral-200 dark:border-neutral-700/80 grid grid-cols-1 gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-neutral-400">Google Email:</span>
+                    <span className="font-semibold text-neutral-900 dark:text-white truncate max-w-[200px]">
+                      {currentUser.email || 'brijmohan83097@gmail.com'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-neutral-400">Account Type:</span>
+                    <span className="font-semibold text-neutral-900 dark:text-white">
+                      Creator / Explorer
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Safety & Transparency */}
+              <div className="p-3.5 rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700/70 text-xs text-neutral-600 dark:text-neutral-400 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-neutral-900 dark:text-white">
+                  <Database className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                  <span>Google Play User Data Transparency</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  In compliance with Google Play Store data safety mandates and Indian IT privacy regulations, you maintain complete ownership over your account data. You can permanently erase all your data from our systems at any moment.
+                </p>
+              </div>
+
+              {/* Dangerous Zone / Account Deletion Section */}
+              <div className="p-4 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/10 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      Danger Zone • Delete Account & Data
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-bold">
+                    Google Play Policy
+                  </span>
+                </div>
+
+                <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+                  Permanently delete your account and purge all associated data. All your posts,
+                  reels, comments, and profile data will be permanently purged from servers and device
+                  storage.
+                </p>
+
+                {/* Stored Content Metrics */}
+                <div className="grid grid-cols-3 gap-2 py-1">
+                  <div className="p-2 rounded-lg bg-white/80 dark:bg-neutral-900/80 border border-rose-200 dark:border-rose-900/40 text-center">
+                    <span className="block font-bold text-sm text-neutral-900 dark:text-white">
+                      {postsCount}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">Posts to purge</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-white/80 dark:bg-neutral-900/80 border border-rose-200 dark:border-rose-900/40 text-center">
+                    <span className="block font-bold text-sm text-neutral-900 dark:text-white">
+                      {reelsCount}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">Reels to purge</span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-white/80 dark:bg-neutral-900/80 border border-rose-200 dark:border-rose-900/40 text-center">
+                    <span className="block font-bold text-sm text-neutral-900 dark:text-white">
+                      {commentsCount}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">Comments</span>
+                  </div>
+                </div>
+
+                {/* Visible "Delete Account" button */}
+                <button
+                  id="btn-delete-account-trigger"
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(true)}
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-[0.99] text-white text-xs font-bold shadow-sm transition cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Account</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Google Play Compliant Account & Data Deletion Modal */}
+      <AccountDeletionModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        currentUser={currentUser}
+        postsCount={postsCount}
+        reelsCount={reelsCount}
+        commentsCount={commentsCount}
+        onConfirmDelete={() => {
+          setIsDeleteModalOpen(false);
+          resetAndClose();
+          onDeleteAccount?.();
+        }}
+      />
     </div>
   );
 };

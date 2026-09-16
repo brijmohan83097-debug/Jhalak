@@ -12,10 +12,13 @@ import {
   LogOut,
   CheckCircle2,
   Globe2,
+  Gift,
 } from 'lucide-react';
 import { User, Post } from '../types';
 import { profileHighlights } from '../data/mockData';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
+import { UpiShagunSheet } from './UpiShagunSheet';
+import { safeSetItem } from '../utils/safeStorage';
 
 interface ProfileViewProps {
   user: User;
@@ -43,7 +46,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   currentLanguage = 'en',
 }) => {
   const [activeTab, setActiveTab] = useState<'posts' | 'saved' | 'tagged'>('posts');
-  const [highlights, setHighlights] = useState(profileHighlights);
+  const [highlights, setHighlights] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('ig_profile_highlights');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showShagunSheet, setShowShagunSheet] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const t = translations[currentLanguage];
   const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLanguage);
@@ -61,11 +73,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const newHighlight = {
       id: `hl-${Date.now()}`,
       title,
-      cover:
-        userPosts[0]?.mediaUrl ||
-        'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&auto=format&fit=crop&q=80',
+      cover: userPosts[0]?.mediaUrl || user.avatar,
     };
-    setHighlights([...highlights, newHighlight]);
+    const updated = [...highlights, newHighlight];
+    setHighlights(updated);
+    try {
+      safeSetItem('ig_profile_highlights', JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
   };
 
   return (
@@ -111,6 +127,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
             {/* Top Right Action & Settings Group */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* UPI Shagun Tip Button */}
+              <button
+                id="profile-shagun-tip-btn"
+                onClick={() => setShowShagunSheet(true)}
+                className="px-3 py-1.5 bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-amber-500/20 active:scale-95 cursor-pointer"
+                title={`Send UPI Shagun tip to @${user.username} via GPay, PhonePe, Paytm`}
+              >
+                <Gift className="w-3.5 h-3.5 animate-bounce [animation-duration:3s]" />
+                <span>Send Shagun 🎁</span>
+              </button>
+
               {/* Edit Profile Button */}
               <button
                 id="edit-profile-btn"
@@ -433,6 +460,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* UPI Shagun Creator Tipping Bottom Sheet */}
+      <UpiShagunSheet
+        isOpen={showShagunSheet}
+        onClose={() => setShowShagunSheet(false)}
+        creator={{
+          username: user.username,
+          name: user.name || user.username,
+          avatar: user.avatar,
+        }}
+        onTipSent={(amount, app, note) => {
+          setToastMsg(`Sent ₹${amount} Shagun to @${user.username} via ${app}! 🎁✨`);
+          setTimeout(() => setToastMsg(null), 4000);
+        }}
+      />
+
+      {/* Success Toast */}
+      {toastMsg && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-neutral-900/95 text-white dark:bg-white dark:text-neutral-900 rounded-full shadow-2xl text-xs font-semibold flex items-center gap-2 border border-white/20 animate-in fade-in slide-in-from-bottom-2">
+          <span>{toastMsg}</span>
         </div>
       )}
     </div>

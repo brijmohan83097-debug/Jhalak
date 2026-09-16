@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Check, Camera, Sparkles, Upload, RefreshCw } from 'lucide-react';
+import { X, Check, Camera, Sparkles, Upload, RefreshCw, Loader2 } from 'lucide-react';
 import { User } from '../types';
 import { SupportedLanguage, translations } from '../translations';
+import { compressImage } from '../utils/imageCompressor';
 
 interface EditProfileModalProps {
   user: User;
@@ -9,29 +10,6 @@ interface EditProfileModalProps {
   onSave: (updatedUser: User) => void;
   currentLanguage?: SupportedLanguage;
 }
-
-const indianSampleAvatars = [
-  {
-    name: 'Brij Mohan (Photographer)',
-    url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Ananya (Indie Vibes)',
-    url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Kabir (Traveler)',
-    url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Priya (Traditional)',
-    url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Aarav (Urban Mumbai)',
-    url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&auto=format&fit=crop&q=80',
-  },
-];
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   user,
@@ -65,16 +43,28 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     }, 450);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isCompressingAvatar, setIsCompressingAvatar] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setAvatar(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsCompressingAvatar(true);
+        // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
+        const compressed = await compressImage(file, 800, 800, 0.7);
+        setAvatar(compressed);
+      } catch (err) {
+        console.warn('Canvas compression error, falling back to FileReader:', err);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            setAvatar(event.target.result as string);
+          }
+        };
+        reader.readAsDataURL(file);
+      } finally {
+        setIsCompressingAvatar(false);
+      }
     }
   };
 
@@ -118,6 +108,11 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   alt="Current avatar"
                   className="w-18 h-18 rounded-full object-cover border-2 border-sky-500 shadow-sm"
                 />
+                {isCompressingAvatar && (
+                  <div className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 text-white animate-spin" />
+                  </div>
+                )}
                 <label
                   htmlFor="avatar-file-upload"
                   className="absolute bottom-0 right-0 p-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-full cursor-pointer shadow-md transition"
@@ -139,25 +134,15 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   {t.profilePhoto}
                 </span>
                 <p className="text-[11px] text-neutral-500 mb-2">
-                  Choose a preset or upload custom image
+                  Upload an image from your device or paste a URL below
                 </p>
-                <div className="flex items-center gap-2">
-                  {indianSampleAvatars.map((item, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setAvatar(item.url)}
-                      title={item.name}
-                      className={`w-7 h-7 rounded-full overflow-hidden border-2 transition ${
-                        avatar === item.url
-                          ? 'border-sky-500 scale-110'
-                          : 'border-transparent hover:border-neutral-400'
-                      }`}
-                    >
-                      <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('avatar-file-upload')?.click()}
+                  className="px-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white rounded-lg text-xs font-semibold transition"
+                >
+                  Choose File
+                </button>
               </div>
             </div>
 

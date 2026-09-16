@@ -59,58 +59,68 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
           onClick={() => onViewUser(currentUser.username)}
           className="text-xs font-semibold text-sky-500 hover:text-sky-600 transition"
         >
-          {t.view}
+          {t.view || 'View'}
         </button>
       </div>
 
       {/* Suggestions Section Header */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-          {t.suggestedForYou}
+          {t.suggestedForYou || 'Suggested for you'}
         </span>
         <button className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 hover:text-neutral-500 transition">
-          {t.seeAll}
+          {t.seeAll || 'See all'}
         </button>
       </div>
 
       {/* Suggested Users List */}
-      <div className="space-y-3 mb-8">
-        {suggestedUsers.map((u) => {
-          const isFollowing = followingMap[u.id];
+      {suggestedUsers.length === 0 ? (
+        <div className="py-4 mb-8 text-left">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+            No suggestions yet. As people join Jhalak and share content, suggestions will appear here.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 mb-8">
+          {suggestedUsers.map((u) => {
+            const isFollowing = followingMap[u.id];
 
-          return (
-            <div key={u.id} className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <img
-                  src={u.avatar}
-                  alt={u.username}
-                  className="w-9 h-9 rounded-full object-cover"
-                />
-                <div className="flex flex-col">
-                  <span className="font-semibold text-xs text-neutral-900 dark:text-white truncate max-w-[120px]">
-                    {u.username}
-                  </span>
-                  <span className="text-[11px] text-neutral-400 truncate max-w-[120px]">
-                    {u.subtitle}
-                  </span>
+            return (
+              <div key={u.id} className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={u.avatar}
+                    alt={u.username}
+                    className="w-9 h-9 rounded-full object-cover"
+                  />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-xs text-neutral-900 dark:text-white truncate max-w-[120px]">
+                      {u.username}
+                    </span>
+                    <span className="text-[11px] text-neutral-400 truncate max-w-[120px]">
+                      {u.subtitle}
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <button
-                id={`follow-btn-${u.username}`}
-                onClick={() => toggleFollow(u.id)}
-                className={`text-xs font-semibold transition ${
-                  isFollowing
-                    ? 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'
-                    : 'text-sky-500 hover:text-sky-600'
-                }`}
-              >
-                {isFollowing ? t.followingBtn : t.follow}
-              </button>
-            </div>
-          );
-        })}
-      </div>
+                <button
+                  id={`follow-btn-${u.username}`}
+                  onClick={() => toggleFollow(u.id)}
+                  className={`text-xs font-semibold transition ${
+                    isFollowing
+                      ? 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'
+                      : 'text-sky-500 hover:text-sky-600'
+                  }`}
+                >
+                  {isFollowing
+                    ? (t.followingBtn || t.following || 'Following')
+                    : (t.follow || 'Follow')}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Mini Footer */}
       <div className="text-[11px] text-neutral-400 dark:text-neutral-500 space-y-3">

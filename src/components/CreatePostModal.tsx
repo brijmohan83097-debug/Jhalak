@@ -15,14 +15,24 @@ import {
   Play,
   Pause,
   Film,
+  Radio,
+  ShoppingBag,
+  ShieldAlert,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { Post, User, Reel } from '../types';
-import { samplePresetPhotos, samplePresetVideos } from '../data/mockData';
+import { GoLiveStudio } from './GoLiveStudio';
+import { moderationService } from '../services/moderationService';
+import { compressImage } from '../utils/imageCompressor';
 
 interface CreatePostModalProps {
   currentUser: User;
   onClose: () => void;
   onPostCreated: (newPost: Post, newReel?: Reel) => void;
+  initialSelectedAudio?: string;
+  initialMediaType?: 'image' | 'video' | 'live';
+  onShowToast?: (message: string) => void;
 }
 
 const filterOptions = [
@@ -34,7 +44,7 @@ const filterOptions = [
   { name: 'Warm', class: 'sepia-[0.2] hue-rotate-[-10deg] brightness-105' },
 ];
 
-const trendingAudioOptions = [
+const defaultTrendingAudios = [
   'Original Audio • Original Track',
   'Kesariya • Acoustic Soul (Brahmāstra)',
   'Chaleya • Jawan Beats',
@@ -46,39 +56,83 @@ const trendingAudioOptions = [
   'Baarishein • Anuv Jain Indie Acoustic',
   'Taal Se Taal • Flute & Tabla Fusion',
   'Maan Meri Jaan • King Pop',
+  'Dhoom Machale • Funny Remix',
+  'Tech Beat Synthwave • Future Tokyo',
+  'Workshop Lo-Fi Beats • Craftsman Sound',
+  'Tujhe Dekha Toh • Evergreen Romance',
 ];
 
 export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   currentUser,
   onClose,
   onPostCreated,
+  initialSelectedAudio,
+  initialMediaType,
+  onShowToast,
 }) => {
-  const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
+  const [mediaType, setMediaType] = useState<'image' | 'video' | 'live'>(
+    initialMediaType || (initialSelectedAudio ? 'video' : 'image')
+  );
   const [step, setStep] = useState<'upload' | 'edit' | 'caption'>('upload');
   const [selectedMediaUrl, setSelectedMediaUrl] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState('');
-  const [selectedAudio, setSelectedAudio] = useState('Original Audio');
+  const [selectedAudio, setSelectedAudio] = useState(
+    initialSelectedAudio || 'Original Audio'
+  );
   const [customAudio, setCustomAudio] = useState('');
   const [isCustomAudioActive, setIsCustomAudioActive] = useState(false);
   const [shareAsReel, setShareAsReel] = useState(true);
   const [caption, setCaption] = useState('');
+  const [moderationWarning, setModerationWarning] = useState<string | null>(null);
   const [location, setLocation] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+  const [hasProductTag, setHasProductTag] = useState(false);
+  const [productTitle, setProductTitle] = useState('');
+  const [productPrice, setProductPrice] = useState('');
+  const [productCategory, setProductCategory] = useState('Handcrafted & Local');
+  const [productWhatsapp, setProductWhatsapp] = useState('919876543210');
   const [isDragging, setIsDragging] = useState(false);
   const [previewMuted, setPreviewMuted] = useState(true);
   const [previewPlaying, setPreviewPlaying] = useState(true);
 
+  // Combine initialSelectedAudio with trending options
+  const trendingAudioOptions = React.useMemo(() => {
+    if (initialSelectedAudio && !defaultTrendingAudios.includes(initialSelectedAudio)) {
+      return [initialSelectedAudio, ...defaultTrendingAudios];
+    }
+    return defaultTrendingAudios;
+  }, [initialSelectedAudio]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const isVideo = file.type.startsWith('video/');
-      const objectUrl = URL.createObjectURL(file);
-      setMediaType(isVideo ? 'video' : 'image');
-      setSelectedMediaUrl(objectUrl);
-      setStep('edit');
+      if (isVideo) {
+        const objectUrl = URL.createObjectURL(file);
+        setMediaType('video');
+        setSelectedMediaUrl(objectUrl);
+        setStep('edit');
+      } else {
+        setMediaType('image');
+        setIsCompressingPhoto(true);
+        try {
+          // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
+          const compressed = await compressImage(file, 800, 800, 0.7);
+          setSelectedMediaUrl(compressed);
+          setStep('edit');
+        } catch (err) {
+          console.warn('Canvas compression fallback on image upload:', err);
+          const objectUrl = URL.createObjectURL(file);
+          setSelectedMediaUrl(objectUrl);
+          setStep('edit');
+        } finally {
+          setIsCompressingPhoto(false);
+        }
+      }
     }
   };
 
@@ -91,44 +145,46 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     setIsDragging(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
-      if (isVideo || isImage) {
+      if (isVideo) {
         const objectUrl = URL.createObjectURL(file);
-        setMediaType(isVideo ? 'video' : 'image');
+        setMediaType('video');
         setSelectedMediaUrl(objectUrl);
         setStep('edit');
+      } else if (isImage) {
+        setMediaType('image');
+        setIsCompressingPhoto(true);
+        try {
+          // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
+          const compressed = await compressImage(file, 800, 800, 0.7);
+          setSelectedMediaUrl(compressed);
+          setStep('edit');
+        } catch (err) {
+          console.warn('Canvas compression fallback on drop:', err);
+          const objectUrl = URL.createObjectURL(file);
+          setSelectedMediaUrl(objectUrl);
+          setStep('edit');
+        } finally {
+          setIsCompressingPhoto(false);
+        }
       }
     }
-  };
-
-  const handlePickPresetPhoto = (preset: (typeof samplePresetPhotos)[0]) => {
-    setMediaType('image');
-    setSelectedMediaUrl(preset.url);
-    setCaption(preset.caption);
-    setTagsInput(preset.tags.join(', '));
-    setStep('edit');
-  };
-
-  const handlePickPresetVideo = (preset: (typeof samplePresetVideos)[0]) => {
-    setMediaType('video');
-    setSelectedMediaUrl(preset.url);
-    setCaption(preset.caption);
-    setSelectedAudio(preset.audioTitle);
-    setTagsInput(preset.tags.join(', '));
-    setStep('edit');
   };
 
   const togglePreviewPlay = () => {
     if (!previewVideoRef.current) return;
     if (previewVideoRef.current.paused) {
-      previewVideoRef.current.play();
-      setPreviewPlaying(true);
+      previewVideoRef.current.play().then(() => {
+        setPreviewPlaying(true);
+      }).catch(() => {
+        setPreviewPlaying(false);
+      });
     } else {
       previewVideoRef.current.pause();
       setPreviewPlaying(false);
@@ -142,10 +198,35 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const handleShare = () => {
     if (!selectedMediaUrl) return;
 
+    // Automatic Text Moderation (Banned Words Filter)
+    const moderationCheck = moderationService.validateContent(caption);
+    if (!moderationCheck.isValid) {
+      const errorMsg = 'Post cannot be published. Content violates our community guidelines regarding explicit or inappropriate language.';
+      setModerationWarning(errorMsg);
+      if (onShowToast) {
+        onShowToast(errorMsg);
+      }
+      return;
+    }
+
+    setModerationWarning(null);
+
     const parsedTags = tagsInput
       .split(/[, #]+/)
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
+
+    const productTag =
+      hasProductTag && productTitle.trim()
+        ? {
+            id: `prod-${Date.now()}`,
+            title: productTitle.trim(),
+            price: Math.max(1, parseFloat(productPrice) || 499),
+            currency: '₹',
+            whatsappNumber: productWhatsapp.trim() || '919876543210',
+            category: productCategory,
+          }
+        : undefined;
 
     const postId = `post-${Date.now()}`;
     const newPost: Post = {
@@ -156,7 +237,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       isVerified: currentUser.isVerified,
       location: location.trim() || undefined,
       mediaUrl: selectedMediaUrl,
-      mediaType,
+      mediaType: mediaType === 'video' ? 'video' : 'image',
       caption: caption.trim() || (mediaType === 'video' ? 'New Reel' : 'No caption'),
       tags: parsedTags,
       likesCount: 0,
@@ -167,6 +248,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       filter: mediaType === 'image' ? selectedFilter : undefined,
       audioTitle: mediaType === 'video' ? finalAudioTitle : undefined,
       viewsCount: mediaType === 'video' ? 1 : undefined,
+      productTag,
     };
 
     let newReel: Reel | undefined;
@@ -189,6 +271,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         comments: [],
         tags: parsedTags,
         timestamp: 'Just now',
+        productTag,
       };
     }
 
@@ -217,13 +300,19 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           </div>
 
           <h2 className="text-base font-semibold text-neutral-900 dark:text-white">
-            {step === 'upload' && 'Create new post'}
-            {step === 'edit' && (mediaType === 'video' ? 'Reel & Audio settings' : 'Select filter')}
-            {step === 'caption' && 'New post details'}
+            {mediaType === 'live'
+              ? 'Go Live Studio 🔴'
+              : step === 'upload'
+              ? 'Create new post'
+              : step === 'edit'
+              ? mediaType === 'video'
+                ? 'Reel & Audio settings'
+                : 'Select filter'
+              : 'New post details'}
           </h2>
 
           <div className="w-16 flex justify-end">
-            {step === 'upload' && (
+            {(step === 'upload' || mediaType === 'live') && (
               <button
                 id="create-post-close-btn"
                 onClick={onClose}
@@ -232,7 +321,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 <X className="w-5 h-5" />
               </button>
             )}
-            {step === 'edit' && (
+            {mediaType !== 'live' && step === 'edit' && (
               <button
                 id="create-post-next-btn"
                 onClick={() => setStep('caption')}
@@ -241,7 +330,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 Next
               </button>
             )}
-            {step === 'caption' && (
+            {mediaType !== 'live' && step === 'caption' && (
               <button
                 id="create-post-share-btn"
                 onClick={handleShare}
@@ -254,15 +343,68 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="overflow-y-auto flex-1 p-4">
-          {step === 'upload' && (
-            <div className="flex flex-col items-center justify-center min-h-[380px]">
-              {/* Media Type Switcher (Photo vs Video/Reel) */}
+        <div className="overflow-y-auto flex-1 p-3 sm:p-4">
+          {mediaType === 'live' ? (
+            <div className="flex flex-col h-full">
+              {/* Media Type Switcher Tab Bar */}
+              <div className="flex items-center justify-center gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl mb-3 self-center">
+                <button
+                  id="tab-select-photo"
+                  onClick={() => setMediaType('image')}
+                  className="flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>Photo Post</span>
+                </button>
+                <button
+                  id="tab-select-video"
+                  onClick={() => setMediaType('video')}
+                  className="flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition"
+                >
+                  <Clapperboard className="w-4 h-4 text-amber-500" />
+                  <span>Video / Reel</span>
+                </button>
+                <button
+                  id="tab-select-live"
+                  onClick={() => setMediaType('live')}
+                  className="flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 text-white shadow-sm transition"
+                >
+                  <Radio className="w-4 h-4 text-white animate-pulse" />
+                  <span>Go Live 🔴</span>
+                </button>
+              </div>
+
+              {/* Full Go Live Studio Screen */}
+              <GoLiveStudio currentUser={currentUser} onClose={onClose} />
+            </div>
+          ) : (
+            <>
+              {step === 'upload' && (
+                <div className="flex flex-col items-center justify-center min-h-[380px]">
+              {/* Active Audio Banner when "Use Audio" was tapped */}
+              {initialSelectedAudio && (
+                <div className="w-full max-w-lg mb-4 py-2 px-3.5 rounded-xl bg-gradient-to-r from-rose-500/15 via-pink-500/10 to-amber-500/15 border border-rose-500/30 flex items-center justify-between text-xs animate-in fade-in">
+                  <div className="flex items-center gap-2 truncate">
+                    <Music className="w-4 h-4 text-rose-500 flex-shrink-0 animate-pulse" />
+                    <div className="truncate">
+                      <span className="font-semibold text-rose-500 mr-1.5">Using Audio:</span>
+                      <span className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
+                        {initialSelectedAudio}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold text-rose-500/80 bg-rose-500/10 px-2 py-0.5 rounded-full flex-shrink-0">
+                    Reel Sound
+                  </span>
+                </div>
+              )}
+
+              {/* Media Type Switcher (Photo vs Video/Reel vs Go Live) */}
               <div className="flex items-center gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl mb-4">
                 <button
                   id="tab-select-photo"
                   onClick={() => setMediaType('image')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
                     mediaType === 'image'
                       ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-sm'
                       : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
@@ -274,7 +416,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 <button
                   id="tab-select-video"
                   onClick={() => setMediaType('video')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
                     mediaType === 'video'
                       ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-sm'
                       : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
@@ -282,6 +424,18 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 >
                   <Clapperboard className="w-4 h-4 text-amber-500" />
                   <span>Video / Reel</span>
+                </button>
+                <button
+                  id="tab-select-live"
+                  onClick={() => setMediaType('live')}
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    (mediaType as string) === 'live'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-neutral-500 dark:text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400'
+                  }`}
+                >
+                  <Radio className="w-4 h-4 text-rose-500 group-hover:text-white" />
+                  <span>Go Live 🔴</span>
                 </button>
               </div>
 
@@ -298,19 +452,25 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 }`}
               >
                 <div className="w-14 h-14 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mb-3 text-neutral-600 dark:text-neutral-400">
-                  {mediaType === 'video' ? (
+                  {isCompressingPhoto ? (
+                    <Loader2 className="w-7 h-7 text-sky-500 animate-spin" />
+                  ) : mediaType === 'video' ? (
                     <Film className="w-7 h-7 text-rose-500" />
                   ) : (
                     <UploadCloud className="w-7 h-7 text-sky-500" />
                   )}
                 </div>
                 <h3 className="text-base font-medium text-neutral-900 dark:text-white mb-1">
-                  Drag {mediaType === 'video' ? 'videos (MP4, WEBM)' : 'photos (JPG, PNG, WEBP)'} here
+                  {isCompressingPhoto
+                    ? 'Resizing & optimizing image...'
+                    : `Drag ${mediaType === 'video' ? 'videos (MP4, WEBM)' : 'photos (JPG, PNG, WEBP)'} here`}
                 </h3>
                 <p className="text-xs text-neutral-500 mb-4">
-                  {mediaType === 'video'
+                  {isCompressingPhoto
+                    ? 'Applying canvas resizing to max 800px & 0.7 JPEG quality'
+                    : mediaType === 'video'
                     ? 'High definition vertical Reels or horizontal clips'
-                    : 'Supports high-res photography'}
+                    : 'Supports high-res photography (auto-optimized)'}
                 </p>
                 <button
                   id="select-computer-btn"
@@ -326,65 +486,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   onChange={handleFileChange}
                   className="hidden"
                 />
-              </div>
-
-              {/* Curated Presets: Photos or Videos depending on active mediaType */}
-              <div className="w-full max-w-lg mt-5">
-                <div className="flex items-center gap-2 mb-2.5">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-                    {mediaType === 'video' ? 'Or pick a sample video clip' : 'Or pick a sample photo'}
-                  </span>
-                </div>
-
-                {mediaType === 'video' ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                    {samplePresetVideos.map((preset) => (
-                      <button
-                        key={preset.name}
-                        onClick={() => handlePickPresetVideo(preset)}
-                        className="group relative aspect-video rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 hover:border-sky-500 transition text-left bg-neutral-950 p-2 flex flex-col justify-end"
-                      >
-                        <video
-                          src={preset.url}
-                          muted
-                          preload="metadata"
-                          className="absolute inset-0 w-full h-full object-cover opacity-70 group-hover:opacity-100 transition"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                        <div className="relative z-10">
-                          <div className="flex items-center gap-1 text-[11px] font-semibold text-white truncate">
-                            <Clapperboard className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                            <span>{preset.name}</span>
-                          </div>
-                          <span className="text-[10px] text-neutral-300 truncate block">
-                            {preset.audioTitle}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                    {samplePresetPhotos.map((preset) => (
-                      <button
-                        key={preset.name}
-                        onClick={() => handlePickPresetPhoto(preset)}
-                        className="group relative aspect-square rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-800 hover:scale-105 transition"
-                        title={preset.name}
-                      >
-                        <img
-                          src={preset.url}
-                          alt={preset.name}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px] text-white font-medium text-center p-1 transition">
-                          {preset.name}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -634,11 +735,136 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     className="flex-1 bg-transparent text-sm text-neutral-900 dark:text-white placeholder-neutral-500 focus:outline-none"
                   />
                 </div>
+
+                {/* Business & Product Tagging (D2C / Small Business) */}
+                <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/70 dark:bg-neutral-800/40 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                        <ShoppingBag className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-1">
+                          Product Tagging / उत्पाद टैग
+                          <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded">
+                            D2C & WhatsApp
+                          </span>
+                        </span>
+                        <p className="text-[11px] text-neutral-500">
+                          Tag a product with price in ₹ and direct WhatsApp CTA
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      id="toggle-product-tag-input"
+                      type="checkbox"
+                      checked={hasProductTag}
+                      onChange={(e) => setHasProductTag(e.target.checked)}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                    />
+                  </div>
+
+                  {hasProductTag && (
+                    <div className="space-y-2.5 pt-1 border-t border-neutral-200 dark:border-neutral-700">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 block mb-1">
+                            Product Title / उत्पाद का नाम
+                          </label>
+                          <input
+                            id="product-tag-title-input"
+                            type="text"
+                            placeholder="e.g. Pure Silk Banarasi Saree"
+                            value={productTitle}
+                            onChange={(e) => setProductTitle(e.target.value)}
+                            className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 block mb-1">
+                            Price in ₹ / मूल्य (रुपये)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-500">
+                              ₹
+                            </span>
+                            <input
+                              id="product-tag-price-input"
+                              type="number"
+                              min="1"
+                              placeholder="e.g. 1499"
+                              value={productPrice}
+                              onChange={(e) => setProductPrice(e.target.value)}
+                              className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs text-neutral-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 block mb-1">
+                          WhatsApp Business Number (with country code)
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-mono text-emerald-600 dark:text-emerald-400">
+                            +
+                          </span>
+                          <input
+                            id="product-tag-whatsapp-input"
+                            type="text"
+                            placeholder="919876543210"
+                            value={productWhatsapp}
+                            onChange={(e) => setProductWhatsapp(e.target.value)}
+                            className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-mono text-neutral-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Moderation Warning Banner (if text violated community rules) */}
+                {moderationWarning && (
+                  <div
+                    id="post-moderation-warning"
+                    className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2.5 animate-in fade-in"
+                  >
+                    <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold mb-0.5">Content Moderation Notice</p>
+                      <p>{moderationWarning}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Strict Safety Disclaimer on Post Upload Screen */}
+                <div
+                  id="create-post-safety-disclaimer"
+                  className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-200 text-xs flex items-start gap-2.5"
+                >
+                  <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <p className="leading-relaxed">
+                    <span className="font-bold">Zero tolerance for nudity, harassment, or abusive media. Violations will result in an immediate permanent account ban.</span>
+                  </p>
+                </div>
+
+                {/* Primary Publish Button */}
+                <button
+                  id="create-post-publish-main-btn"
+                  type="button"
+                  onClick={handleShare}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-bold text-sm shadow-md transition active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Check className="w-4 h-4 stroke-[2.5]" />
+                  <span>Publish {mediaType === 'video' ? 'Reel' : 'Post'}</span>
+                </button>
               </div>
             </div>
           )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
+  </div>
+</div>
   );
 };

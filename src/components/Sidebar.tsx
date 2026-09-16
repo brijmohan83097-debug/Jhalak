@@ -11,10 +11,13 @@ import {
   Clapperboard,
   LogOut,
   Globe2,
+  Scale,
+  Heart,
 } from 'lucide-react';
 import { NavTab, User } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
 import { JhalakLogo } from './JhalakLogo';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -24,8 +27,10 @@ interface SidebarProps {
   darkMode: boolean;
   onToggleDarkMode: () => void;
   onOpenCreateModal: () => void;
+  onOpenNotifications?: () => void;
   onOpenGoogleLogin?: () => void;
   onOpenSettings?: () => void;
+  onOpenLegalPolicies?: () => void;
   onLogout?: () => void;
   isAuthenticated?: boolean;
   currentLanguage?: SupportedLanguage;
@@ -39,8 +44,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   darkMode,
   onToggleDarkMode,
   onOpenCreateModal,
+  onOpenNotifications,
   onOpenGoogleLogin,
   onOpenSettings,
+  onOpenLegalPolicies,
   onLogout,
   isAuthenticated = true,
   currentLanguage = 'en',
@@ -133,6 +140,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
 
+          {/* Notifications Button */}
+          {onOpenNotifications && (
+            <button
+              id="sidebar-notifications-btn"
+              onClick={onOpenNotifications}
+              className="flex items-center gap-4 p-3 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition group"
+            >
+              <Heart className="w-6 h-6 mx-auto xl:mx-0 stroke-[1.8] group-hover:scale-105 transition-transform" />
+              <span className="hidden xl:inline text-sm font-medium">{t.notifications}</span>
+            </button>
+          )}
+
           {/* Create Post Button */}
           <button
             id="sidebar-create-btn"
@@ -186,6 +205,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-sm font-medium">{t.settings}</span>
               <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 {activeLang?.name}
+              </span>
+            </div>
+          </button>
+        )}
+
+        {/* Privacy & Terms (Play Store Compliance) */}
+        {/* PWA App Install Button */}
+        <div className="hidden xl:block">
+          <PWAInstallButton variant="sidebar" />
+        </div>
+
+        {onOpenLegalPolicies && (
+          <button
+            id="sidebar-legal-btn"
+            onClick={onOpenLegalPolicies}
+            className="flex items-center gap-4 p-3 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition group"
+            title="Privacy Policy & Terms"
+          >
+            <Scale className="w-6 h-6 mx-auto xl:mx-0 stroke-[1.8] text-amber-500 group-hover:scale-105 transition-transform" />
+            <div className="hidden xl:flex items-center justify-between w-full">
+              <span className="text-sm font-medium">Privacy & Terms</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-bold">
+                UGC Safe
               </span>
             </div>
           </button>

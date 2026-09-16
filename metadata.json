@@ -1,7 +1,10 @@
 {
   "name": "Jhalak",
   "description": "Modern, responsive photo and video sharing platform with home feed, stories, post creation, explore grid, direct messages, and user profile in light and dark mode.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
 

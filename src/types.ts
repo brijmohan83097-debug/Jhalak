@@ -31,6 +31,16 @@ export interface StoryGroup {
   slides: StorySlide[];
 }
 
+export type ContentCategory =
+  | 'Comedy'
+  | 'Tech'
+  | 'Travel'
+  | 'Music'
+  | 'Fabrication/DIY'
+  | 'Bollywood'
+  | 'Food'
+  | 'Fitness';
+
 export interface Comment {
   id: string;
   username: string;
@@ -39,6 +49,19 @@ export interface Comment {
   timestamp: string;
   likesCount: number;
   isLiked?: boolean;
+  mediaUrl?: string;
+  mediaType?: 'image' | 'gif';
+}
+
+export interface ProductTag {
+  id: string;
+  title: string;
+  price: number;
+  currency?: string;
+  description?: string;
+  whatsappNumber?: string;
+  category?: string;
+  imageUrl?: string;
 }
 
 export interface Post {
@@ -52,6 +75,7 @@ export interface Post {
   mediaType: 'image' | 'video';
   caption: string;
   tags: string[];
+  category?: ContentCategory;
   likesCount: number;
   isLiked: boolean;
   isSaved: boolean;
@@ -60,6 +84,7 @@ export interface Post {
   filter?: string;
   audioTitle?: string;
   viewsCount?: number;
+  productTag?: ProductTag;
 }
 
 export interface Reel {
@@ -71,6 +96,7 @@ export interface Reel {
   location?: string;
   videoUrl: string;
   caption: string;
+  category?: ContentCategory;
   audioTitle: string;
   audioArtist?: string;
   likesCount: number;
@@ -81,7 +107,20 @@ export interface Reel {
   comments: Comment[];
   tags: string[];
   timestamp: string;
+  productTag?: ProductTag;
 }
+
+export interface CategoryAffinity {
+  score: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  watchCompletions: number;
+  consecutiveCount: number;
+  manualTuning: 'boost' | 'demote' | 'neutral';
+}
+
+export type AffinityMap = Record<string, CategoryAffinity>;
 
 export interface Message {
   id: string;
@@ -90,6 +129,10 @@ export interface Message {
   timestamp: string;
   isMine: boolean;
   isRead?: boolean;
+  type?: 'text' | 'voice' | 'image';
+  mediaUrl?: string;
+  voiceDuration?: number;
+  voiceWaveform?: number[];
 }
 
 export interface Conversation {
