@@ -116,7 +116,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               Sign in with Google
             </h2>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              Choose an account to continue to <span className="font-semibold text-neutral-800 dark:text-neutral-200">Jhalak</span>
+              Choose an account to continue to <span className="font-semibold text-neutral-800 dark:text-neutral-200">Jhalak Reels: Made in India</span>
             </p>
           </div>
 
@@ -234,7 +234,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           <div className="mt-6 pt-4 border-t border-neutral-100 dark:border-neutral-800/80 flex items-start gap-2 text-[11px] text-neutral-500 leading-relaxed">
             <Shield className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
             <p>
-              To continue, Google will securely share your name, email address, and profile photo with Jhalak.
+              To continue, Google will securely share your name, email address, and profile photo with Jhalak Reels: Made in India.
             </p>
           </div>
 
@@ -246,7 +246,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                 onClick={onContinueAsGuest}
                 className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 underline transition"
               >
-                Or explore Jhalak as guest
+                Or explore Jhalak Reels: Made in India as guest
               </button>
             </div>
           )}

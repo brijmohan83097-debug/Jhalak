@@ -24,6 +24,7 @@ import { EditProfileModal } from './components/EditProfileModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { RightSuggestionsSidebar } from './components/RightSuggestionsSidebar';
 import { ReelsView } from './components/ReelsView';
+import { FullScreenMediaViewer } from './components/FullScreenMediaViewer';
 import { GoogleAuthModal, GoogleAccount } from './components/GoogleAuthModal';
 import { GoogleWelcomeScreen } from './components/GoogleWelcomeScreen';
 import { CommentsBottomSheet } from './components/CommentsBottomSheet';
@@ -39,6 +40,7 @@ import { moderationService } from './services/moderationService';
 import { adMobService, ADMOB_CONFIG } from './services/adMobService';
 import { AdMobBannerAd } from './components/AdMobBannerAd';
 import { AdMobNativeFeedAd } from './components/AdMobNativeFeedAd';
+import { SplashScreen } from './components/SplashScreen';
 import {
   safeSetItem,
   registerStorageWarningToast,
@@ -47,6 +49,8 @@ import {
 } from './utils/safeStorage';
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+
   // Language State with local persistence (default: 'en')
   const [currentLanguage, setCurrentLanguage] = useState<SupportedLanguage>(() => {
     const saved = localStorage.getItem('jhalak_language') as SupportedLanguage | null;
@@ -70,50 +74,210 @@ export default function App() {
 
   const [isGuestMode, setIsGuestMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('jhalak_guest_mode');
-    return saved === 'true';
+    // Enable full Guest Mode by default: users can watch all feeds without forcing sign-in
+    return saved !== null ? saved === 'true' : true;
   });
 
   const [isGoogleAuthModalOpen, setIsGoogleAuthModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
+  // Real-time recommendation & personalization engine subscription state
+  const [recsVersion, setRecsVersion] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = recommendationEngine.subscribe(() => {
+      setRecsVersion((v) => v + 1);
+    });
+    return unsubscribe;
+  }, []);
+
   // Core Data States
   const [currentUser, setCurrentUser] = useState<User>(() => {
     try {
       const saved = localStorage.getItem('ig_current_user');
+      let user: User = initialCurrentUser;
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object' && parsed.id) return parsed;
+        if (parsed && typeof parsed === 'object' && parsed.id) {
+          user = parsed;
+        }
       }
+
+      // Collect user-uploaded posts under profile across all storage keys
+      const profilePostsMap = new Map<string, Post>();
+      (user.userPosts || user.posts || []).forEach((p) => {
+        if (p && p.id) profilePostsMap.set(p.id, p);
+      });
+
+      const profileKeys = [
+        `ig_user_posts_${user.id}`,
+        `ig_user_posts_${user.username}`,
+        'jhalak_uploaded_posts_v1',
+        'jhalak_user_posts',
+      ];
+
+      profileKeys.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              list.forEach((p: Post) => {
+                if (p && p.id) profilePostsMap.set(p.id, p);
+              });
+            }
+          }
+        } catch {
+          // safe
+        }
+      });
+
+      const resolvedPosts = Array.from(profilePostsMap.values());
+      const verifiedPostsCount = Math.max(user.postsCount || 0, resolvedPosts.length);
+
+      const finalizedUser: User = {
+        ...user,
+        postsCount: verifiedPostsCount,
+        posts: resolvedPosts,
+        userPosts: resolvedPosts,
+      };
+
+      try {
+        safeSetItem('ig_current_user', JSON.stringify(finalizedUser));
+      } catch {
+        // safe
+      }
+      return finalizedUser;
     } catch {
-      // ignore corrupted data
+      return initialCurrentUser;
     }
-    return initialCurrentUser;
   });
 
   const [posts, setPosts] = useState<Post[]>(() => {
     try {
-      const saved = localStorage.getItem('ig_feed_posts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+      // 1. Get all user uploaded posts across all profile storage sources
+      const postMap = new Map<string, Post>();
+
+      const checkKeys = [
+        'jhalak_uploaded_posts_v1',
+        'jhalak_user_posts',
+        'ig_user_posts_user-me',
+        'ig_user_posts_brijmohan',
+      ];
+
+      // Also read from saved current user profile
+      try {
+        const userSaved = localStorage.getItem('ig_current_user');
+        if (userSaved) {
+          const u = JSON.parse(userSaved);
+          if (u) {
+            (u.userPosts || u.posts || []).forEach((p: Post) => {
+              if (p && p.id) postMap.set(p.id, p);
+            });
+            if (u.id) checkKeys.push(`ig_user_posts_${u.id}`);
+            if (u.username) checkKeys.push(`ig_user_posts_${u.username}`);
+          }
+        }
+      } catch {
+        // safe
       }
+
+      checkKeys.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              list.forEach((p: Post) => {
+                if (p && p.id) postMap.set(p.id, p);
+              });
+            }
+          }
+        } catch {
+          // safe
+        }
+      });
+
+      // 2. Get saved feed posts, filtering out legacy generic placeholder city items or old preloaded items
+      const legacyDummyIds = new Set([
+        'post-1', 'post-2', 'post-3', 'post-4', 'post-5', 'post-6', 'post-7', 'post-8',
+        'post-bhojpuri-1', 'post-bhojpuri-2', 'post-bhojpuri-3', 'post-bhojpuri-4',
+        'post-bhojpuri-5', 'post-bhojpuri-6', 'post-bhojpuri-7', 'post-bhojpuri-8'
+      ]);
+      const feedSaved = localStorage.getItem('ig_feed_posts');
+      let feedList: Post[] = [];
+      if (feedSaved) {
+        const parsedFeed = JSON.parse(feedSaved);
+        if (Array.isArray(parsedFeed)) {
+          feedList = parsedFeed.filter((p: Post) => !legacyDummyIds.has(p.id));
+        }
+      }
+
+      // 3. Combine: User-uploaded posts first, followed by feed list
+      feedList.forEach((p) => {
+        if (!postMap.has(p.id)) {
+          postMap.set(p.id, p);
+        }
+      });
+
+      // 4. Always seed the entertaining Bhojpuri initialPosts
+      initialPosts.forEach((p) => {
+        if (!postMap.has(p.id)) {
+          postMap.set(p.id, p);
+        }
+      });
+
+      return Array.from(postMap.values());
     } catch {
-      // ignore corrupted data
+      return initialPosts;
     }
-    return initialPosts;
   });
 
   const [reels, setReels] = useState<Reel[]>(() => {
     try {
+      const uploadedSaved = localStorage.getItem('jhalak_uploaded_reels_v1');
+      let uploadedList: Reel[] = [];
+      if (uploadedSaved) {
+        const parsed = JSON.parse(uploadedSaved);
+        if (Array.isArray(parsed)) uploadedList = parsed;
+      }
+
+      const legacyReelIds = new Set(['reel-1', 'reel-2', 'reel-3', 'reel-4', 'reel-5', 'reel-6', 'reel-7', 'reel-8']);
       const saved = localStorage.getItem('ig_reels');
+      let savedList: Reel[] = [];
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          savedList = parsed.filter((r: Reel) => !legacyReelIds.has(r.id));
+        }
       }
+
+      const reelMap = new Map<string, Reel>();
+      uploadedList.forEach((r) => reelMap.set(r.id, r));
+      savedList.forEach((r) => {
+        if (!reelMap.has(r.id)) reelMap.set(r.id, r);
+      });
+
+      // Always seed and refresh initialReels with reliable MP4 video URLs
+      const initialMap = new Map(initialReels.map((r) => [r.id, r]));
+      initialReels.forEach((r) => {
+        reelMap.set(r.id, r);
+      });
+
+      return Array.from(reelMap.values()).map((r) => {
+        // Automatically migrate any legacy stored reel with broken commondatastorage link
+        if (r.videoUrl && r.videoUrl.includes('commondatastorage.googleapis.com')) {
+          const fresh = initialMap.get(r.id);
+          return {
+            ...r,
+            videoUrl: fresh ? fresh.videoUrl : 'https://media.w3.org/2010/05/sintel/trailer.mp4',
+          };
+        }
+        return r;
+      });
     } catch {
-      // ignore corrupted data
+      return initialReels;
     }
-    return initialReels;
   });
 
   const [stories, setStories] = useState<StoryGroup[]>(() => {
@@ -147,6 +311,11 @@ export default function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createInitialAudio, setCreateInitialAudio] = useState<string | undefined>(undefined);
   const [selectedPostDetail, setSelectedPostDetail] = useState<Post | null>(null);
+  const [fullScreenViewerState, setFullScreenViewerState] = useState<{
+    isOpen: boolean;
+    initialPostId: string;
+    posts: Post[];
+  } | null>(null);
   const [sharePost, setSharePost] = useState<Post | null>(null);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null);
@@ -171,25 +340,18 @@ export default function App() {
 
   const t = translations[currentLanguage];
 
-  // Clean wipe of any legacy mock data on launch so the user sees clean empty states
+  // Auto-restore preloaded posts and reels if feed becomes empty
   useEffect(() => {
-    const CLEAN_KEY = 'jhalak_clean_real_v3';
-    if (!localStorage.getItem(CLEAN_KEY)) {
-      localStorage.removeItem('ig_feed_posts');
-      localStorage.removeItem('ig_reels');
-      localStorage.removeItem('ig_stories');
-      localStorage.removeItem('ig_conversations');
-      localStorage.removeItem('ig_current_user');
-      localStorage.removeItem('ig_profile_highlights');
-      localStorage.removeItem('jhalak_custom_created_posts_v1');
-      localStorage.setItem(CLEAN_KEY, 'true');
-      setPosts([]);
-      setReels([]);
-      setStories(initialStories);
-      setConversations([]);
-      setCurrentUser(initialCurrentUser);
+    if (posts.length === 0) {
+      setPosts(initialPosts);
     }
-  }, []);
+  }, [posts.length]);
+
+  useEffect(() => {
+    if (reels.length === 0) {
+      setReels(initialReels);
+    }
+  }, [reels.length]);
 
   // Subscribe to moderation changes
   useEffect(() => {
@@ -275,10 +437,18 @@ export default function App() {
     }
   }, [reels]);
 
-  // Persist current user safely with try-catch
+  // Persist current user and profile posts safely with try-catch
   useEffect(() => {
     try {
       safeSetItem('ig_current_user', JSON.stringify(currentUser));
+      if (currentUser.id) {
+        const postsToSync = currentUser.userPosts || currentUser.posts || [];
+        if (postsToSync.length > 0) {
+          safeSetItem(`ig_user_posts_${currentUser.id}`, JSON.stringify(postsToSync));
+          safeSetItem(`ig_user_posts_${currentUser.username}`, JSON.stringify(postsToSync));
+          safeSetItem('jhalak_uploaded_posts_v1', JSON.stringify(postsToSync));
+        }
+      }
     } catch (err) {
       console.warn('Failed to persist profile/avatar:', err);
       showToast('⚠️ Storage quota exceeded. Profile changes may not be saved locally.');
@@ -305,8 +475,25 @@ export default function App() {
     }
   }, [stories]);
 
+  // Open Immersive Full-Screen Media Viewer
+  const handleOpenFullScreen = (post: Post, postList?: Post[]) => {
+    const list = postList && postList.length > 0 ? postList : sortedFeedPosts;
+    const finalList = list.some((p) => p.id === post.id) ? list : [post, ...list];
+    setFullScreenViewerState({
+      isOpen: true,
+      initialPostId: post.id,
+      posts: finalList,
+    });
+  };
+
   // Toggle Like Handler
   const handleToggleLike = (postId: string) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to like posts ❤️');
+      return;
+    }
+
     const post = posts.find((p) => p.id === postId);
     if (post && !post.isLiked) {
       recommendationEngine.recordInteraction(post.category || 'Travel', 'like');
@@ -331,10 +518,33 @@ export default function App() {
         return { ...prev, isLiked, likesCount };
       });
     }
+
+    if (fullScreenViewerState && fullScreenViewerState.isOpen) {
+      setFullScreenViewerState((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          posts: prev.posts.map((p) => {
+            if (p.id === postId) {
+              const isLiked = !p.isLiked;
+              const likesCount = isLiked ? p.likesCount + 1 : Math.max(0, p.likesCount - 1);
+              return { ...p, isLiked, likesCount };
+            }
+            return p;
+          }),
+        };
+      });
+    }
   };
 
   // Toggle Save Handler
   const handleToggleSave = (postId: string) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to save posts 🔖');
+      return;
+    }
+
     const post = posts.find((p) => p.id === postId);
     if (post && !post.isSaved) {
       recommendationEngine.recordInteraction(post.category || 'Travel', 'save');
@@ -357,6 +567,16 @@ export default function App() {
         return { ...prev, isSaved: !prev.isSaved };
       });
     }
+
+    if (fullScreenViewerState && fullScreenViewerState.isOpen) {
+      setFullScreenViewerState((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          posts: prev.posts.map((p) => (p.id === postId ? { ...p, isSaved: !p.isSaved } : p)),
+        };
+      });
+    }
   };
 
   // Add Comment to Feed Post
@@ -366,6 +586,12 @@ export default function App() {
     mediaUrl?: string,
     mediaType?: 'image' | 'gif'
   ) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to comment on posts 💬');
+      return;
+    }
+
     // 1. Automatic Text Moderation (Banned Words Filter) for Comments
     const moderationCheck = moderationService.validateContent(text);
     if (!moderationCheck.isValid) {
@@ -412,6 +638,18 @@ export default function App() {
       });
     }
 
+    if (fullScreenViewerState && fullScreenViewerState.isOpen) {
+      setFullScreenViewerState((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          posts: prev.posts.map((p) =>
+            p.id === postId ? { ...p, comments: [...p.comments, newComment] } : p
+          ),
+        };
+      });
+    }
+
     showToast(t.commentPosted || 'Comment posted successfully');
   };
 
@@ -431,14 +669,14 @@ export default function App() {
     }
   };
 
-  // Sort Feed Posts with Instagram Recommendation Algorithm & Moderation Filters
+  // Sort Feed Posts automatically based on Watch-Time, Language Engagement, and Moderation Filters
   const sortedFeedPosts = useMemo(() => {
     const cleanPosts = posts.filter(
       (p) =>
         !moderationService.isUserBlocked(p.username) && !moderationService.isItemReported(p.id)
     );
-    return recommendationEngine.sortPosts(cleanPosts);
-  }, [posts, blockedVersion]);
+    return recommendationEngine.sortPosts(cleanPosts, currentLanguage);
+  }, [posts, blockedVersion, currentLanguage, recsVersion]);
 
   // Interleave In-Feed Native Ads seamlessly every 6-8 posts
   const feedItemsWithAds = useMemo(() => {
@@ -569,6 +807,11 @@ export default function App() {
       'ig_conversations',
       'ig_current_user',
       'ig_profile_highlights',
+      'jhalak_uploaded_posts_v1',
+      'jhalak_uploaded_reels_v1',
+      'jhalak_user_posts',
+      `ig_user_posts_${userIdToDelete}`,
+      `ig_user_posts_${usernameToDelete}`,
       'jhalak_custom_created_posts_v1',
       'jhalak_auth_state',
       'jhalak_guest_mode',
@@ -619,8 +862,23 @@ export default function App() {
     showToast('Your account and all associated personal data have been permanently deleted.');
   };
 
+  // Open Create Post Modal (prompting sign-in if guest)
+  const handleOpenCreateModal = () => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to create and share posts 📸');
+      return;
+    }
+    setIsCreateModalOpen(true);
+  };
+
   // Handle "Use Audio" action from Reels
   const handleUseAudio = (audioTitle: string, _audioArtist?: string) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to create with sound 🎵');
+      return;
+    }
     setCreateInitialAudio(audioTitle);
     setIsCreateModalOpen(true);
     showToast(`Using sound: ${audioTitle} 🎵`);
@@ -651,14 +909,63 @@ export default function App() {
 
   // Create New Post or Reel Handler
   const handlePostCreated = (newPost: Post, newReel?: Reel) => {
+    // 1. Immediately prepend to feed posts state
     setPosts((prev) => [newPost, ...prev]);
+
+    // 2. Automatically append it to localStorage under the current user's profile and increment the profile posts count
+    const profileKeyById = `ig_user_posts_${currentUser.id}`;
+    const profileKeyByName = `ig_user_posts_${currentUser.username}`;
+
+    let existingProfilePosts: Post[] = [];
+    try {
+      const stored =
+        localStorage.getItem(profileKeyById) ||
+        localStorage.getItem(profileKeyByName) ||
+        localStorage.getItem('jhalak_uploaded_posts_v1') ||
+        localStorage.getItem('jhalak_user_posts');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) existingProfilePosts = parsed;
+      }
+    } catch {
+      existingProfilePosts = currentUser.userPosts || currentUser.posts || [];
+    }
+
+    const updatedProfilePosts = [newPost, ...existingProfilePosts.filter((p) => p.id !== newPost.id)];
+    const newPostsCount = Math.max((currentUser.postsCount || 0) + 1, updatedProfilePosts.length);
+
+    const updatedUser: User = {
+      ...currentUser,
+      postsCount: newPostsCount,
+      posts: updatedProfilePosts,
+      userPosts: updatedProfilePosts,
+    };
+
+    // Synchronously append to localStorage under current user's profile and dedicated profile storage keys
+    try {
+      safeSetItem('ig_current_user', JSON.stringify(updatedUser));
+      safeSetItem(profileKeyById, JSON.stringify(updatedProfilePosts));
+      safeSetItem(profileKeyByName, JSON.stringify(updatedProfilePosts));
+      safeSetItem('jhalak_uploaded_posts_v1', JSON.stringify(updatedProfilePosts));
+      safeSetItem('jhalak_user_posts', JSON.stringify(updatedProfilePosts));
+    } catch (err) {
+      console.warn('Failed to save uploaded post under profile:', err);
+    }
+
+    // Update currentUser state
+    setCurrentUser(updatedUser);
+
     if (newReel) {
       setReels((prev) => [newReel, ...prev]);
+      try {
+        const existingReelsStr = localStorage.getItem('jhalak_uploaded_reels_v1');
+        const existingReels: Reel[] = existingReelsStr ? JSON.parse(existingReelsStr) : [];
+        const updatedReels = [newReel, ...existingReels.filter((r) => r.id !== newReel.id)];
+        safeSetItem('jhalak_uploaded_reels_v1', JSON.stringify(updatedReels));
+      } catch (err) {
+        console.warn('Failed to save uploaded reel permanently:', err);
+      }
     }
-    setCurrentUser((prev) => ({
-      ...prev,
-      postsCount: prev.postsCount + 1,
-    }));
 
     if (newPost.mediaType === 'video' && newReel) {
       setCurrentTab('reels');
@@ -671,6 +978,12 @@ export default function App() {
 
   // Reels Handlers
   const handleToggleLikeReel = (reelId: string) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to like reels ❤️');
+      return;
+    }
+
     setReels((prev) =>
       prev.map((reel) => {
         if (reel.id === reelId) {
@@ -687,6 +1000,12 @@ export default function App() {
   };
 
   const handleToggleSaveReel = (reelId: string) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to save reels 🔖');
+      return;
+    }
+
     setReels((prev) =>
       prev.map((reel) => {
         if (reel.id === reelId) {
@@ -705,6 +1024,12 @@ export default function App() {
     mediaUrl?: string,
     mediaType?: 'image' | 'gif'
   ) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to comment on reels 💬');
+      return;
+    }
+
     // 1. Automatic Text Moderation (Banned Words Filter) for Comments
     const moderationCheck = moderationService.validateContent(text);
     if (!moderationCheck.isValid) {
@@ -822,6 +1147,8 @@ export default function App() {
 
   // Google Login Handlers
   const handleGoogleLoginSuccess = (account: GoogleAccount) => {
+    const userPostsToKeep = currentUser.userPosts || currentUser.posts || userPosts;
+    const postsCountToKeep = Math.max(currentUser.postsCount || 0, userPostsToKeep.length);
     const updatedUser: User = {
       ...currentUser,
       id: `u-${account.email.split('@')[0]}`,
@@ -831,7 +1158,9 @@ export default function App() {
       avatar: account.avatar,
       isGoogleAuth: true,
       bio: currentUser.bio || '',
-      postsCount: currentUser.postsCount || 0,
+      postsCount: postsCountToKeep,
+      posts: userPostsToKeep,
+      userPosts: userPostsToKeep,
       followersCount: currentUser.followersCount || 0,
       followingCount: currentUser.followingCount || 0,
     };
@@ -843,6 +1172,8 @@ export default function App() {
       safeSetItem('jhalak_auth_state', 'true');
       safeSetItem('jhalak_guest_mode', 'false');
       safeSetItem('ig_current_user', JSON.stringify(updatedUser));
+      safeSetItem(`ig_user_posts_${updatedUser.id}`, JSON.stringify(userPostsToKeep));
+      safeSetItem(`ig_user_posts_${updatedUser.username}`, JSON.stringify(userPostsToKeep));
     } catch {
       // quota handled
     }
@@ -887,8 +1218,13 @@ export default function App() {
     );
   };
 
-  // Add a story
+  // Add a story (prompting sign-in if guest)
   const handleAddStory = () => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to add stories 📸');
+      return;
+    }
     setIsCreateStoryModalOpen(true);
   };
 
@@ -934,7 +1270,22 @@ export default function App() {
 
   // Edit Profile Save Handler
   const handleSaveProfile = (updatedUser: User) => {
-    setCurrentUser(updatedUser);
+    const verifiedPosts = updatedUser.userPosts || updatedUser.posts || currentUser.userPosts || currentUser.posts || userPosts;
+    const verifiedCount = Math.max(updatedUser.postsCount || 0, currentUser.postsCount || 0, verifiedPosts.length);
+    const finalized: User = {
+      ...updatedUser,
+      postsCount: verifiedCount,
+      posts: verifiedPosts,
+      userPosts: verifiedPosts,
+    };
+    setCurrentUser(finalized);
+    try {
+      safeSetItem('ig_current_user', JSON.stringify(finalized));
+      safeSetItem(`ig_user_posts_${finalized.id}`, JSON.stringify(verifiedPosts));
+      safeSetItem(`ig_user_posts_${finalized.username}`, JSON.stringify(verifiedPosts));
+    } catch {
+      // safe
+    }
     setPosts((prev) =>
       prev.map((p) =>
         p.userId === updatedUser.id
@@ -955,7 +1306,55 @@ export default function App() {
     }
   };
 
-  const userPosts = posts.filter((p) => p.userId === currentUser.id || p.username === currentUser.username);
+  const userPosts = useMemo(() => {
+    const postMap = new Map<string, Post>();
+
+    // 1. Posts stored directly under current user profile
+    (currentUser.userPosts || currentUser.posts || []).forEach((p) => {
+      if (p && p.id) postMap.set(p.id, p);
+    });
+
+    // 2. Persistent storage keys for this user
+    try {
+      const keys = [
+        `ig_user_posts_${currentUser.id}`,
+        `ig_user_posts_${currentUser.username}`,
+        'jhalak_uploaded_posts_v1',
+        'jhalak_user_posts',
+      ];
+      for (const k of keys) {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((p: Post) => {
+              if (p && p.id && !postMap.has(p.id)) {
+                postMap.set(p.id, p);
+              }
+            });
+          }
+        }
+      }
+    } catch {
+      // safe fallback
+    }
+
+    // 3. Current active posts matching user ID or username
+    posts.forEach((p) => {
+      if (
+        p.userId === currentUser.id ||
+        (p.username && p.username.toLowerCase() === currentUser.username.toLowerCase()) ||
+        (currentUser.id === 'user-me' && p.username === 'brijmohan')
+      ) {
+        if (!postMap.has(p.id)) {
+          postMap.set(p.id, p);
+        }
+      }
+    });
+
+    return Array.from(postMap.values());
+  }, [posts, currentUser]);
+
   const savedPosts = posts.filter((p) => p.isSaved);
   const totalUnreadMessages = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
 
@@ -966,6 +1365,7 @@ export default function App() {
   if (!isAuthenticated && !isGuestMode) {
     return (
       <div className={`min-h-screen ${darkMode ? 'dark bg-black text-white' : 'bg-neutral-50 text-neutral-900'}`}>
+        {showSplash && <SplashScreen onFinished={() => setShowSplash(false)} />}
         {toastMessage && (
           <div
             id="welcome-toast-notification"
@@ -992,6 +1392,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-black text-neutral-900 dark:text-neutral-100 font-sans transition-colors duration-200">
+      {/* Launch Splash Screen */}
+      {showSplash && <SplashScreen onFinished={() => setShowSplash(false)} />}
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/90 dark:bg-white/95 text-white dark:text-neutral-900 px-5 py-2.5 rounded-full text-xs font-semibold shadow-xl border border-white/10 dark:border-black/10 transition transform animate-fade-in select-none">
@@ -1027,7 +1430,7 @@ export default function App() {
           unreadMessagesCount={totalUnreadMessages}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
-          onOpenCreateModal={() => setIsCreateModalOpen(true)}
+          onOpenCreateModal={handleOpenCreateModal}
           onOpenNotifications={() => setIsNotificationsModalOpen(true)}
           onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
@@ -1050,7 +1453,7 @@ export default function App() {
             unreadMessagesCount={totalUnreadMessages}
             darkMode={darkMode}
             onToggleDarkMode={() => setDarkMode((d) => !d)}
-            onOpenCreateModal={() => setIsCreateModalOpen(true)}
+            onOpenCreateModal={handleOpenCreateModal}
             onShowNotifications={() => setIsNotificationsModalOpen(true)}
             onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
@@ -1090,14 +1493,29 @@ export default function App() {
                       <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
                         No posts yet. Tap the '+' button below to create your first post!
                       </p>
-                      <button
-                        id="empty-feed-create-post-btn"
-                        onClick={() => setIsCreateModalOpen(true)}
-                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4 stroke-[3]" />
-                        <span>Create Your First Post</span>
-                      </button>
+                      <div className="flex flex-wrap items-center justify-center gap-3">
+                        <button
+                          id="empty-feed-create-post-btn"
+                          onClick={handleOpenCreateModal}
+                          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4 stroke-[3]" />
+                          <span>Create Your First Post</span>
+                        </button>
+                        <button
+                          id="empty-feed-load-preloaded-btn"
+                          onClick={() => {
+                            setPosts(initialPosts);
+                            setReels(initialReels);
+                            safeSetItem('ig_feed_posts', JSON.stringify(initialPosts));
+                            safeSetItem('ig_reels', JSON.stringify(initialReels));
+                            showToast('Loaded preloaded posts to feed! ✨');
+                          }}
+                          className="px-4 py-2.5 rounded-xl border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 text-xs font-semibold transition active:scale-95 cursor-pointer"
+                        >
+                          Load Preloaded Posts
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     feedItemsWithAds.map((item) => {
@@ -1123,6 +1541,7 @@ export default function App() {
                             recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
                           }}
                           onOpenDetail={(p) => setSelectedPostDetail(p)}
+                          onOpenFullScreen={(p) => handleOpenFullScreen(p, sortedFeedPosts)}
                           onOpenComments={(p) => setActiveCommentsPostId(p.id)}
                           onViewUser={handleViewUser}
                           onNotInterested={handleNotInterestedPost}
@@ -1157,7 +1576,7 @@ export default function App() {
           {currentTab === 'explore' && (
             <ExploreView
               posts={allExploreItems}
-              onSelectPost={(p) => setSelectedPostDetail(p)}
+              onSelectPost={(p) => handleOpenFullScreen(p, allExploreItems)}
               currentLanguage={currentLanguage}
             />
           )}
@@ -1198,7 +1617,7 @@ export default function App() {
               savedPosts={savedPosts}
               onOpenEditProfile={() => setIsEditProfileOpen(true)}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
-              onSelectPost={(p) => setSelectedPostDetail(p)}
+              onSelectPost={(p) => handleOpenFullScreen(p, [...userPosts, ...savedPosts])}
               onOpenStoryModal={() => setActiveStoryIndex(0)}
               onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
               onLogout={handleLogout}
@@ -1227,7 +1646,7 @@ export default function App() {
           unreadMessagesCount={totalUnreadMessages}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
-          onOpenCreateModal={() => setIsCreateModalOpen(true)}
+          onOpenCreateModal={handleOpenCreateModal}
           currentLanguage={currentLanguage}
         />
       </div>
@@ -1267,6 +1686,22 @@ export default function App() {
           onAddComment={handleAddComment}
           onShare={(p) => setSharePost(p)}
           onViewUser={handleViewUser}
+          onOpenFullScreen={(p) => handleOpenFullScreen(p, posts)}
+        />
+      )}
+
+      {/* MODAL: Full-Screen Media Viewer (Reels / TikTok Vertical Scroll) */}
+      {fullScreenViewerState && fullScreenViewerState.isOpen && (
+        <FullScreenMediaViewer
+          posts={fullScreenViewerState.posts}
+          initialPostId={fullScreenViewerState.initialPostId}
+          currentUser={currentUser}
+          onClose={() => setFullScreenViewerState(null)}
+          onToggleLike={handleToggleLike}
+          onToggleSave={handleToggleSave}
+          onAddComment={handleAddComment}
+          onShare={(p) => setSharePost(p)}
+          onViewUser={handleViewUser}
         />
       )}
 
@@ -1300,6 +1735,8 @@ export default function App() {
         currentUser={currentUser}
         currentLanguage={currentLanguage}
         onLanguageChange={handleLanguageChange}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((d) => !d)}
         onOpenEditProfile={() => {
           setIsSettingsModalOpen(false);
           setIsEditProfileOpen(true);

@@ -34,7 +34,7 @@ import { WatermarkDownloadModal } from './WatermarkDownloadModal';
 import { ReportModal } from './ReportModal';
 import { UpiShagunSheet } from './UpiShagunSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
-import { recommendationEngine } from '../services/recommendationEngine';
+import { recommendationEngine, inferLanguage } from '../services/recommendationEngine';
 import { moderationService } from '../services/moderationService';
 import { adMobService, AdMobNativeAd } from '../services/adMobService';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
@@ -103,6 +103,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapTimeRef = useRef(0);
   const watchedReelsRef = useRef<Record<string, boolean>>({});
+  const lastWatchTickRef = useRef<number>(Date.now());
 
   // Re-synchronize queue if upstream initialReels length or content changes significantly
   useEffect(() => {
@@ -136,21 +137,28 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     setTimeout(() => setToastMessage(null), 3200);
   };
 
-  // Pause non-active videos and play the active one
+  // Pause non-active videos and play the active one with reliable muted autoplay
   useEffect(() => {
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
       if (index === activeIndex) {
         video.currentTime = 0;
+        video.defaultMuted = true;
         video.muted = isMuted;
-        video
-          .play()
-          .then(() => setIsPlaying(true))
-          .catch(() => {
-            // Autoplay policy fallback
-            video.muted = true;
-            video.play().catch(() => setIsPlaying(false));
-          });
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => setIsPlaying(true))
+            .catch(() => {
+              // Autoplay browser policy fallback: strictly enforce muted and retry
+              video.muted = true;
+              setIsMuted(true);
+              video
+                .play()
+                .then(() => setIsPlaying(true))
+                .catch(() => setIsPlaying(false));
+            });
+        }
       } else {
         video.pause();
         video.currentTime = 0;
@@ -168,13 +176,21 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     }
   }, [isMuted, activeIndex]);
 
-  // Handle Video Time Update for progress bar & complete watch tracking
+  // Handle Video Time Update for progress bar & continuous watch tracking
   const handleTimeUpdate = (index: number) => {
     if (index !== activeIndex) return;
     const video = videoRefs.current[index];
     if (video && video.duration) {
       const pct = (video.currentTime / video.duration) * 100;
       setProgress(pct);
+
+      // Record continuous watch time every 2 seconds
+      const now = Date.now();
+      const deltaSec = (now - lastWatchTickRef.current) / 1000;
+      if (deltaSec >= 2 && currentReel) {
+        recommendationEngine.recordWatchTime(currentReel, deltaSec);
+        lastWatchTickRef.current = now;
+      }
 
       // If user watches > 75% of the Reel, record a completed watch
       if (pct > 75 && currentReel && !watchedReelsRef.current[currentReel.id]) {
@@ -194,6 +210,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const handleLikeReel = () => {
     if (!currentReel) return;
     onToggleLike(currentReel.id);
+    recommendationEngine.recordLanguageInteraction(inferLanguage(currentReel), 'like');
     const triggered = recommendationEngine.recordInteraction(
       currentReel.category || 'Travel',
       'like'
@@ -220,17 +237,34 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Single click toggles play/pause
     const currentVideo = videoRefs.current[activeIndex];
+
+    // Click-to-unmute: if the video is currently muted on autoplay, single-clicking directly unmutes it!
+    if (isMuted) {
+      setIsMuted(false);
+      if (currentVideo) {
+        currentVideo.muted = false;
+        if (currentVideo.paused) {
+          currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
+        }
+      }
+      showToast('🔊 Audio unmuted');
+      return;
+    }
+
+    // When already unmuted, single click toggles play/pause
     if (currentVideo) {
       if (currentVideo.paused) {
-        currentVideo.play().then(() => {
-          setIsPlaying(true);
-          setShowPlayPauseIcon('play');
-          setTimeout(() => setShowPlayPauseIcon(null), 600);
-        }).catch(() => {
-          setIsPlaying(false);
-        });
+        currentVideo
+          .play()
+          .then(() => {
+            setIsPlaying(true);
+            setShowPlayPauseIcon('play');
+            setTimeout(() => setShowPlayPauseIcon(null), 600);
+          })
+          .catch(() => {
+            setIsPlaying(false);
+          });
       } else {
         currentVideo.pause();
         setIsPlaying(false);
@@ -407,13 +441,32 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 <video
                   ref={(el) => {
                     videoRefs.current[index] = el;
+                    if (el) {
+                      el.defaultMuted = true;
+                      el.muted = isMuted;
+                    }
                   }}
                   src={reel.videoUrl}
+                  autoPlay
                   loop
                   playsInline
+                  webkit-playsinline="true"
                   muted={isMuted}
                   preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'metadata'}
                   onTimeUpdate={() => handleTimeUpdate(index)}
+                  onEnded={(e) => {
+                    const vid = e.currentTarget;
+                    vid.currentTime = 0;
+                    vid.play().catch(() => {});
+                  }}
+                  onError={(e) => {
+                    // Resilient fallback stream in case of any network drops
+                    const target = e.currentTarget;
+                    if (!target.src.includes('trailer.mp4')) {
+                      target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
+                      target.play().catch(() => {});
+                    }
+                  }}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -426,6 +479,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               {/* Vignette Gradients for Legibility */}
               <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/30 to-transparent pointer-events-none z-20" />
               <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none z-20" />
+
+              {/* Click-to-unmute Floating Pill */}
+              {isMuted && (
+                <div className="absolute top-16 left-4 z-30 animate-bounce duration-1000 pointer-events-none">
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-semibold shadow-lg border border-white/20">
+                    <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Tap screen to unmute</span>
+                  </div>
+                </div>
+              )}
 
           {/* Heart burst on double tap */}
           {showHeartBurst && (

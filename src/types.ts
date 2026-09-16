@@ -11,6 +11,8 @@ export interface User {
   isVerified?: boolean;
   email?: string;
   isGoogleAuth?: boolean;
+  posts?: Post[];
+  userPosts?: Post[];
 }
 
 export interface StorySlide {
@@ -32,6 +34,7 @@ export interface StoryGroup {
 }
 
 export type ContentCategory =
+  | 'Bhojpuri'
   | 'Comedy'
   | 'Tech'
   | 'Travel'
@@ -39,7 +42,10 @@ export type ContentCategory =
   | 'Fabrication/DIY'
   | 'Bollywood'
   | 'Food'
-  | 'Fitness';
+  | 'Fitness'
+  | 'Regional Music'
+  | 'South Indian'
+  | 'Punjabi';
 
 export interface Comment {
   id: string;
@@ -84,6 +90,7 @@ export interface Post {
   filter?: string;
   audioTitle?: string;
   viewsCount?: number;
+  language?: string;
   productTag?: ProductTag;
 }
 
@@ -107,6 +114,7 @@ export interface Reel {
   comments: Comment[];
   tags: string[];
   timestamp: string;
+  language?: string;
   productTag?: ProductTag;
 }
 
@@ -116,11 +124,31 @@ export interface CategoryAffinity {
   comments: number;
   shares: number;
   watchCompletions: number;
+  watchTimeSeconds?: number;
   consecutiveCount: number;
   manualTuning: 'boost' | 'demote' | 'neutral';
 }
 
 export type AffinityMap = Record<string, CategoryAffinity>;
+
+export interface WatchTimeData {
+  totalSeconds: number;
+  byCategory: Record<string, number>;
+  byLanguage: Record<string, number>;
+  byPost: Record<string, number>;
+  lastUpdated: number;
+}
+
+export interface LanguageStat {
+  code: string;
+  name: string;
+  watchTimeSeconds: number;
+  interactionsCount: number;
+  score: number;
+  lastEngaged: number;
+}
+
+export type LanguageEngagementData = Record<string, LanguageStat>;
 
 export interface Message {
   id: string;

@@ -88,29 +88,29 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
       </div>
 
       {/* Center Brand Identity Container */}
-      <div className="flex flex-col items-center justify-center px-6 text-center max-w-sm -mt-6">
-        {/* Jhalak Logo with pulsing ambient aura */}
-        <div className="relative mb-6">
-          <div className="absolute -inset-4 rounded-3xl bg-gradient-to-tr from-amber-500/30 via-rose-500/30 to-purple-600/30 blur-xl animate-pulse" />
-          <div className="transform transition-transform duration-700 hover:scale-105">
-            <JhalakLogo size={104} showGlow={true} animate={false} />
+      <div className="flex flex-col items-center justify-center px-6 text-center max-w-sm -mt-4">
+        {/* Uploaded Square Tiranga 'J' Badge Logo Asset */}
+        <div className="relative mb-5 flex items-center justify-center">
+          <div className="absolute -inset-3 rounded-3xl bg-gradient-to-tr from-amber-500/35 via-blue-600/25 to-emerald-500/35 blur-xl animate-pulse" />
+          <div className="relative transform transition-transform duration-700 hover:scale-105 flex items-center justify-center">
+            <JhalakLogo size={140} showGlow={true} animate={false} />
           </div>
         </div>
 
-        {/* Brand Title with Radiant Gradient */}
-        <div className="space-y-1 mb-6">
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight font-['Outfit',sans-serif] bg-gradient-to-r from-amber-300 via-rose-400 to-fuchsia-300 bg-clip-text text-transparent drop-shadow-sm">
-            Jhalak
+        {/* Brand Title: Jhalak Reels: Made in India in bold gold/white typography */}
+        <div className="mt-2 mb-6 text-center">
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight drop-shadow-lg flex flex-wrap items-center justify-center gap-x-2 text-center">
+            <span className="text-amber-300 font-black drop-shadow-sm">
+              Jhalak Reels:
+            </span>
+            <span className="text-white font-extrabold drop-shadow-sm">
+              Made in India
+            </span>
           </h1>
-          <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-widest text-neutral-400 font-medium">
-            <span className="text-amber-400 font-semibold">झलक</span>
-            <span className="w-1 h-1 rounded-full bg-neutral-500" />
-            <span className="text-neutral-300">Visual Moments & Stories</span>
-          </div>
         </div>
 
-        {/* Animated Loading Spinner & Pulse Bar */}
-        <div className="flex flex-col items-center gap-3 mt-4">
+        {/* Animated Loading Spinner & Progress Bar */}
+        <div className="flex flex-col items-center gap-3 mt-1">
           {/* Custom SVG Gradient Spinner */}
           <div className="relative w-9 h-9 flex items-center justify-center">
             <svg
@@ -122,9 +122,9 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
             >
               <defs>
                 <linearGradient id="splash-spinner-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#FF5E3A" stopOpacity="1" />
-                  <stop offset="50%" stopColor="#FF2A6D" stopOpacity="1" />
-                  <stop offset="100%" stopColor="#9C27B0" stopOpacity="0.1" />
+                  <stop offset="0%" stopColor="#FF8F00" stopOpacity="1" />
+                  <stop offset="50%" stopColor="#FFFFFF" stopOpacity="1" />
+                  <stop offset="100%" stopColor="#00C853" stopOpacity="1" />
                 </linearGradient>
               </defs>
               <circle
@@ -145,32 +145,25 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
               />
             </svg>
             {/* Center pulsing core dot */}
-            <span className="absolute w-2 h-2 rounded-full bg-rose-400 animate-ping opacity-75" />
-            <span className="absolute w-1.5 h-1.5 rounded-full bg-white shadow-sm shadow-rose-500" />
+            <span className="absolute w-2 h-2 rounded-full bg-amber-400 animate-ping opacity-75" />
+            <span className="absolute w-1.5 h-1.5 rounded-full bg-white shadow-sm shadow-amber-500" />
           </div>
 
           {/* Smooth Launch Progress Line */}
-          <div className="w-36 h-1 bg-white/10 rounded-full overflow-hidden mt-2 p-[1px]">
+          <div className="w-36 h-1.5 bg-white/10 rounded-full overflow-hidden mt-2 p-[1px]">
             <div
-              className="h-full bg-gradient-to-r from-amber-400 via-rose-500 to-purple-500 rounded-full transition-all duration-75 ease-out shadow-sm shadow-rose-500"
+              className="h-full bg-gradient-to-r from-amber-400 via-white to-emerald-400 rounded-full transition-all duration-75 ease-out shadow-sm shadow-amber-500"
               style={{ width: `${progress}%` }}
             />
           </div>
-
-          <p className="text-[11px] text-neutral-400 tracking-wide font-normal animate-pulse">
-            Launching visual experience...
-          </p>
         </div>
       </div>
 
-      {/* Bottom Cultural / Brand Footer */}
+      {/* Bottom Brand Footer */}
       <div className="pb-8 flex flex-col items-center gap-1.5 text-center">
-        <div className="flex items-center gap-1.5 text-neutral-400 text-xs font-medium tracking-wide">
+        <div className="flex items-center gap-1.5 text-amber-400/95 text-xs font-bold tracking-wide">
           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-          <span>Made for Visual Storytellers</span>
-        </div>
-        <div className="text-[10px] text-neutral-400">
-          Reels • Stories • Live • UPI Shagun
+          <span>Proudly Made in India 🇮🇳</span>
         </div>
       </div>
     </div>

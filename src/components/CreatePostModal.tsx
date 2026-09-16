@@ -62,6 +62,15 @@ const defaultTrendingAudios = [
   'Tujhe Dekha Toh • Evergreen Romance',
 ];
 
+const readFileAsDataUrl = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
 export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   currentUser,
   onClose,
@@ -125,10 +134,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setSelectedMediaUrl(compressed);
           setStep('edit');
         } catch (err) {
-          console.warn('Canvas compression fallback on image upload:', err);
-          const objectUrl = URL.createObjectURL(file);
-          setSelectedMediaUrl(objectUrl);
-          setStep('edit');
+          console.warn('Canvas compression fallback on image upload, using base64:', err);
+          try {
+            const dataUrl = await readFileAsDataUrl(file);
+            setSelectedMediaUrl(dataUrl);
+            setStep('edit');
+          } catch {
+            const objectUrl = URL.createObjectURL(file);
+            setSelectedMediaUrl(objectUrl);
+            setStep('edit');
+          }
         } finally {
           setIsCompressingPhoto(false);
         }
@@ -166,10 +181,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setSelectedMediaUrl(compressed);
           setStep('edit');
         } catch (err) {
-          console.warn('Canvas compression fallback on drop:', err);
-          const objectUrl = URL.createObjectURL(file);
-          setSelectedMediaUrl(objectUrl);
-          setStep('edit');
+          console.warn('Canvas compression fallback on drop, using base64:', err);
+          try {
+            const dataUrl = await readFileAsDataUrl(file);
+            setSelectedMediaUrl(dataUrl);
+            setStep('edit');
+          } catch {
+            const objectUrl = URL.createObjectURL(file);
+            setSelectedMediaUrl(objectUrl);
+            setStep('edit');
+          }
         } finally {
           setIsCompressingPhoto(false);
         }

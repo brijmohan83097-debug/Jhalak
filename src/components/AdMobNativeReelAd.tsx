@@ -75,6 +75,17 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
+    // Click-to-unmute if currently muted
+    if (isMuted) {
+      onToggleMute();
+      video.muted = false;
+      if (video.paused) {
+        video.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
+      showToast('🔊 Audio unmuted');
+      return;
+    }
+
     if (video.paused) {
       video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     } else {
@@ -124,9 +135,23 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
         ref={videoRef}
         src={ad.mediaUrl}
         poster={ad.posterUrl}
+        autoPlay
         loop
         playsInline
+        webkit-playsinline="true"
         muted={isMuted}
+        onEnded={(e) => {
+          const vid = e.currentTarget;
+          vid.currentTime = 0;
+          vid.play().catch(() => {});
+        }}
+        onError={(e) => {
+          const target = e.currentTarget;
+          if (!target.src.includes('trailer.mp4')) {
+            target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
+            target.play().catch(() => {});
+          }
+        }}
         className="w-full h-full object-cover"
       />
 

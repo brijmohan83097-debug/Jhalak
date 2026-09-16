@@ -1,10 +1,12 @@
-import { User, StoryGroup, Post, Conversation, Reel } from '../types';
-
 /**
- * Real Logged-in User
- * Default: 0 followers, 0 following, 0 posts, clean bio.
+ * Sample Data for Jhalak Social Platform
+ *
+ * Preloaded Feed Posts featuring verified Indian regional video data cards
+ * (Bhojpuri, Bengali, South Indian, Punjabi, Marathi) paired with regional cultural photos
+ * to ensure a dynamic, engaging mix of video and photo content on launch.
  */
-export const currentUser: User = {
+
+export const currentUser = {
   id: 'user-me',
   username: 'brijmohan',
   name: 'Brij Mohan',
@@ -19,10 +21,7 @@ export const currentUser: User = {
   isGoogleAuth: true,
 };
 
-/**
- * User Story Container - Bhojpuri Cultural, Music & Comedy Creators
- */
-export const initialStories: StoryGroup[] = [
+export const initialStories = [
   {
     id: 'story-me',
     userId: 'user-me',
@@ -34,12 +33,12 @@ export const initialStories: StoryGroup[] = [
   {
     id: 'story-bhojpuri-music',
     userId: 'user-khesari-fan',
-    username: 'khesari_music_hub',
+    username: 'khesari_bhojpuri_stars',
     avatar: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&auto=format&fit=crop&q=80',
     hasUnseen: true,
     slides: [
       {
-        id: 'slide-bhopuri-1',
+        id: 'slide-bhojpuri-1',
         mediaUrl: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=800&auto=format&fit=crop&q=80',
         mediaType: 'image',
         timestamp: '1h ago',
@@ -48,45 +47,45 @@ export const initialStories: StoryGroup[] = [
     ],
   },
   {
-    id: 'story-bhojpuri-comedy',
-    userId: 'user-comedy-adda',
-    username: 'bhojpuri_comedy_king',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
-    hasUnseen: true,
-    slides: [
-      {
-        id: 'slide-bhojpuri-2',
-        mediaUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=80',
-        mediaType: 'image',
-        timestamp: '3h ago',
-        caption: 'शूटिंग के पीछे के मस्ती! आरा गांव में नया कॉमेडी रोल 😂🎬',
-      },
-    ],
-  },
-  {
-    id: 'story-chhath-utsav',
-    userId: 'user-chhath-parv',
-    username: 'bhojpuri_parampara',
+    id: 'story-bengali-dhak',
+    userId: 'user-bengal-dhak',
+    username: 'kolkata_dhak_beats',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
     hasUnseen: true,
     slides: [
       {
-        id: 'slide-bhojpuri-3',
+        id: 'slide-bengali-1',
         mediaUrl: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=800&auto=format&fit=crop&q=80',
         mediaType: 'image',
+        timestamp: '2h ago',
+        caption: 'গঙ্গার ঘাটে ঢাকের রেশ! শারদ উৎসবের আবহ 🪘✨',
+      },
+    ],
+  },
+  {
+    id: 'story-south-melam',
+    userId: 'user-south-melam',
+    username: 'south_melam_groove',
+    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&auto=format&fit=crop&q=80',
+    hasUnseen: true,
+    slides: [
+      {
+        id: 'slide-south-1',
+        mediaUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=800&auto=format&fit=crop&q=80',
+        mediaType: 'image',
         timestamp: '4h ago',
-        caption: 'गंगा घाट पर पावन संध्या दीपदान व पारंपरिक कजरी 🪔✨',
+        caption: 'செண்டை மேளம் & தப்பாட்டம் திருவிழா உற்சாகம்! 🥁⚡',
       },
     ],
   },
 ];
 
 /**
- * Community Feed Posts - Verified Indian Regional Video Data Cards & Cultural Photos
- * Features a dynamic mix of verified video cards (Bhojpuri, Bengali, South Indian, Punjabi, Marathi)
- * and rich regional photos on launch.
+ * Preloaded Home Feed Posts
+ * Features verified Indian regional video data cards (Bhojpuri, Bengali, South Indian, Punjabi, Marathi)
+ * balanced with cultural photos for a dynamic multimedia feed experience.
  */
-export const initialPosts: Post[] = [
+export const initialPosts = [
   {
     id: 'post-bhojpuri-v1',
     userId: 'user-khesari-fan',
@@ -329,10 +328,7 @@ export const initialPosts: Post[] = [
   },
 ];
 
-/**
- * Community Reels - High Engagement Entertaining Bhojpuri Vertical Video Shorts
- */
-export const initialReels: Reel[] = [
+export const initialReels = [
   {
     id: 'reel-bhojpuri-1',
     userId: 'user-khesari-fan',
@@ -349,269 +345,48 @@ export const initialReels: Reel[] = [
     sharesCount: 12400,
     isLiked: false,
     isSaved: false,
-    comments: [
-      {
-        id: 'rc-bhojpuri-1',
-        username: 'bhojpuriya_tiger',
-        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80',
-        text: 'खेसारी भईया जिंदाबाद! भोजपुरी के आन बान सान 🔥',
-        timestamp: '1h ago',
-        likesCount: 89,
-      },
-    ],
+    comments: [],
     tags: ['bhojpurisong', 'khesarilal', 'stageperformance', 'patna'],
     timestamp: '2 hours ago',
   },
   {
-    id: 'reel-bhojpuri-2',
-    userId: 'user-comedy-adda',
-    username: 'bhojpuri_comedy_adda',
-    userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
-    isVerified: true,
-    location: 'Ara, Bihar',
-    videoUrl: 'https://media.w3.org/2010/05/video/movie_300.mp4',
-    caption: 'जब साढू भाई के बियाह में बिना नेवता के पहुंच गइनी! 😂 गजबे बेइज्जती भइल भाई। लास्ट सीन देख के हंसी रोकल मुश्किल बा 🎭 #DesiComedy #Bhojpuriya',
-    category: 'Comedy',
-    audioTitle: 'देसी ठहाका • फनी भोजपुरी बीट्स',
-    likesCount: 78900,
-    commentsCount: 3410,
-    sharesCount: 24500,
-    isLiked: false,
-    isSaved: false,
-    comments: [],
-    tags: ['bhojpuricomedy', 'hasya', 'arah', 'comedyreels'],
-    timestamp: '5 hours ago',
-  },
-  {
-    id: 'reel-bhojpuri-3',
-    userId: 'user-pawan-club',
-    username: 'pawan_singh_fanclub',
-    userAvatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&auto=format&fit=crop&q=80',
-    isVerified: true,
-    location: 'Varanasi Ghats',
-    videoUrl: 'https://cdn.jsdelivr.net/gh/intel-iot-devkit/sample-videos@master/face-demographics-walking.mp4',
-    caption: 'पावर स्टार पवन सिंह के जबरदस्त एंट्री! जब साउंड बॉक्स पर बाजल "कमरिया लपकावे" 💥🕺 हर डीजे पर सिर्फ पवन भैया के राज!',
-    category: 'Bhojpuri',
-    audioTitle: 'कमरिया लपकावे • पवन सिंह ट्रेंडिंग डीजे मिक्स',
-    likesCount: 91400,
-    commentsCount: 4230,
-    sharesCount: 31200,
-    isLiked: false,
-    isSaved: false,
-    comments: [],
-    tags: ['pawansingh', 'powerstar', 'djsong', 'bhojpuridance'],
-    timestamp: '7 hours ago',
-  },
-  {
-    id: 'reel-bhojpuri-4',
-    userId: 'user-lok-nritya',
-    username: 'bhojpuri_lok_kala',
+    id: 'reel-bengali-1',
+    userId: 'user-bengal-dhak',
+    username: 'kolkata_dhak_beats',
     userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
-    isVerified: false,
-    location: 'Gorakhpur, UP',
-    videoUrl: 'https://cdn.jsdelivr.net/gh/intel-iot-devkit/sample-videos@master/people-detection.mp4',
-    caption: 'कजरी आ झूमर के लाइव थाप पर पारंपरिक भोजपुरिया लोकनृत्य! 💃✨ माटी के असली कला आ सांस्कृतिक धरोहर। गर्व से कहल जाई - हम भोजपुरी हईं!',
-    category: 'Bhojpuri',
-    audioTitle: 'कजरी झूमर स्पेशल • लोक कला अकादमी',
-    likesCount: 41200,
-    commentsCount: 980,
-    sharesCount: 7600,
-    isLiked: false,
-    isSaved: false,
-    comments: [],
-    tags: ['bhojpuridance', 'folkmusic', 'parampara', 'gorakhpur'],
-    timestamp: '10 hours ago',
-  },
-  {
-    id: 'reel-bhojpuri-5',
-    userId: 'user-desi-rasoi',
-    username: 'bhojpur_swad_litti',
-    userAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&auto=format&fit=crop&q=80',
     isVerified: true,
-    location: 'Buxar, Ganga Kinare',
-    videoUrl: 'https://cdn.jsdelivr.net/gh/intel-iot-devkit/sample-videos@master/store-aisle-detection.mp4',
-    caption: 'बक्सर के गंगा घाट पर गरमा-गरम लिट्टी चोखा पार्टी! 🌶️🥘 घी में डूबा के खइला के आनंद ही कुछ अउर बा। असली बिहारी स्वाद!',
-    category: 'Food',
-    audioTitle: 'देसी माटी के स्वाद • पुरबिया लोकधुन',
-    likesCount: 36500,
-    commentsCount: 840,
-    sharesCount: 5900,
-    isLiked: false,
-    isSaved: false,
-    comments: [],
-    tags: ['littichokha', 'bhojpurifood', 'buxar', 'desikhana'],
-    timestamp: '13 hours ago',
-  },
-  {
-    id: 'reel-bhojpuri-6',
-    userId: 'user-comedy-gang',
-    username: 'bhojpuri_hasya_paltan',
-    userAvatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=400&auto=format&fit=crop&q=80',
-    isVerified: false,
-    location: 'Chhapra, Bihar',
-    videoUrl: 'https://cdn.jsdelivr.net/gh/intel-iot-devkit/sample-videos@master/classroom.mp4',
-    caption: 'जब बड़का भाई छोटका के मोबाइल चेक करे लगल! 📱😂 "ई इंस्टाग्राम पर रील काहे बनावत रहला?" हंसी के ओवरडोज! #ChhapraComedy',
-    category: 'Comedy',
-    audioTitle: 'हँसी के फव्वारा • छपरा कॉमेडी स्पेशल',
-    likesCount: 62400,
-    commentsCount: 2150,
-    sharesCount: 16800,
-    isLiked: false,
-    isSaved: false,
-    comments: [],
-    tags: ['chhapra', 'comedyreels', 'bhojpuriya', 'hasya'],
-    timestamp: '16 hours ago',
-  },
-  {
-    id: 'reel-bhojpuri-7',
-    userId: 'user-sharda-smriti',
-    username: 'sharda_sinha_parampara',
-    userAvatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400&auto=format&fit=crop&q=80',
-    isVerified: true,
-    location: 'Gaya Ghat, Bihar',
-    videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
-    caption: 'छठ मईया के पावन घाट से सूर्य देव के संध्या अर्घ्य 🌅🪔 "केलवा के पात पर उगेलन सूरजमल..." शारदा सिन्हा जी के सुर में पूरा घाट भक्तिमय हो गइल।',
-    category: 'Bhojpuri',
-    audioTitle: 'केलवा के पात पर • अमर छठ गीत',
-    likesCount: 88200,
-    commentsCount: 5120,
-    sharesCount: 42100,
-    isLiked: false,
-    isSaved: false,
-    comments: [],
-    tags: ['chhathpuja', 'shardasinha', 'bhojpuribhakti', 'bihar'],
-    timestamp: '1 day ago',
-  },
-  {
-    id: 'reel-bhojpuri-8',
-    userId: 'user-stage-show',
-    username: 'bhojpuri_dhamaka_stage',
-    userAvatar: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=400&auto=format&fit=crop&q=80',
-    isVerified: true,
-    location: 'Darbhanga, Bihar',
-    videoUrl: 'https://cdn.jsdelivr.net/gh/intel-iot-devkit/sample-videos@master/person-bicycle-car-detection.mp4',
-    caption: 'ढोलक आ झाल पर लाइव बिरहा मुकाबला! 🪘🎶 जब दोनों तरफ से गायक लोगन के बीच सुरन के तकरार भइल। ई ह असली लोकगीत के जादू!',
-    category: 'Bhojpuri',
-    audioTitle: 'बिरहा मुकाबला • लाइव लोक संगीत दंगल',
-    likesCount: 47900,
-    commentsCount: 1630,
+    location: 'Kolkata, West Bengal',
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+    caption: 'ঢাকের তালের উন্মাদনা! বাংলার আসল লোকশিল্প ও উৎসবের উন্মাদনা 🪘✨ #BengalCulture #DhakBeats',
+    category: 'Regional Music',
+    audioTitle: 'ঢাকের আওয়াজ • ঐতিহ্যবাহী বাংলা সুর',
+    likesCount: 42100,
+    commentsCount: 1290,
     sharesCount: 9800,
     isLiked: false,
     isSaved: false,
     comments: [],
-    tags: ['biraha', 'folksong', 'dholakbeat', 'bhojpurisangeet'],
-    timestamp: '2 days ago',
-  },
-];
-
-export const samplePresetPhotos = [
-  {
-    title: 'खेसारी लाल लाइव स्टेज शो',
-    url: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1000&auto=format&fit=crop&q=80',
-    caption: 'धमाकेदार भोजपुरी स्टेज परफॉरमेंस! पूरा पंडाल में धूम 🎤🔥 #KhesariLal #BhojpuriStage',
+    tags: ['kolkata', 'dhak', 'bengalireels'],
+    timestamp: '4 hours ago',
   },
   {
-    title: 'देसी हँसी ठहाका कॉमेडी',
-    url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=1000&auto=format&fit=crop&q=80',
-    caption: 'जब जमाई बाबू के बिना चीनी के चाय मिलल! 😂 #BhojpuriComedy #DesiSwag',
-  },
-  {
-    title: 'पारंपरिक लिट्टी चोखा feast',
-    url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
-    caption: 'उपले पर सेंकल लिट्टी आ तीखा चोखा 🌶️🥘 माटी के खुशबू! #LittiChokha #DesiSwad',
-  },
-  {
-    title: 'छठ घाट संध्या अर्घ्य',
-    url: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=1000&auto=format&fit=crop&q=80',
-    caption: 'पहिले पहिल छठी मईया! जय छठी मईया 🪔🙏 #ChhathPuja #BhojpuriParampara',
-  },
-];
-
-export const samplePresetVideos = [
-  {
-    title: 'स्टेज धमाका रील',
-    url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
-    caption: 'खेसारी लाल यादव लाइव पटना गांधी मैदान 🔥 #BhojpuriReel #StageDhamaka',
-  },
-  {
-    title: 'आरा कॉमेडी शॉर्ट',
-    url: 'https://media.w3.org/2010/05/video/movie_300.mp4',
-    caption: 'साढू भाई के शादी में अजब गजब किस्सा 😂🎭 #BhojpuriComedy',
-  },
-  {
-    title: 'कमरिया लपकावे पवन सिंह डीजे',
-    url: 'https://cdn.jsdelivr.net/gh/intel-iot-devkit/sample-videos@master/face-demographics-walking.mp4',
-    caption: 'पावर स्टार पवन सिंह सुपर डुपर हिट डीजे साउंड 💥 #PawanSingh #PowerStar',
-  },
-];
-
-export const userProfilePosts: Post[] = initialPosts.slice(0, 3);
-export const exploreGridItems: Post[] = initialPosts;
-export const initialConversations: Conversation[] = [
-  {
-    id: 'conv-1',
-    user: {
-      id: 'user-khesari-fan',
-      username: 'khesari_bhojpuri_stars',
-      name: 'Khesari Fanclub',
-      avatar: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&auto=format&fit=crop&q=80',
-      isOnline: true,
-    },
-    lastMessage: 'भैया जी, नया गाना रिलीज हो गइल बा! सुन लीं 🎶',
-    unreadCount: 1,
-    messages: [
-      {
-        id: 'm-1',
-        senderId: 'user-khesari-fan',
-        text: 'भैया जी, नया गाना रिलीज हो गइल बा! सुन लीं 🎶',
-        timestamp: '10:30 AM',
-        isMine: false,
-      },
-    ],
-  },
-];
-
-export const suggestedUsers = [
-  {
-    id: 'sugg-1',
-    username: 'khesari_bhojpuri_stars',
-    name: 'खेसारी लाल फैन्स',
-    avatar: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&auto=format&fit=crop&q=80',
-    subtitle: 'Popular in Bhojpuri Music',
+    id: 'reel-south-1',
+    userId: 'user-south-melam',
+    username: 'south_melam_groove',
+    userAvatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&auto=format&fit=crop&q=80',
     isVerified: true,
-  },
-  {
-    id: 'sugg-2',
-    username: 'bhojpuri_comedy_adda',
-    name: 'भोजपुरी कॉमेडी अड्डा',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
-    subtitle: 'Trending Comedy Shorts',
-    isVerified: true,
-  },
-  {
-    id: 'sugg-3',
-    username: 'pawan_singh_fanclub',
-    name: 'पवन सिंह क्लब',
-    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&auto=format&fit=crop&q=80',
-    subtitle: 'Power Star Music Hub',
-    isVerified: true,
-  },
-  {
-    id: 'sugg-4',
-    username: 'sharda_sinha_parampara',
-    name: 'शारदा सिन्हा लोकसंस्कृति',
-    avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400&auto=format&fit=crop&q=80',
-    subtitle: 'Chhath & Lok Parampara',
-    isVerified: true,
-  },
-  {
-    id: 'sugg-5',
-    username: 'bhojpur_swad_litti',
-    name: 'देसी भोजपुरिया स्वाद',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&auto=format&fit=crop&q=80',
-    subtitle: 'Litti Chokha & Food Culture',
-    isVerified: false,
+    location: 'Chennai, Tamil Nadu',
+    videoUrl: 'https://media.w3.org/2010/05/video/movie_300.mp4',
+    caption: 'Thunderous Chenda Melam jugalbandi at dusk! 🥁⚡ The ultimate traditional rhythm of South India! #ChendaMelam #SouthIndianFolk',
+    category: 'South Indian',
+    audioTitle: 'Chenda Melam Live • Kerala Temple Percussion',
+    likesCount: 61800,
+    commentsCount: 2150,
+    sharesCount: 18400,
+    isLiked: false,
+    isSaved: false,
+    comments: [],
+    tags: ['southindia', 'chendamelam', 'chennaibeats'],
+    timestamp: '6 hours ago',
   },
 ];
-
-export const profileHighlights: any[] = [];

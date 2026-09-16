@@ -1,6 +1,6 @@
 {
-  "name": "Jhalak",
-  "description": "Modern, responsive photo and video sharing platform with home feed, stories, post creation, explore grid, direct messages, and user profile in light and dark mode.",
+  "name": "Jhalak Reels: Made in India",
+  "description": "Jhalak Reels: Made in India - Modern, responsive video and photo sharing platform with reels, stories, creator tools, and regional Indian content.",
   "requestFramePermissions": [
     "camera",
     "microphone"

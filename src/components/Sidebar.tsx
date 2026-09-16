@@ -90,19 +90,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id="sidebar-brand-header"
           onClick={() => onTabChange('home')}
           className="cursor-pointer py-3 px-2 flex items-center gap-3 group"
+          title="Jhalak Reels: Made in India"
         >
-          {/* Full logo on large screens, elegant glowing J camera badge on medium screens */}
+          {/* Full logo on large screens */}
           <div className="hidden xl:flex items-center gap-3">
-            <JhalakLogo size={34} showGlow={false} animate={true} />
-            <span className="text-3xl font-brand italic font-bold tracking-tight text-brand-gradient hover:opacity-90 transition-opacity">
-              Jhalak
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold border border-amber-500/20">
-              {activeLang?.name}
-            </span>
+            <JhalakLogo size={38} showGlow={false} animate={true} />
+            <div className="flex flex-col text-left">
+              <span className="font-extrabold text-base tracking-tight text-neutral-900 dark:text-white leading-tight">
+                Jhalak Reels:
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase leading-none">
+                  Made in India
+                </span>
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold border border-amber-500/20">
+                  {activeLang?.name}
+                </span>
+              </div>
+            </div>
           </div>
           <div className="xl:hidden mx-auto flex items-center justify-center">
-            <JhalakLogo size={36} showGlow={false} animate={true} />
+            <JhalakLogo size={38} showGlow={false} animate={true} />
           </div>
         </div>
 

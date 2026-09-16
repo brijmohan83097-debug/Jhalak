@@ -1,13 +1,13 @@
 {
   "id": "/",
-  "name": "Jhalak - Visual Moments & Stories",
-  "short_name": "Jhalak",
-  "description": "Modern, responsive photo and video sharing platform with home feed, stories, post creation, explore grid, and reels.",
+  "name": "Jhalak Reels: Made in India",
+  "short_name": "Jhalak Reels",
+  "description": "Jhalak Reels: Made in India - Modern, responsive photo and video sharing platform with reels, stories, creator tools, and regional Indian content.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "theme_color": "#FF2A6D",
+  "theme_color": "#1E52B5",
   "background_color": "#0a0a0c",
   "categories": ["social", "entertainment", "photo"],
   "icons": [

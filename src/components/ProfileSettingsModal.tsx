@@ -23,6 +23,8 @@ import {
   Database,
   ExternalLink,
   ShieldAlert,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { SupportedLanguage, SUPPORTED_LANGUAGES, translations } from '../translations';
 import { User } from '../types';
@@ -41,6 +43,8 @@ interface ProfileSettingsModalProps {
   onOpenModerationDashboard?: () => void;
   onDeleteAccount?: () => void;
   onLogout: () => void;
+  darkMode?: boolean;
+  onToggleDarkMode?: () => void;
   postsCount?: number;
   reelsCount?: number;
   commentsCount?: number;
@@ -60,6 +64,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onOpenModerationDashboard,
   onDeleteAccount,
   onLogout,
+  darkMode = true,
+  onToggleDarkMode,
   postsCount = 0,
   reelsCount = 0,
   commentsCount = 0,
@@ -217,6 +223,35 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 </div>
                 <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
               </button>
+
+              {/* 2b. Theme / डार्क या लाइट मोड */}
+              {onToggleDarkMode && (
+                <button
+                  id="settings-theme-toggle-btn"
+                  onClick={onToggleDarkMode}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                      {darkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-neutral-700 dark:text-neutral-300" />}
+                    </div>
+                    <div>
+                      <span className="text-sm font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
+                        Appearance (थीम)
+                        <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          {darkMode ? 'Dark Mode 🌙' : 'Light Mode ☀️'}
+                        </span>
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        Tap to toggle Dark or Light mode
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300">
+                    Switch
+                  </div>
+                </button>
+              )}
 
               {/* 3. Account Privacy */}
               <button

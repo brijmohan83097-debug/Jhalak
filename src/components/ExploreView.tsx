@@ -9,18 +9,17 @@ interface ExploreViewProps {
   currentLanguage?: SupportedLanguage;
 }
 
-const cityFilters = ['All India', 'Mumbai', 'Delhi', 'Hyderabad', 'Patna'] as const;
+const cityFilters = ['All Regions', 'Patna', 'Varanasi', 'Ara / Bhojpur', 'Gorakhpur'] as const;
 type CityFilter = (typeof cityFilters)[number];
 
 const exploreCategories = [
   'All',
-  'Travel',
-  'Festivals',
+  'Bhojpuri',
+  'Comedy',
+  'Music',
   'Dance',
   'Food',
-  'Fashion',
-  'Indie Music',
-  'Heritage',
+  'Folk',
 ];
 
 export const ExploreView: React.FC<ExploreViewProps> = ({
@@ -30,7 +29,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedCity, setSelectedCity] = useState<CityFilter>('All India');
+  const [selectedCity, setSelectedCity] = useState<CityFilter>('All Regions');
   const t = translations[currentLanguage];
 
   const filteredPosts = useMemo(() => {
@@ -44,6 +43,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 
       const matchesCategory =
         selectedCategory === 'All' ||
+        post.category?.toLowerCase() === selectedCategory.toLowerCase() ||
         post.tags.some((tag) => tag.toLowerCase().includes(selectedCategory.toLowerCase())) ||
         post.caption.toLowerCase().includes(selectedCategory.toLowerCase());
 
@@ -52,44 +52,37 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
       const tags = post.tags.map((tg) => tg.toLowerCase());
 
       let matchesCity = true;
-      if (selectedCity === 'Mumbai') {
-        matchesCity =
-          loc.includes('mumbai') ||
-          loc.includes('bombay') ||
-          loc.includes('bandra') ||
-          loc.includes('colaba') ||
-          loc.includes('marine drive') ||
-          tags.includes('mumbai') ||
-          tags.includes('bombay') ||
-          caption.includes('mumbai');
-      } else if (selectedCity === 'Delhi') {
-        matchesCity =
-          loc.includes('delhi') ||
-          loc.includes('chandni chowk') ||
-          loc.includes('lodhi') ||
-          loc.includes('india gate') ||
-          tags.includes('delhi') ||
-          tags.includes('newdelhi') ||
-          tags.includes('olddelhi') ||
-          caption.includes('delhi');
-      } else if (selectedCity === 'Hyderabad') {
-        matchesCity =
-          loc.includes('hyderabad') ||
-          loc.includes('charminar') ||
-          loc.includes('golconda') ||
-          tags.includes('hyderabad') ||
-          tags.includes('charminar') ||
-          caption.includes('hyderabad');
-      } else if (selectedCity === 'Patna') {
+      if (selectedCity === 'Patna') {
         matchesCity =
           loc.includes('patna') ||
           loc.includes('bihar') ||
-          loc.includes('golghar') ||
           tags.includes('patna') ||
-          tags.includes('bihar') ||
-          tags.includes('golghar') ||
           caption.includes('patna') ||
-          caption.includes('bihar');
+          caption.includes('पटना');
+      } else if (selectedCity === 'Varanasi') {
+        matchesCity =
+          loc.includes('varanasi') ||
+          loc.includes('kashi') ||
+          loc.includes('banaras') ||
+          tags.includes('varanasi') ||
+          caption.includes('varanasi') ||
+          caption.includes('बनारस');
+      } else if (selectedCity === 'Ara / Bhojpur') {
+        matchesCity =
+          loc.includes('ara') ||
+          loc.includes('bhojpur') ||
+          tags.includes('arajila') ||
+          tags.includes('arah') ||
+          caption.includes('ara') ||
+          caption.includes('आरा') ||
+          caption.includes('भोजपुर');
+      } else if (selectedCity === 'Gorakhpur') {
+        matchesCity =
+          loc.includes('gorakhpur') ||
+          loc.includes('purvanchal') ||
+          tags.includes('gorakhpur') ||
+          caption.includes('gorakhpur') ||
+          caption.includes('गोरखपुर');
       }
 
       return matchesSearch && matchesCategory && matchesCity;
@@ -141,11 +134,11 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                   : 'bg-neutral-100 dark:bg-neutral-800/80 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 border border-neutral-200/70 dark:border-neutral-700/70'
               }`}
             >
-              {city === 'All India' && <span className="text-[13px]">🇮🇳</span>}
-              {city === 'Mumbai' && <span className="text-[13px]">🌊</span>}
-              {city === 'Delhi' && <span className="text-[13px]">🏛️</span>}
-              {city === 'Hyderabad' && <span className="text-[13px]">🕌</span>}
+              {city === 'All Regions' && <span className="text-[13px]">🇮🇳</span>}
               {city === 'Patna' && <span className="text-[13px]">🌅</span>}
+              {city === 'Varanasi' && <span className="text-[13px]">🪔</span>}
+              {city === 'Ara / Bhojpur' && <span className="text-[13px]">🎭</span>}
+              {city === 'Gorakhpur' && <span className="text-[13px]">🌾</span>}
               <span>{city}</span>
             </button>
           );
@@ -174,27 +167,27 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
       {filteredPosts.length === 0 ? (
         <div className="py-20 text-center text-neutral-500">
           <p className="text-base font-semibold text-neutral-800 dark:text-neutral-200">
-            {selectedCity !== 'All India'
+            {selectedCity !== 'All Regions'
               ? `No posts found for ${selectedCity}`
               : (t.noResultsFound || 'No results found')}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
-            {selectedCity !== 'All India' || selectedCategory !== 'All' || searchQuery
-              ? 'Try switching cities, resetting the category, or searching a different keyword.'
+            {selectedCity !== 'All Regions' || selectedCategory !== 'All' || searchQuery
+              ? 'Try switching regions, resetting category, or searching a different keyword.'
               : (t.trySearching || 'Try searching for something else')}
           </p>
-          {(selectedCity !== 'All India' || selectedCategory !== 'All' || searchQuery) && (
+          {(selectedCity !== 'All Regions' || selectedCategory !== 'All' || searchQuery) && (
             <button
               id="reset-explore-filters-btn"
               onClick={() => {
-                setSelectedCity('All India');
+                setSelectedCity('All Regions');
                 setSelectedCategory('All');
                 setSearchQuery('');
               }}
               className="mt-4 px-4 py-1.5 rounded-full text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 transition inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset to All India</span>
+              <span>Reset to All Regions</span>
             </button>
           )}
         </div>

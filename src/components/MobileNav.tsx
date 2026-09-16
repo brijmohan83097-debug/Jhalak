@@ -34,163 +34,79 @@ interface MobileNavProps {
 
 export const MobileHeader: React.FC<MobileNavProps> = ({
   onTabChange,
-  unreadMessagesCount,
-  darkMode,
-  onToggleDarkMode,
-  onOpenCreateModal,
-  onShowNotifications,
+  currentUser,
   onOpenGoogleLogin,
   onOpenSettings,
-  onOpenLegalPolicies,
-  currentLanguage = 'en',
 }) => {
-  const [showNotificationToast, setShowNotificationToast] = useState(false);
-  const t = translations[currentLanguage];
-  const activeLang = SUPPORTED_LANGUAGES.find((l) => l.code === currentLanguage);
-
-  const handleNotificationClick = () => {
-    setShowNotificationToast(true);
-    setTimeout(() => setShowNotificationToast(false), 3000);
-  };
-
   return (
     <header
       id="mobile-top-header"
-      className="md:hidden sticky top-0 z-40 bg-white dark:bg-black border-b border-neutral-200 dark:border-neutral-800 px-4 py-2.5 flex items-center justify-between transition-colors select-none"
+      className="md:hidden sticky top-0 z-40 h-14 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800/80 px-3.5 sm:px-4 flex items-center justify-between transition-colors select-none"
     >
-      <div className="flex items-center gap-2">
+      {/* 1. Left side: Square Tiranga 'J' badge logo and "Jhalak Reels: Made in India" branding */}
+      <div className="flex items-center">
         <button
           id="top-brand-header-title"
           onClick={() => onTabChange('home')}
-          className="group flex items-center gap-2 focus:outline-none"
+          className="group flex items-center gap-2.5 focus:outline-none cursor-pointer active:scale-98 transition-transform"
+          aria-label="Jhalak Reels: Made in India"
         >
-          <JhalakLogo size={28} showGlow={false} animate={true} />
-          <span className="font-brand italic font-bold text-2xl sm:text-3xl tracking-tight text-brand-gradient hover:opacity-90 transition-opacity">
-            Jhalak
-          </span>
+          <JhalakLogo size={34} showGlow={false} animate={false} />
+          <div className="flex flex-col text-left">
+            <span className="font-extrabold text-sm sm:text-base tracking-tight text-neutral-900 dark:text-white leading-tight">
+              Jhalak Reels:
+            </span>
+            <span className="text-[10px] sm:text-[11px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase leading-none">
+              Made in India
+            </span>
+          </div>
         </button>
-
-        {/* Quick Language switch tag */}
-        {onOpenSettings && (
-          <button
-            onClick={onOpenSettings}
-            className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[10px] font-semibold flex items-center gap-1"
-            title="Change language / भाषा बदलें"
-          >
-            <span>{activeLang?.flag}</span>
-            <span>{activeLang?.name}</span>
-          </button>
-        )}
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-2.5 text-neutral-900 dark:text-white">
-        <button
-          id="mobile-header-create-btn"
-          onClick={onOpenCreateModal}
-          aria-label={t.create}
-          className="p-1 hover:opacity-70 transition active:scale-90"
-        >
-          <PlusSquare className="w-5 h-5 sm:w-6 sm:h-6 stroke-[1.8]" />
-        </button>
-
+      {/* 2. Right side: Streamlined, uncluttered controls (Account & Settings) */}
+      <div className="flex items-center gap-1.5 text-neutral-900 dark:text-white">
         {onOpenGoogleLogin && (
           <button
             id="mobile-google-btn"
             onClick={onOpenGoogleLogin}
             aria-label="Google Account"
-            className="p-1 hover:opacity-85 transition active:scale-95"
-            title="Google Account"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-800 bg-neutral-100/70 dark:bg-neutral-900/70 hover:bg-neutral-200/80 dark:hover:bg-neutral-800 transition active:scale-95 cursor-pointer text-xs font-semibold text-neutral-800 dark:text-neutral-200"
+            title={currentUser?.name ? currentUser.name : 'Google Account'}
           >
-            <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-xs">
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-              </svg>
-            </div>
+            {currentUser?.avatar ? (
+              <img
+                src={currentUser.avatar}
+                alt={currentUser.name || 'User'}
+                className="w-5 h-5 rounded-full object-cover border border-neutral-300 dark:border-neutral-700"
+              />
+            ) : (
+              <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-xs">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" />
+                  <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+                </svg>
+              </div>
+            )}
+            <span className="max-w-[70px] sm:max-w-[90px] truncate text-[11px] font-medium">
+              {currentUser?.name || 'Sign In'}
+            </span>
           </button>
         )}
 
-        {/* Legal & UGC Policies Button */}
-        {onOpenLegalPolicies && (
-          <button
-            id="mobile-legal-btn"
-            onClick={onOpenLegalPolicies}
-            aria-label="Privacy & Terms"
-            className="p-1 hover:opacity-70 transition active:scale-95 text-amber-500"
-            title="Privacy & Community Guidelines"
-          >
-            <Scale className="w-5 h-5 stroke-[1.8]" />
-          </button>
-        )}
-
-        {/* Mobile Settings Gear */}
         {onOpenSettings && (
           <button
             id="mobile-settings-btn"
             onClick={onOpenSettings}
-            aria-label={t.settings}
-            className="p-1 hover:opacity-70 transition active:scale-95 text-neutral-700 dark:text-neutral-300"
+            aria-label="Settings"
+            className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition active:scale-95 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer"
+            title="Settings & Privacy"
           >
             <Settings className="w-5 h-5 stroke-[1.8]" />
           </button>
         )}
-
-        <button
-          id="mobile-theme-toggle"
-          onClick={onToggleDarkMode}
-          aria-label="Toggle theme"
-          className="p-1 hover:opacity-70 transition text-neutral-800 dark:text-neutral-200"
-        >
-          {darkMode ? (
-            <Sun className="w-5 h-5 text-amber-400 stroke-[1.8]" />
-          ) : (
-            <Moon className="w-5 h-5 stroke-[1.8]" />
-          )}
-        </button>
-
-        <button
-          id="mobile-notifications-btn"
-          onClick={() => {
-            if (onShowNotifications) {
-              onShowNotifications();
-            } else {
-              handleNotificationClick();
-            }
-          }}
-          aria-label={t.notifications}
-          className="p-1 hover:opacity-70 transition active:scale-90 relative"
-        >
-          <Heart className="w-5 h-5 sm:w-6 sm:h-6 stroke-[1.8]" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
-        </button>
-
-        <button
-          id="mobile-messages-header-btn"
-          onClick={() => onTabChange('messages')}
-          aria-label={t.messages}
-          className="p-1 hover:opacity-70 transition active:scale-90 relative"
-        >
-          <Send className="w-5 h-5 sm:w-6 sm:h-6 stroke-[1.8]" />
-          {unreadMessagesCount > 0 && (
-            <span className="absolute top-0.5 right-0.5 bg-rose-500 text-white text-[9px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center">
-              {unreadMessagesCount}
-            </span>
-          )}
-        </button>
       </div>
-
-      {/* In-app notification toast */}
-      {showNotificationToast && (
-        <div className="absolute top-14 left-4 right-4 bg-neutral-900 text-white text-xs px-3.5 py-2.5 rounded-xl shadow-xl flex items-center justify-between border border-neutral-800 animate-slide-up z-50">
-          <div className="flex items-center gap-2">
-            <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
-            <span>You are all caught up on notifications!</span>
-          </div>
-          <Check className="w-4 h-4 text-emerald-400" />
-        </div>
-      )}
     </header>
   );
 };

@@ -22,11 +22,13 @@ import {
   Ban,
   Gift,
   ShoppingBag,
+  Maximize2,
 } from 'lucide-react';
 import { Post, User, ContentCategory } from '../types';
 import { SupportedLanguage, translations } from '../translations';
 import { UpiShagunSheet } from './UpiShagunSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
+import { recommendationEngine, inferLanguage } from '../services/recommendationEngine';
 
 interface FeedPostCardProps {
   post: Post;
@@ -36,6 +38,7 @@ interface FeedPostCardProps {
   onAddComment: (postId: string, text: string) => void;
   onShare: (post: Post) => void;
   onOpenDetail: (post: Post) => void;
+  onOpenFullScreen?: (post: Post) => void;
   onOpenComments?: (post: Post) => void;
   onViewUser: (username: string) => void;
   onNotInterested?: (postId: string, category?: ContentCategory) => void;
@@ -53,6 +56,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onAddComment,
   onShare,
   onOpenDetail,
+  onOpenFullScreen,
   onOpenComments,
   onViewUser,
   onNotInterested,
@@ -123,6 +127,45 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     }
   }, [isMuted]);
 
+  // Track video watch time continuously for personalization & automatic Home Feed sorting
+  const watchStartTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (post.mediaType !== 'video') return;
+
+    if (isPlaying) {
+      watchStartTimeRef.current = Date.now();
+      const interval = setInterval(() => {
+        if (watchStartTimeRef.current) {
+          const delta = (Date.now() - watchStartTimeRef.current) / 1000;
+          if (delta >= 3) {
+            recommendationEngine.recordWatchTime(post, delta);
+            watchStartTimeRef.current = Date.now();
+          }
+        }
+      }, 3000);
+
+      return () => {
+        clearInterval(interval);
+        if (watchStartTimeRef.current) {
+          const delta = (Date.now() - watchStartTimeRef.current) / 1000;
+          if (delta >= 1) {
+            recommendationEngine.recordWatchTime(post, delta);
+          }
+          watchStartTimeRef.current = null;
+        }
+      };
+    } else {
+      if (watchStartTimeRef.current) {
+        const delta = (Date.now() - watchStartTimeRef.current) / 1000;
+        if (delta >= 1) {
+          recommendationEngine.recordWatchTime(post, delta);
+        }
+        watchStartTimeRef.current = null;
+      }
+    }
+  }, [isPlaying, post]);
+
   const handleMediaClick = (e: React.MouseEvent) => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300;
@@ -131,6 +174,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       // Double tap triggered -> Like post
       if (!post.isLiked) {
         onToggleLike(post.id);
+        recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
       }
       setShowHeartBurst(true);
       setTimeout(() => setShowHeartBurst(false), 800);
@@ -140,7 +184,13 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Single tap on video toggles play/pause
+    // Single tap on photo or video opens full-screen viewer as requested
+    if (onOpenFullScreen) {
+      onOpenFullScreen(post);
+      return;
+    }
+
+    // Fallback: single tap on video toggles play/pause, photo opens detail
     if (post.mediaType === 'video' && videoRef.current) {
       if (videoRef.current.paused) {
         videoRef.current.play().then(() => {
@@ -156,6 +206,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         setShowPlayPauseIcon('pause');
         setTimeout(() => setShowPlayPauseIcon(null), 600);
       }
+    } else {
+      onOpenDetail(post);
     }
   };
 
@@ -163,6 +215,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     e.preventDefault();
     if (!commentText.trim()) return;
     onAddComment(post.id, commentText);
+    recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'comment');
     setCommentText('');
   };
 
@@ -349,6 +402,25 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
             <Heart className="w-24 h-24 text-rose-500 fill-rose-500 drop-shadow-2xl opacity-90 scale-125 transition-transform" />
           </div>
         )}
+
+        {/* Fullscreen Expand Button Overlay */}
+        <button
+          id={`feed-fullscreen-btn-${post.id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onOpenFullScreen) {
+              onOpenFullScreen(post);
+            } else {
+              onOpenDetail(post);
+            }
+          }}
+          aria-label="Open full-screen viewer"
+          title="Open immersive full-screen viewer"
+          className="absolute bottom-3 left-3 z-20 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md text-white transition active:scale-95 flex items-center gap-1.5 border border-white/15 text-[11px] font-medium shadow-md group"
+        >
+          <Maximize2 className="w-3.5 h-3.5 text-amber-300 group-hover:scale-110 transition" />
+          <span className="hidden sm:inline">Full Screen</span>
+        </button>
       </div>
 
       {/* Action Buttons Row */}
@@ -357,7 +429,10 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           <div className="flex items-center gap-4">
             <button
               id={`like-btn-${post.id}`}
-              onClick={() => onToggleLike(post.id)}
+              onClick={() => {
+                onToggleLike(post.id);
+                recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
+              }}
               aria-label={post.isLiked ? 'Unlike post' : 'Like post'}
               className="group p-0.5 text-neutral-800 dark:text-neutral-200 hover:opacity-70 transition active:scale-125"
             >
@@ -419,7 +494,10 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
           <button
             id={`save-btn-${post.id}`}
-            onClick={() => onToggleSave(post.id)}
+            onClick={() => {
+              onToggleSave(post.id);
+              recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'save');
+            }}
             aria-label={post.isSaved ? 'Unsave post' : 'Save post'}
             className="p-0.5 text-neutral-800 dark:text-neutral-200 hover:opacity-70 transition"
           >

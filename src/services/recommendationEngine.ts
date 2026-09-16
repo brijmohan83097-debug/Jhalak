@@ -1,9 +1,21 @@
-import { ContentCategory, Reel, Post, AffinityMap, CategoryAffinity } from '../types';
+import {
+  ContentCategory,
+  Reel,
+  Post,
+  AffinityMap,
+  CategoryAffinity,
+  WatchTimeData,
+  LanguageEngagementData,
+  LanguageStat,
+} from '../types';
 
 const STORAGE_KEY = 'jhalak_recs_affinity_v1';
 const NOT_INTERESTED_KEY = 'jhalak_recs_not_interested_ids';
+const WATCH_TIME_KEY = 'jhalak_user_watch_time_v1';
+const LANGUAGE_ENGAGEMENT_KEY = 'jhalak_language_engagement_v1';
 
 export const ALL_CATEGORIES: ContentCategory[] = [
+  'Bhojpuri',
   'Comedy',
   'Tech',
   'Travel',
@@ -12,6 +24,9 @@ export const ALL_CATEGORIES: ContentCategory[] = [
   'Bollywood',
   'Food',
   'Fitness',
+  'Regional Music',
+  'South Indian',
+  'Punjabi',
 ];
 
 export interface RecommendationFeedback {
@@ -22,19 +37,118 @@ export interface RecommendationFeedback {
 }
 
 const DEFAULT_AFFINITY: Record<ContentCategory, CategoryAffinity> = {
-  Comedy: { score: 10, likes: 0, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
-  Tech: { score: 10, likes: 0, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
-  Travel: { score: 15, likes: 1, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
-  Music: { score: 12, likes: 0, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
-  'Fabrication/DIY': { score: 8, likes: 0, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
-  Bollywood: { score: 14, likes: 1, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
-  Food: { score: 8, likes: 0, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
-  Fitness: { score: 8, likes: 0, comments: 0, shares: 0, watchCompletions: 0, consecutiveCount: 0, manualTuning: 'neutral' },
+  Bhojpuri: { score: 35, likes: 3, comments: 1, shares: 2, watchCompletions: 2, watchTimeSeconds: 45, consecutiveCount: 1, manualTuning: 'neutral' },
+  'Regional Music': { score: 32, likes: 2, comments: 1, shares: 1, watchCompletions: 1, watchTimeSeconds: 38, consecutiveCount: 1, manualTuning: 'neutral' },
+  'South Indian': { score: 30, likes: 2, comments: 1, shares: 1, watchCompletions: 1, watchTimeSeconds: 35, consecutiveCount: 0, manualTuning: 'neutral' },
+  Punjabi: { score: 28, likes: 2, comments: 0, shares: 1, watchCompletions: 1, watchTimeSeconds: 28, consecutiveCount: 0, manualTuning: 'neutral' },
+  Bollywood: { score: 22, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 15, consecutiveCount: 0, manualTuning: 'neutral' },
+  Music: { score: 20, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 12, consecutiveCount: 0, manualTuning: 'neutral' },
+  Travel: { score: 18, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 10, consecutiveCount: 0, manualTuning: 'neutral' },
+  Comedy: { score: 16, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 8, consecutiveCount: 0, manualTuning: 'neutral' },
+  Tech: { score: 12, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 5, consecutiveCount: 0, manualTuning: 'neutral' },
+  Food: { score: 12, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 5, consecutiveCount: 0, manualTuning: 'neutral' },
+  Fitness: { score: 10, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 4, consecutiveCount: 0, manualTuning: 'neutral' },
+  'Fabrication/DIY': { score: 10, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 4, consecutiveCount: 0, manualTuning: 'neutral' },
 };
+
+const DEFAULT_WATCH_TIME: WatchTimeData = {
+  totalSeconds: 125,
+  byCategory: {
+    Bhojpuri: 45,
+    'Regional Music': 38,
+    'South Indian': 35,
+    Punjabi: 28,
+    Bollywood: 15,
+    Music: 12,
+    Travel: 10,
+    Comedy: 8,
+  },
+  byLanguage: {
+    bho: 45,
+    bn: 38,
+    ta: 35,
+    pa: 28,
+    hi: 20,
+    en: 10,
+  },
+  byPost: {},
+  lastUpdated: Date.now(),
+};
+
+const DEFAULT_LANGUAGE_ENGAGEMENT: LanguageEngagementData = {
+  bho: { code: 'bho', name: 'Bhojpuri', watchTimeSeconds: 45, interactionsCount: 6, score: 75, lastEngaged: Date.now() },
+  bn: { code: 'bn', name: 'Bengali', watchTimeSeconds: 38, interactionsCount: 4, score: 62, lastEngaged: Date.now() },
+  ta: { code: 'ta', name: 'Tamil / South Indian', watchTimeSeconds: 35, interactionsCount: 4, score: 58, lastEngaged: Date.now() },
+  pa: { code: 'pa', name: 'Punjabi', watchTimeSeconds: 28, interactionsCount: 3, score: 48, lastEngaged: Date.now() },
+  hi: { code: 'hi', name: 'Hindi', watchTimeSeconds: 20, interactionsCount: 2, score: 35, lastEngaged: Date.now() },
+  en: { code: 'en', name: 'English', watchTimeSeconds: 10, interactionsCount: 1, score: 18, lastEngaged: Date.now() },
+};
+
+/**
+ * Infer Indian regional language or dialect code from item metadata
+ */
+export function inferLanguage(item: {
+  language?: string;
+  category?: string;
+  caption?: string;
+  location?: string;
+  tags?: string[];
+  audioTitle?: string;
+}): string {
+  if (item.language) return item.language;
+  const text = `${item.category || ''} ${item.caption || ''} ${item.location || ''} ${(item.tags || []).join(' ')} ${item.audioTitle || ''}`.toLowerCase();
+
+  // Bhojpuri
+  if (
+    item.category === 'Bhojpuri' ||
+    /bhojpuri|patna|bihar|buxar|arrah|chhapra|khesari|pawan|purvanchal|litti|bhojpur/i.test(text)
+  ) {
+    return 'bho';
+  }
+  // Bengali
+  if (
+    item.category === 'Regional Music' ||
+    /bengali|bangla|kolkata|calcutta|durga|dhak|princep|rabindra|sundarbans|howrah|dhaak/i.test(text)
+  ) {
+    return 'bn';
+  }
+  // South Indian (Tamil / Telugu / Malayalam / Kannada)
+  if (
+    item.category === 'South Indian' ||
+    /south indian|tamil|chennai|madurai|telugu|hyderabad|chenda|kerala|kochi|kannada|bengaluru|melam|carnatic/i.test(text)
+  ) {
+    return 'ta';
+  }
+  // Punjabi
+  if (
+    item.category === 'Punjabi' ||
+    /punjabi|punjab|amritsar|bhangra|dhol|chandigarh|gidda|gurmukhi|boliyan|singh/i.test(text)
+  ) {
+    return 'pa';
+  }
+  // Marathi
+  if (/marathi|pune|mumbai|lavani|nashik|nagpur|shivaji|dhol tasha/i.test(text)) {
+    return 'mr';
+  }
+  // Bollywood / Hindi
+  if (
+    item.category === 'Bollywood' ||
+    /hindi|bollywood|delhi|lucknow|banaras|varanasi|ncr/i.test(text)
+  ) {
+    return 'hi';
+  }
+  // Gujarati
+  if (/gujarat|ahmedabad|garba|dandiya|surat|vadodara/i.test(text)) {
+    return 'gu';
+  }
+  return 'hi';
+}
 
 class RecommendationEngine {
   private affinity: AffinityMap = { ...DEFAULT_AFFINITY };
   private notInterestedIds: Set<string> = new Set();
+  private watchTime: WatchTimeData = { ...DEFAULT_WATCH_TIME };
+  private languageEngagement: LanguageEngagementData = { ...DEFAULT_LANGUAGE_ENGAGEMENT };
   // Rolling list of recent categories interacted with (for consecutive count detection)
   private recentInteractions: { category: ContentCategory; timestamp: number }[] = [];
   private listeners: (() => void)[] = [];
@@ -45,17 +159,34 @@ class RecommendationEngine {
 
   private loadFromStorage() {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        this.affinity = { ...DEFAULT_AFFINITY, ...parsed };
+      const storedAffinity = localStorage.getItem(STORAGE_KEY);
+      if (storedAffinity) {
+        this.affinity = { ...DEFAULT_AFFINITY, ...JSON.parse(storedAffinity) };
       }
+
       const storedDislikes = localStorage.getItem(NOT_INTERESTED_KEY);
       if (storedDislikes) {
         this.notInterestedIds = new Set(JSON.parse(storedDislikes));
       }
+
+      const storedWatchTime = localStorage.getItem(WATCH_TIME_KEY);
+      if (storedWatchTime) {
+        const parsed = JSON.parse(storedWatchTime);
+        this.watchTime = {
+          totalSeconds: parsed.totalSeconds ?? DEFAULT_WATCH_TIME.totalSeconds,
+          byCategory: { ...DEFAULT_WATCH_TIME.byCategory, ...(parsed.byCategory || {}) },
+          byLanguage: { ...DEFAULT_WATCH_TIME.byLanguage, ...(parsed.byLanguage || {}) },
+          byPost: { ...(parsed.byPost || {}) },
+          lastUpdated: parsed.lastUpdated || Date.now(),
+        };
+      }
+
+      const storedLang = localStorage.getItem(LANGUAGE_ENGAGEMENT_KEY);
+      if (storedLang) {
+        this.languageEngagement = { ...DEFAULT_LANGUAGE_ENGAGEMENT, ...JSON.parse(storedLang) };
+      }
     } catch {
-      // fallback
+      // fallback to defaults
     }
   }
 
@@ -63,6 +194,8 @@ class RecommendationEngine {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.affinity));
       localStorage.setItem(NOT_INTERESTED_KEY, JSON.stringify(Array.from(this.notInterestedIds)));
+      localStorage.setItem(WATCH_TIME_KEY, JSON.stringify(this.watchTime));
+      localStorage.setItem(LANGUAGE_ENGAGEMENT_KEY, JSON.stringify(this.languageEngagement));
     } catch {
       // storage unavailable
     }
@@ -77,11 +210,31 @@ class RecommendationEngine {
   }
 
   private notifyListeners() {
-    this.listeners.forEach((fn) => fn());
+    this.listeners.forEach((fn) => {
+      try {
+        fn();
+      } catch (err) {
+        console.error('Error in recommendation listener:', err);
+      }
+    });
   }
 
   public getAffinity(): AffinityMap {
     return { ...this.affinity };
+  }
+
+  public getWatchTimeStats(): WatchTimeData {
+    return {
+      totalSeconds: this.watchTime.totalSeconds,
+      byCategory: { ...this.watchTime.byCategory },
+      byLanguage: { ...this.watchTime.byLanguage },
+      byPost: { ...this.watchTime.byPost },
+      lastUpdated: this.watchTime.lastUpdated,
+    };
+  }
+
+  public getLanguageEngagement(): LanguageEngagementData {
+    return { ...this.languageEngagement };
   }
 
   public isNotInterested(id: string): boolean {
@@ -89,10 +242,110 @@ class RecommendationEngine {
   }
 
   /**
+   * Record exact watch time in seconds for a specific post or reel.
+   * Personalizes category affinity, post repeat count, and regional language engagement.
+   */
+  public recordWatchTime(
+    item: {
+      id: string;
+      category?: ContentCategory;
+      caption?: string;
+      language?: string;
+      tags?: string[];
+      location?: string;
+      audioTitle?: string;
+    },
+    seconds: number
+  ) {
+    if (!seconds || seconds <= 0) return;
+    const clampedSecs = Math.min(Math.round(seconds), 300);
+    const category: ContentCategory = item.category || 'Travel';
+    const lang = inferLanguage(item);
+
+    // 1. Update overall watch time counters
+    this.watchTime.totalSeconds += clampedSecs;
+    this.watchTime.byCategory[category] = (this.watchTime.byCategory[category] || 0) + clampedSecs;
+    this.watchTime.byLanguage[lang] = (this.watchTime.byLanguage[lang] || 0) + clampedSecs;
+    this.watchTime.byPost[item.id] = (this.watchTime.byPost[item.id] || 0) + clampedSecs;
+    this.watchTime.lastUpdated = Date.now();
+
+    // 2. Update Language Engagement Score
+    if (!this.languageEngagement[lang]) {
+      this.languageEngagement[lang] = {
+        code: lang,
+        name: lang.toUpperCase(),
+        watchTimeSeconds: 0,
+        interactionsCount: 0,
+        score: 10,
+        lastEngaged: Date.now(),
+      };
+    }
+    const langEntry = this.languageEngagement[lang];
+    langEntry.watchTimeSeconds += clampedSecs;
+    langEntry.score += Math.round(clampedSecs * 1.5);
+    langEntry.lastEngaged = Date.now();
+
+    // 3. Update Category Affinity
+    if (!this.affinity[category]) {
+      this.affinity[category] = {
+        score: 10,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        watchCompletions: 0,
+        watchTimeSeconds: 0,
+        consecutiveCount: 0,
+        manualTuning: 'neutral',
+      };
+    }
+    const catEntry = this.affinity[category];
+    catEntry.watchTimeSeconds = (catEntry.watchTimeSeconds || 0) + clampedSecs;
+    catEntry.score += Math.round(clampedSecs * 0.7);
+
+    // If watched for more than 5s, count as engaged watch
+    if (clampedSecs >= 5) {
+      catEntry.consecutiveCount = (catEntry.consecutiveCount || 0) + 1;
+      this.recentInteractions.push({ category, timestamp: Date.now() });
+      if (this.recentInteractions.length > 20) {
+        this.recentInteractions.shift();
+      }
+    }
+
+    this.saveToStorage();
+  }
+
+  /**
+   * Record explicit language interaction (like, comment, share, save)
+   */
+  public recordLanguageInteraction(
+    languageCode: string,
+    actionType: 'like' | 'comment' | 'share' | 'save'
+  ) {
+    if (!languageCode) return;
+    const lang = languageCode.toLowerCase();
+    if (!this.languageEngagement[lang]) {
+      this.languageEngagement[lang] = {
+        code: lang,
+        name: lang.toUpperCase(),
+        watchTimeSeconds: 0,
+        interactionsCount: 0,
+        score: 10,
+        lastEngaged: Date.now(),
+      };
+    }
+    const entry = this.languageEngagement[lang];
+    entry.interactionsCount += 1;
+    const scoreDeltas = { like: 8, comment: 12, share: 15, save: 10 };
+    entry.score += scoreDeltas[actionType] || 5;
+    entry.lastEngaged = Date.now();
+
+    this.saveToStorage();
+  }
+
+  /**
    * Check if a category has had 2+ recent watches or likes
    */
   public getHotCategory(): ContentCategory | null {
-    // Check recent interactions (last 6 actions)
     const categoryCounts: Partial<Record<ContentCategory, number>> = {};
     const cutoff = Date.now() - 30 * 60 * 1000; // within 30 minutes
     const valid = this.recentInteractions.filter((item) => item.timestamp > cutoff);
@@ -104,7 +357,6 @@ class RecommendationEngine {
       }
     }
 
-    // Also check consecutive count on stored affinity
     for (const cat of ALL_CATEGORIES) {
       if (this.affinity[cat]?.consecutiveCount >= 2) {
         return cat;
@@ -116,7 +368,6 @@ class RecommendationEngine {
 
   /**
    * Record interaction: watch_end, watch_complete, like, comment, share, save, boost, demote
-   * Returns boolean: true if user reached 2+ interactions for this category (hot category signal)
    */
   public recordInteraction(
     category: ContentCategory,
@@ -130,6 +381,7 @@ class RecommendationEngine {
         comments: 0,
         shares: 0,
         watchCompletions: 0,
+        watchTimeSeconds: 0,
         consecutiveCount: 0,
         manualTuning: 'neutral',
       };
@@ -137,8 +389,13 @@ class RecommendationEngine {
 
     const current = this.affinity[category];
 
-    // Log recent interaction for consecutive trigger (for watches, likes, saves, boosts)
-    if (type === 'watch_end' || type === 'watch_complete' || type === 'like' || type === 'save' || type === 'boost') {
+    if (
+      type === 'watch_end' ||
+      type === 'watch_complete' ||
+      type === 'like' ||
+      type === 'save' ||
+      type === 'boost'
+    ) {
       this.recentInteractions.push({ category, timestamp: Date.now() });
       if (this.recentInteractions.length > 20) {
         this.recentInteractions.shift();
@@ -152,31 +409,31 @@ class RecommendationEngine {
     switch (type) {
       case 'watch_end':
       case 'watch_complete':
-        current.score += 4;
+        current.score += 5;
         current.watchCompletions += 1;
         break;
       case 'like':
-        current.score += 5;
+        current.score += 6;
         current.likes += 1;
         break;
       case 'save':
-        current.score += 6;
+        current.score += 7;
         break;
       case 'comment':
-        current.score += 6;
+        current.score += 8;
         current.comments += 1;
         break;
       case 'share':
-        current.score += 7;
+        current.score += 10;
         current.shares += 1;
         break;
       case 'boost':
-        current.score += 25;
+        current.score += 30;
         current.manualTuning = 'boost';
         current.consecutiveCount = Math.max(current.consecutiveCount, 2);
         break;
       case 'demote':
-        current.score = Math.max(0, current.score - 30);
+        current.score = Math.max(0, current.score - 40);
         current.manualTuning = 'demote';
         if (itemId) {
           this.notInterestedIds.add(itemId);
@@ -188,9 +445,6 @@ class RecommendationEngine {
     return current.consecutiveCount >= 2;
   }
 
-  /**
-   * Manual Action: "Show More Like This" (ऐसी वीडियो और दिखाएं)
-   */
   public markShowMore(
     param1: ContentCategory | string,
     param2?: ContentCategory | string
@@ -217,9 +471,6 @@ class RecommendationEngine {
     };
   }
 
-  /**
-   * Manual Action: "Not Interested" (कम दिखाएं)
-   */
   public markNotInterested(
     param1: string | ContentCategory,
     param2?: ContentCategory | string
@@ -247,9 +498,20 @@ class RecommendationEngine {
   }
 
   /**
-   * Calculate personalized score for an item
+   * Calculate comprehensive personalized recommendation score:
+   * 1. Category affinity score
+   * 2. User watch time in category
+   * 3. Language engagement score & watch time in language
+   * 4. Media type preference (video engagement)
+   * 5. Popularity & freshness
    */
-  public calculateScore(category: ContentCategory, id: string, likesCount: number = 0): number {
+  public calculateScore(
+    category: ContentCategory = 'Travel',
+    id: string,
+    likesCount: number = 0,
+    language?: string,
+    isVideo: boolean = false
+  ): number {
     if (this.notInterestedIds.has(id)) {
       return -9999;
     }
@@ -258,33 +520,76 @@ class RecommendationEngine {
     let score = catData.score;
 
     if (catData.manualTuning === 'boost') {
-      score += 100;
+      score += 120;
     } else if (catData.manualTuning === 'demote') {
-      score -= 100;
+      score -= 120;
     }
 
-    // Add mild popularity factor (log scale so high likes don't completely overpower category)
-    score += Math.log10(Math.max(1, likesCount)) * 2;
+    // 1. Watch Time Category Factor
+    const catWatchTime = this.watchTime.byCategory[category] || 0;
+    score += Math.min(80, catWatchTime * 1.5);
+
+    // 2. Language Engagement Factor
+    if (language) {
+      const langStat = this.languageEngagement[language.toLowerCase()];
+      if (langStat) {
+        score += Math.min(90, langStat.score * 0.8 + langStat.watchTimeSeconds * 1.2);
+      }
+    }
+
+    // 3. Multimedia Video Bonus (users watching lots of regional video get videos promoted)
+    if (isVideo && this.watchTime.totalSeconds > 30) {
+      score += 20;
+    }
+
+    // 4. Repeated view soft-damping (keeps fresh content rotating while maintaining affinity)
+    const postWatchTime = this.watchTime.byPost[id] || 0;
+    if (postWatchTime > 60) {
+      score -= 15;
+    }
+
+    // 5. Mild popularity factor (log-scaled)
+    score += Math.log10(Math.max(1, likesCount)) * 3;
 
     return score;
   }
 
   /**
    * Personalized Feed Ordering:
-   * Prioritize and show more Reels and Posts matching highest-viewed/liked categories.
+   * Prioritize and show Reels and Posts matching highest watch-time and language engagement.
    */
-  public sortPosts(posts: Post[]): Post[] {
+  public sortPosts(posts: Post[], activeLanguage?: string): Post[] {
     return [...posts].sort((a, b) => {
-      const scoreA = this.calculateScore(a.category, a.id, a.likesCount);
-      const scoreB = this.calculateScore(b.category, b.id, b.likesCount);
+      const langA = inferLanguage(a);
+      const langB = inferLanguage(b);
+
+      let scoreA = this.calculateScore(
+        a.category || 'Travel',
+        a.id,
+        a.likesCount,
+        langA,
+        a.mediaType === 'video'
+      );
+      let scoreB = this.calculateScore(
+        b.category || 'Travel',
+        b.id,
+        b.likesCount,
+        langB,
+        b.mediaType === 'video'
+      );
+
+      // Active app language priority
+      if (activeLanguage) {
+        if (langA === activeLanguage.toLowerCase()) scoreA += 40;
+        if (langB === activeLanguage.toLowerCase()) scoreB += 40;
+      }
+
       return scoreB - scoreA;
     });
   }
 
   /**
-   * Personalized Reels Queue:
-   * Keeps current reel at its index, and re-orders upcoming queue.
-   * If a user watches or likes 2+ videos of a specific category, auto-load similar content next!
+   * Personalized Reels Queue based on real-time watch time and affinity
    */
   public getPersonalizedReelsQueue(
     reels: Reel[],
@@ -294,47 +599,52 @@ class RecommendationEngine {
     if (reels.length <= 1) return reels;
 
     const hotCategory = forcedHotCategory ?? this.getHotCategory();
-
-    // The reels up to currentIndex are fixed (already watched/navigated)
     const passedReels = reels.slice(0, currentIndex + 1);
     const upcoming = reels.slice(currentIndex + 1).filter((r) => !this.notInterestedIds.has(r.id));
 
-    // If hot category detected (2+ watched/liked), prioritize that category in immediate next spots
     let sortedUpcoming: Reel[];
     if (hotCategory) {
       const hotReels = upcoming.filter((r) => r.category === hotCategory);
       const otherReels = upcoming
         .filter((r) => r.category !== hotCategory)
         .sort((a, b) => {
-          return this.calculateScore(b.category, b.id, b.likesCount) - this.calculateScore(a.category, a.id, a.likesCount);
+          const sA = this.calculateScore(a.category || 'Travel', a.id, a.likesCount, inferLanguage(a), true);
+          const sB = this.calculateScore(b.category || 'Travel', b.id, b.likesCount, inferLanguage(b), true);
+          return sB - sA;
         });
 
-      // Auto-load similar content next in scroll queue
       sortedUpcoming = [...hotReels, ...otherReels];
     } else {
-      // General affinity sort
       sortedUpcoming = [...upcoming].sort((a, b) => {
-        return this.calculateScore(b.category, b.id, b.likesCount) - this.calculateScore(a.category, a.id, a.likesCount);
+        const sA = this.calculateScore(a.category || 'Travel', a.id, a.likesCount, inferLanguage(a), true);
+        const sB = this.calculateScore(b.category || 'Travel', b.id, b.likesCount, inferLanguage(b), true);
+        return sB - sA;
       });
     }
 
     return [...passedReels, ...sortedUpcoming];
   }
 
-  /**
-   * Get top 3 categories by user affinity
-   */
-  public getTopCategories(): { category: ContentCategory; score: number }[] {
+  public getTopCategories(): { category: ContentCategory; score: number; watchTime: number }[] {
     return ALL_CATEGORIES.map((cat) => ({
       category: cat,
       score: this.affinity[cat]?.score || 0,
+      watchTime: this.watchTime.byCategory[cat] || 0,
     })).sort((a, b) => b.score - a.score);
+  }
+
+  public getTopLanguages(): LanguageStat[] {
+    return Object.values(this.languageEngagement).sort(
+      (a, b) => b.watchTimeSeconds * 1.5 + b.score - (a.watchTimeSeconds * 1.5 + a.score)
+    );
   }
 
   public resetAffinity() {
     this.affinity = { ...DEFAULT_AFFINITY };
     this.notInterestedIds.clear();
     this.recentInteractions = [];
+    this.watchTime = { ...DEFAULT_WATCH_TIME, totalSeconds: 0, byPost: {} };
+    this.languageEngagement = { ...DEFAULT_LANGUAGE_ENGAGEMENT };
     this.saveToStorage();
   }
 }

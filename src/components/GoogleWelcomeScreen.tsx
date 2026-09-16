@@ -33,13 +33,13 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
       {/* Top Bar */}
       <header className="px-6 py-6 flex items-center justify-between relative z-10 max-w-6xl mx-auto w-full">
         <div className="flex items-center gap-3">
-          <JhalakLogo size={36} showGlow={false} animate={true} />
-          <div className="flex items-center gap-2">
-            <span className="font-serif text-3xl font-bold bg-gradient-to-r from-amber-400 via-rose-500 to-fuchsia-500 bg-clip-text text-transparent">
-              Jhalak
+          <JhalakLogo size={38} showGlow={false} animate={true} />
+          <div className="flex flex-col text-left">
+            <span className="text-xl font-black tracking-tight text-white leading-tight">
+              Jhalak Reels:
             </span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-medium border border-amber-500/20">
-              झलक • India
+            <span className="text-xs font-extrabold text-amber-400 tracking-wider uppercase leading-none">
+              Made in India
             </span>
           </div>
         </div>
@@ -54,13 +54,13 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
       {/* Main Center Content */}
       <main className="flex-1 flex items-center justify-center px-4 py-8 relative z-10">
         <div className="w-full max-w-md bg-neutral-900/90 backdrop-blur-xl border border-neutral-800/90 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col items-center text-center">
-          {/* Custom Sleek Indian Social App Logo Badge */}
+          {/* Square Tiranga 'J' Badge Logo Asset */}
           <div className="mb-5 flex flex-col items-center">
-            <JhalakLogo size={72} showGlow={true} animate={true} />
+            <JhalakLogo size={84} showGlow={true} animate={true} />
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white mb-2">
-            Welcome to Jhalak
+            <span className="text-amber-400">Jhalak Reels:</span> Made in India
           </h1>
           <p className="text-sm text-neutral-400 mb-6 max-w-xs leading-relaxed">
             Discover vibrant stories, trending Bollywood & Indie reels, and creators across India.
@@ -156,7 +156,7 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
 
       {/* Footer */}
       <footer className="py-4 text-center text-neutral-500 text-xs relative z-10">
-        <p>Jhalak (झलक) • Crafted for India with ❤️</p>
+        <p>Jhalak Reels: Made in India • Crafted with ❤️</p>
       </footer>
     </div>
   );

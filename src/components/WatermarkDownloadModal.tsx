@@ -131,14 +131,14 @@ export const WatermarkDownloadModal: React.FC<WatermarkDownloadModalProps> = ({
           {/* Overlaid Jhalak Branding Watermark Badge */}
           <div
             id="watermark-preview-badge"
-            className="absolute bottom-4 right-4 z-20 flex items-center gap-2 py-1.5 px-3 rounded-full bg-black/75 backdrop-blur-md border border-white/20 shadow-2xl animate-pulse"
+            className="absolute bottom-4 right-4 z-20 flex items-center gap-2 py-1.5 px-3 rounded-full bg-black/80 backdrop-blur-md border border-white/20 shadow-2xl animate-pulse"
           >
-            {/* Custom glowing Jhalak logo */}
-            <JhalakLogo size={18} showGlow={false} />
+            {/* Square Tiranga Jhalak logo */}
+            <JhalakLogo size={22} showGlow={false} />
             <div className="flex flex-col">
               <div className="flex items-center gap-1">
-                <span className="text-[11px] font-extrabold tracking-wide bg-gradient-to-r from-amber-400 to-rose-400 bg-clip-text text-transparent">
-                  Jhalak
+                <span className="text-[11px] font-extrabold tracking-wide text-amber-300">
+                  Jhalak Reels
                 </span>
                 <span className="text-[10px] text-white/60">•</span>
                 <span className="text-[10px] font-bold text-white tracking-tight">
@@ -149,10 +149,10 @@ export const WatermarkDownloadModal: React.FC<WatermarkDownloadModalProps> = ({
           </div>
 
           {/* Top subtle corner watermark for authenticity */}
-          <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-black/50 backdrop-blur-xs border border-white/10">
-            <JhalakLogo size={14} showGlow={false} />
-            <span className="text-[9px] font-semibold text-neutral-200 uppercase tracking-widest">
-              Jhalak Reel
+          <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-black/60 backdrop-blur-xs border border-white/15">
+            <JhalakLogo size={18} showGlow={false} />
+            <span className="text-[9px] font-bold text-neutral-100 uppercase tracking-wider">
+              Jhalak Reels: Made in India
             </span>
           </div>
 

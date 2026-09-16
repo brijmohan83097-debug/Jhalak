@@ -13,6 +13,7 @@ import {
   Clapperboard,
   Phone,
   ShoppingBag,
+  Maximize2,
 } from 'lucide-react';
 import { Post, User } from '../types';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
@@ -27,6 +28,7 @@ interface PostDetailModalProps {
   onAddComment: (postId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
   onShare: (post: Post) => void;
   onViewUser: (username: string) => void;
+  onOpenFullScreen?: (post: Post) => void;
 }
 
 const QUICK_REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😢', '😍'];
@@ -40,6 +42,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onAddComment,
   onShare,
   onViewUser,
+  onOpenFullScreen,
 }) => {
   const [commentText, setCommentText] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'gif' } | null>(null);
@@ -114,7 +117,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
       <div className="relative w-full max-w-4xl max-h-[92vh] bg-white dark:bg-black rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 flex flex-col md:flex-row">
         {/* Media Side */}
-        <div className="relative w-full md:w-3/5 bg-black flex items-center justify-center overflow-hidden aspect-square md:aspect-auto">
+        <div className="relative w-full md:w-3/5 bg-black flex items-center justify-center overflow-hidden aspect-square md:aspect-auto group">
           {post.mediaType === 'video' ? (
             <div className="relative w-full h-full flex items-center justify-center bg-black">
               <video
@@ -124,12 +127,13 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                 loop
                 playsInline
                 muted={isMuted}
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain cursor-pointer"
+                onClick={() => onOpenFullScreen && onOpenFullScreen(post)}
               />
               <button
                 id="detail-mute-btn"
                 onClick={() => setIsMuted((prev) => !prev)}
-                className="absolute bottom-4 right-4 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition"
+                className="absolute bottom-4 right-4 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition z-10"
                 aria-label={isMuted ? 'Unmute video' : 'Mute video'}
               >
                 {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
@@ -139,8 +143,25 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             <img
               src={post.mediaUrl}
               alt={post.caption}
-              className={`w-full h-full object-cover ${post.filter || ''}`}
+              onClick={() => onOpenFullScreen && onOpenFullScreen(post)}
+              className={`w-full h-full object-cover cursor-pointer ${post.filter || ''}`}
             />
+          )}
+
+          {/* Full Screen Immersive Viewer Button */}
+          {onOpenFullScreen && (
+            <button
+              id="detail-fullscreen-btn"
+              onClick={() => {
+                onClose();
+                onOpenFullScreen(post);
+              }}
+              className="absolute top-4 left-4 z-10 px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md text-white transition active:scale-95 flex items-center gap-1.5 border border-white/20 text-xs font-semibold shadow-lg"
+              title="Open full-screen Reels style viewer"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-amber-300" />
+              <span>Full Screen</span>
+            </button>
           )}
         </div>
 

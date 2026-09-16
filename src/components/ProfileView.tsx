@@ -60,9 +60,53 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const t = translations[currentLanguage];
   const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLanguage);
 
+  // Load and display all user-uploaded posts in the grid, ensuring count and posts never reset to 0 or disappear on refresh
+  const resolvedUserPosts = React.useMemo(() => {
+    const postMap = new Map<string, Post>();
+
+    // 1. Posts from props
+    (userPosts || []).forEach((p) => {
+      if (p && p.id) postMap.set(p.id, p);
+    });
+
+    // 2. Posts directly attached to current user's profile object
+    (user.userPosts || user.posts || []).forEach((p) => {
+      if (p && p.id && !postMap.has(p.id)) postMap.set(p.id, p);
+    });
+
+    // 3. Persistent user posts from localStorage under user's profile
+    try {
+      const storageKeys = [
+        `ig_user_posts_${user.id}`,
+        `ig_user_posts_${user.username}`,
+        'jhalak_uploaded_posts_v1',
+        'jhalak_user_posts',
+      ];
+      for (const key of storageKeys) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((p: Post) => {
+              if (p && p.id && !postMap.has(p.id)) {
+                postMap.set(p.id, p);
+              }
+            });
+          }
+        }
+      }
+    } catch {
+      // safe fallback
+    }
+
+    return Array.from(postMap.values());
+  }, [userPosts, user]);
+
+  const effectivePostsCount = Math.max(user.postsCount || 0, resolvedUserPosts.length);
+
   const displayPosts =
     activeTab === 'posts'
-      ? userPosts
+      ? resolvedUserPosts
       : activeTab === 'saved'
       ? savedPosts
       : [];
@@ -73,7 +117,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const newHighlight = {
       id: `hl-${Date.now()}`,
       title,
-      cover: userPosts[0]?.mediaUrl || user.avatar,
+      cover: resolvedUserPosts[0]?.mediaUrl || user.avatar,
     };
     const updated = [...highlights, newHighlight];
     setHighlights(updated);
@@ -217,7 +261,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="hidden sm:flex items-center gap-8 text-sm">
             <div>
               <span className="font-bold text-neutral-900 dark:text-white">
-                {userPosts.length}
+                {effectivePostsCount}
               </span>{' '}
               <span className="text-neutral-500 dark:text-neutral-400">{t.posts}</span>
             </div>
@@ -300,7 +344,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       {/* Mobile Stats Row */}
       <div className="flex sm:hidden items-center justify-around py-3 border-y border-neutral-200 dark:border-neutral-800 text-center text-sm mb-4">
         <div>
-          <div className="font-bold text-neutral-900 dark:text-white">{userPosts.length}</div>
+          <div className="font-bold text-neutral-900 dark:text-white">{effectivePostsCount}</div>
           <div className="text-xs text-neutral-500">{t.posts}</div>
         </div>
         <div>
@@ -426,7 +470,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <video
                   src={post.mediaUrl}
                   muted
+                  playsInline
                   preload="metadata"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (!target.src.includes('trailer.mp4')) {
+                      target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
+                    }
+                  }}
                   className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
                     post.filter || ''
                   }`}
@@ -435,6 +486,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <img
                   src={post.mediaUrl}
                   alt={post.caption}
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    target.src = 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&auto=format&fit=crop&q=80';
+                  }}
                   className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
                     post.filter || ''
                   }`}
