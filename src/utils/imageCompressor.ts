@@ -7,6 +7,8 @@
  * preventing browser memory bloat and localStorage QuotaExceededError crashes.
  */
 
+import { safeSlice, safeEncodeURIComponent } from './safeEncoding';
+
 export interface CompressionOptions {
   maxWidth?: number;
   maxHeight?: number;
@@ -122,8 +124,16 @@ export function fileToDataUrl(file: File | Blob): Promise<string> {
  * title, and video identity even if a video blob URL has expired.
  */
 export function createVideoFallbackDataUrl(caption = 'Video Post'): string {
-  const safeCaption = (caption || 'Video Post').replace(/<[^>]*>?/gm, '').slice(0, 40);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+  try {
+    const rawCaption = (caption || 'Video Post').replace(/<[^>]*>?/gm, '');
+    const cleanCaption = safeSlice(rawCaption, 36)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const safeCaption = cleanCaption || 'Video Reel';
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
     <defs>
       <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#18181b"/>
@@ -141,15 +151,26 @@ export function createVideoFallbackDataUrl(caption = 'Video Post'): string {
       🎬 Video Reel Preview
     </text>
   </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    return `data:image/svg+xml;charset=utf-8,${safeEncodeURIComponent(svg)}`;
+  } catch {
+    return 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22600%22%20height%3D%22600%22%20fill%3D%22%2318181b%22%2F%3E%3Ccircle%20cx%3D%22300%22%20cy%3D%22270%22%20r%3D%2254%22%20fill%3D%22%23f43f5e%22%2F%3E%3Cpolygon%20points%3D%22288%2C245%20324%2C270%20288%2C295%22%20fill%3D%22%23ffffff%22%2F%3E%3C%2Fsvg%3E';
+  }
 }
 
 /**
  * Creates an inline SVG Data URL for photo fallback cards.
  */
 export function createPhotoFallbackDataUrl(caption = 'Photo Post'): string {
-  const safeCaption = (caption || 'Photo Post').replace(/<[^>]*>?/gm, '').slice(0, 40);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+  try {
+    const rawCaption = (caption || 'Photo Post').replace(/<[^>]*>?/gm, '');
+    const cleanCaption = safeSlice(rawCaption, 36)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const safeCaption = cleanCaption || 'Photo Post';
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
     <defs>
       <linearGradient id="pgrad" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#262626"/>
@@ -166,7 +187,10 @@ export function createPhotoFallbackDataUrl(caption = 'Photo Post'): string {
       📸 Photo Post
     </text>
   </svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    return `data:image/svg+xml;charset=utf-8,${safeEncodeURIComponent(svg)}`;
+  } catch {
+    return 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22600%22%20height%3D%22600%22%20fill%3D%22%23262626%22%2F%3E%3Ccircle%20cx%3D%22300%22%20cy%3D%22270%22%20r%3D%2248%22%20fill%3D%22%23e11d48%22%2F%3E%3C%2Fsvg%3E';
+  }
 }
 
 /**

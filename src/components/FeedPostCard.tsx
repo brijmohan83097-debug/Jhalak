@@ -33,6 +33,7 @@ import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
 } from '../utils/imageCompressor';
+import { safeSlice, safeEncodeURIComponent } from '../utils/safeEncoding';
 
 interface FeedPostCardProps {
   post: Post;
@@ -191,7 +192,11 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
     // Single tap on photo or video opens full-screen viewer as requested
     if (onOpenFullScreen) {
-      onOpenFullScreen(post);
+      const activeImageUrl = post.mediaUrl || post.thumbnailUrl || '';
+      onOpenFullScreen({
+        ...post,
+        mediaUrl: activeImageUrl,
+      });
       return;
     }
 
@@ -407,7 +412,22 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           <img
             src={post.mediaUrl}
             alt={post.caption}
-            className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onOpenFullScreen) {
+                onOpenFullScreen({
+                  ...post,
+                  mediaUrl: post.mediaUrl,
+                });
+              } else {
+                onOpenDetail(post);
+              }
+            }}
+            onError={(e) => {
+              const target = e.currentTarget;
+              target.src = createPhotoFallbackDataUrl(post.caption);
+            }}
+            className={`w-full h-full object-cover cursor-pointer ${post.filter ? post.filter : ''}`}
             loading="lazy"
           />
         )}
@@ -445,7 +465,10 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           onClick={(e) => {
             e.stopPropagation();
             if (onOpenFullScreen) {
-              onOpenFullScreen(post);
+              onOpenFullScreen({
+                ...post,
+                mediaUrl: post.mediaUrl,
+              });
             } else {
               onOpenDetail(post);
             }
@@ -500,8 +523,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
             {/* Direct WhatsApp Share Button */}
             <a
               id={`whatsapp-share-btn-${post.id}`}
-              href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                `Check out this post by @${post.username} on Jhalak:\n"${post.caption}"\n${window.location.href}`
+              href={`https://api.whatsapp.com/send?text=${safeEncodeURIComponent(
+                `Check out this post by @${post.username} on Jhalak:\n"${post.caption}"\n${typeof window !== 'undefined' ? window.location.href : ''}`
               )}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -561,7 +584,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           <span>
             {showFullCaption || !isLongCaption
               ? post.caption
-              : `${post.caption.slice(0, 90)}...`}
+              : `${safeSlice(post.caption, 90)}...`}
           </span>
           {isLongCaption && (
             <button

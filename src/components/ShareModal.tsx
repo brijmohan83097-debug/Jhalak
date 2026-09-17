@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Copy, Check, Send, MessageCircle, Phone } from 'lucide-react';
 import { Post, Conversation } from '../types';
+import { safeSlice, safeEncodeURIComponent } from '../utils/safeEncoding';
 
 interface ShareModalProps {
   post: Post;
@@ -33,7 +34,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const handleSendToUser = (convId: string) => {
     setSentMap((prev) => ({ ...prev, [convId]: true }));
     if (onSendToChat) {
-      onSendToChat(convId, `Shared a post from @${post.username}: ${post.caption.slice(0, 50)}...`);
+      onSendToChat(convId, `Shared a post from @${post.username}: ${safeSlice(post.caption, 50)}...`);
     }
   };
 
@@ -117,8 +118,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         <div className="p-3 border-t border-neutral-200 dark:border-neutral-800 space-y-2">
           <a
             id="share-modal-whatsapp-btn"
-            href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-              `Check out this post by @${post.username} on Jhalak:\n"${post.caption}"\n${window.location.href}`
+            href={`https://api.whatsapp.com/send?text=${safeEncodeURIComponent(
+              `Check out this post by @${post.username} on Jhalak:\n"${post.caption}"\n${typeof window !== 'undefined' ? window.location.href : ''}`
             )}`}
             target="_blank"
             rel="noopener noreferrer"

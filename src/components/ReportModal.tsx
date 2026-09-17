@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AlertTriangle,
   Ban,
@@ -34,27 +34,36 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   onUserBlocked,
 }) => {
   const [mode, setMode] = useState<'report' | 'block'>(initialMode);
-  const [selectedReason, setSelectedReason] = useState<ReportReason | null>(null);
+  const [selectedReason, setSelectedReason] = useState<ReportReason | null>('Inappropriate Content');
   const [blockReason, setBlockReason] = useState<string>('Inappropriate behavior');
   const [isSubmitted, setIsSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+      setSelectedReason('Inappropriate Content');
+      setBlockReason('Inappropriate behavior');
+      setIsSubmitted(false);
+    }
+  }, [isOpen, initialMode, target?.id]);
 
   if (!isOpen || !target) return null;
 
   const handleReportSubmit = () => {
-    if (!selectedReason) return;
+    const reasonToSubmit = selectedReason || 'Inappropriate Content';
     moderationService.reportItem({
       id: target.id,
       type: target.type,
       username: target.username,
-      reason: selectedReason,
+      reason: reasonToSubmit,
     });
     setIsSubmitted(true);
     setTimeout(() => {
-      onReportSubmitted(target.id, selectedReason);
+      onReportSubmitted(target.id, reasonToSubmit);
       setIsSubmitted(false);
       setSelectedReason(null);
       onClose();
-    }, 1200);
+    }, 1000);
   };
 
   const handleBlockSubmit = () => {

@@ -61,8 +61,8 @@ export const ADMOB_CONFIG = {
   INTERSTITIAL_ENABLED: false,
   APP_OPEN_ENABLED: false,
 
-  // Feed insertion frequency (every 6-8 items)
-  FEED_AD_INTERVAL: 7,
+  // Feed insertion frequency: 1 ad after every 2 feed posts/videos (index % 2 === 1)
+  FEED_AD_INTERVAL: 2,
   REELS_AD_INTERVAL: 7,
 };
 
@@ -177,6 +177,50 @@ export const SAMPLE_NATIVE_FEED_ADS: AdMobNativeAd[] = [
     isSaved: false,
     tags: ['CRED', 'Cashback', 'UPI', 'PlayStore'],
   },
+  {
+    isAdMobAd: true,
+    id: 'admob-native-feed-flipkart',
+    adUnitId: ADMOB_CONFIG.NATIVE_ADVANCED_ANDROID,
+    type: 'feed',
+    advertiser: 'Flipkart • Big Billion Days',
+    advertiserIcon: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=120&auto=format&fit=crop&q=80',
+    isVerified: true,
+    category: 'Shopping & Electronics',
+    rating: 4.8,
+    reviewsCount: '19M reviews',
+    headline: 'Mega Savings & SuperCoins on Electronics, Fashion & Mobiles',
+    body: 'Discover millions of genuine products with free delivery, instant bank discounts, and easy no-cost EMI. Shop India’s favorite festival sale.',
+    callToAction: 'Shop on Flipkart',
+    destinationUrl: 'https://flipkart.com',
+    mediaType: 'image',
+    mediaUrl: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&auto=format&fit=crop&q=80',
+    likesCount: 35120,
+    isLiked: false,
+    isSaved: false,
+    tags: ['Flipkart', 'BBD', 'Sale', 'Mobiles', 'Sponsored'],
+  },
+  {
+    isAdMobAd: true,
+    id: 'admob-native-feed-phonepe',
+    adUnitId: ADMOB_CONFIG.NATIVE_ADVANCED_ANDROID,
+    type: 'feed',
+    advertiser: 'PhonePe • UPI & Payments',
+    advertiserIcon: 'https://images.unsplash.com/photo-1556742049-0a67c5574f73?w=120&auto=format&fit=crop&q=80',
+    isVerified: true,
+    category: 'Finance & Banking',
+    rating: 4.7,
+    reviewsCount: '12M reviews',
+    headline: 'Instant Zero-Fee UPI Transfers, Recharges & Gold Investment',
+    body: 'Send money to any bank account, pay electricity and broadband bills instantly, and scan any QR merchant code across India safely.',
+    callToAction: 'Open PhonePe App',
+    destinationUrl: 'https://phonepe.com',
+    mediaType: 'image',
+    mediaUrl: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=1200&auto=format&fit=crop&q=80',
+    likesCount: 21890,
+    isLiked: false,
+    isSaved: false,
+    tags: ['PhonePe', 'UPI', 'MoneyTransfer', 'ZeroFee', 'Sponsored'],
+  },
 ];
 
 // Curated official-style Native Video Ads for Reels Vertical Queue
@@ -197,7 +241,7 @@ export const SAMPLE_NATIVE_REELS_ADS: AdMobNativeAd[] = [
     callToAction: 'Try Gemini for Free ↗',
     destinationUrl: 'https://workspace.google.com',
     mediaType: 'video',
-    mediaUrl: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
+    mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
     posterUrl: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=800&auto=format&fit=crop&q=80',
     audioTitle: 'Google Soundscapes • Official Theme',
     likesCount: 42100,
@@ -221,7 +265,7 @@ export const SAMPLE_NATIVE_REELS_ADS: AdMobNativeAd[] = [
     callToAction: 'Get Spotify Premium ↗',
     destinationUrl: 'https://spotify.com',
     mediaType: 'video',
-    mediaUrl: 'https://media.w3.org/2010/05/video/movie_300.mp4',
+    mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
     posterUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=80',
     audioTitle: 'Trending Beats • Sponsored Sound',
     likesCount: 56900,
@@ -279,24 +323,31 @@ class AdMobService {
   }
 
   /**
-   * Interleave native ads into an array cleanly every `interval` items
+   * Interleave native ads into an array cleanly after every `interval` items (e.g. index % 2 === 1)
    */
   public insertNativeAds<T>(
     items: T[],
     ads: AdMobNativeAd[],
     interval: number = ADMOB_CONFIG.FEED_AD_INTERVAL
   ): (T | AdMobNativeAd)[] {
-    if (ads.length === 0 || items.length === 0) return items;
+    if (!ads || ads.length === 0 || !items || items.length === 0) return items || [];
 
+    const effectiveInterval = Math.max(1, interval);
     const result: (T | AdMobNativeAd)[] = [];
     let adIndex = 0;
 
     for (let i = 0; i < items.length; i++) {
       result.push(items[i]);
 
-      // Every `interval` items (e.g., after 6 items, at index 5), insert a native ad
-      if ((i + 1) % interval === 0 && adIndex < ads.length) {
-        result.push(ads[adIndex % ads.length]);
+      // Insert 1 AdMob/Native ad card after every `interval` feed posts/videos
+      // When interval = 2, triggers when i % 2 === 1 (i.e. after post 1, post 3, post 5, etc.)
+      if (i % effectiveInterval === (effectiveInterval - 1)) {
+        const baseAd = ads[adIndex % ads.length];
+        const uniqueAd: AdMobNativeAd = {
+          ...baseAd,
+          id: adIndex >= ads.length ? `${baseAd.id}-feed-${adIndex}` : baseAd.id,
+        };
+        result.push(uniqueAd);
         adIndex++;
       }
     }

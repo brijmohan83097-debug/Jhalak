@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Grid,
   Bookmark,
@@ -52,49 +52,85 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [activeTab, setActiveTab] = useState<'posts' | 'saved' | 'tagged'>('posts');
   const [highlights, setHighlights] = useState<any[]>(() => {
     try {
-      const saved = localStorage.getItem('ig_profile_highlights');
-      return saved ? JSON.parse(saved) : [];
+      const userKey = user?.id ? `ig_profile_highlights_${user.id}` : 'ig_profile_highlights';
+      const saved = localStorage.getItem(userKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      const fallback = localStorage.getItem('ig_profile_highlights');
+      if (fallback) {
+        const parsed = JSON.parse(fallback);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      return [];
     } catch {
       return [];
     }
   });
+
+  // Re-sync highlights when user changes
+  useEffect(() => {
+    try {
+      const userKey = user?.id ? `ig_profile_highlights_${user.id}` : 'ig_profile_highlights';
+      const saved = localStorage.getItem(userKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setHighlights(parsed);
+          return;
+        }
+      }
+      setHighlights([]);
+    } catch {
+      setHighlights([]);
+    }
+  }, [user?.id]);
   const [showShagunSheet, setShowShagunSheet] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  const t = translations[currentLanguage];
+  const t = translations[currentLanguage] || translations.en;
   const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLanguage);
 
-  // Helper to determine if a post belongs to the current profile user
+  // Helper to determine if a post belongs exclusively to the current profile user
   const isMatchingUser = (p: any): boolean => {
     if (!p || typeof p !== 'object' || !p.id) return false;
-    const targetId = (user.id || '').trim().toLowerCase();
-    const targetUsername = (user.username || '').trim().toLowerCase();
-    const targetEmail = (user.email || '').trim().toLowerCase();
-    const targetEmailPrefix = targetEmail ? targetEmail.split('@')[0] : '';
+    const targetId = (user?.id || '').trim().toLowerCase();
+    const targetUsername = (user?.username || '').trim().toLowerCase();
 
     const postUserId = (p.userId || '').trim().toLowerCase();
     const postUsername = (p.username || '').trim().toLowerCase();
 
-    // 1. Direct match by ID or username
+    // 1. Direct match by user ID
     if (targetId && postUserId && targetId === postUserId) return true;
+
+    // 2. Direct match by username
     if (targetUsername && postUsername && targetUsername === postUsername) return true;
 
-    // 2. Default user aliases (user-me, brijmohan, brijmohan83097, user-brijmohan)
-    const defaultAliases = ['user-me', 'brijmohan', 'brijmohan83097', 'user-brijmohan'];
-    const isTargetDefault = defaultAliases.includes(targetId) || defaultAliases.includes(targetUsername);
-    const isPostDefault = defaultAliases.includes(postUserId) || defaultAliases.includes(postUsername);
-    if (isTargetDefault && isPostDefault) return true;
+    // 3. Legacy compatibility for default Brij Mohan account only
+    const isBrijMohan =
+      targetId === 'user-me' ||
+      targetId === 'user-brijmohan' ||
+      targetId === 'user-brijmohan83097' ||
+      targetUsername === 'brijmohan';
 
-    // 3. Email prefix matching
-    if (targetEmailPrefix && (postUsername === targetEmailPrefix || postUserId === targetEmailPrefix)) {
-      return true;
+    if (isBrijMohan) {
+      if (
+        postUserId === 'user-me' ||
+        postUserId === 'user-brijmohan' ||
+        postUserId === 'user-brijmohan83097' ||
+        postUsername === 'brijmohan'
+      ) {
+        return true;
+      }
     }
 
     return false;
   };
 
-  // Load and display all user-uploaded posts in the grid, directly reading from localStorage to avoid count mismatch
+  // Load and display exclusively this logged-in user's uploaded posts saved by their user ID in localStorage
   const resolvedUserPosts = React.useMemo(() => {
+    if (!user || !user.id) return [];
     const postMap = new Map<string, Post>();
 
     const addIfMatching = (p: any) => {
@@ -105,113 +141,84 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
     };
 
-    // 1. Posts from props
-    (userPosts || []).forEach(addIfMatching);
-
-    // 2. Posts directly attached to current user's profile object
-    (user.userPosts || user.posts || []).forEach(addIfMatching);
-
-    // 3. Persistent user posts from localStorage under user's profile and feed
+    // 1. Check user-specific localStorage key: ig_user_posts_${user.id}
     try {
-      const explicitKeys = [
-        'ig_feed_posts',
-        `ig_user_posts_${user.id}`,
-        `ig_user_posts_${user.username}`,
-        'ig_user_posts_user-me',
-        'ig_user_posts_brijmohan',
-        'jhalak_uploaded_posts_v1',
-        'jhalak_user_posts',
-        'ig_posts',
-        'posts',
-      ];
-
-      for (const key of explicitKeys) {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              parsed.forEach(addIfMatching);
-            } else if (parsed && typeof parsed === 'object') {
-              addIfMatching(parsed);
-            }
-          } catch {
-            // safe
-          }
+      const userPostsKey = `ig_user_posts_${user.id}`;
+      const raw = localStorage.getItem(userPostsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(addIfMatching);
         }
       }
 
-      // Check ig_current_user in localStorage
-      const userRaw = localStorage.getItem('ig_current_user');
-      if (userRaw) {
-        try {
-          const u = JSON.parse(userRaw);
-          if (u) {
-            (u.userPosts || []).forEach(addIfMatching);
-            (u.posts || []).forEach(addIfMatching);
-          }
-        } catch {
-          // safe
-        }
-      }
+      // Legacy fallback exclusively for Brij Mohan
+      const isBrijMohan =
+        user.id === 'user-me' ||
+        user.id === 'user-brijmohan' ||
+        user.id === 'user-brijmohan83097' ||
+        user.username === 'brijmohan';
 
-      // 4. Dynamic scan across ALL keys in window.localStorage to find any user posts
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (
-          key &&
-          (key.includes('post') ||
-            key.includes('upload') ||
-            key.includes('user') ||
-            key.includes('feed') ||
-            key.includes('jhalak'))
-        ) {
-          const val = localStorage.getItem(key);
-          if (val && (val.startsWith('[') || val.startsWith('{'))) {
-            try {
-              const item = JSON.parse(val);
-              if (Array.isArray(item)) {
-                item.forEach(addIfMatching);
-              } else if (item && typeof item === 'object') {
-                addIfMatching(item);
-              }
-            } catch {
-              // ignore non-json
-            }
-          }
+      if (isBrijMohan) {
+        const legacyMe = localStorage.getItem('ig_user_posts_user-me');
+        if (legacyMe) {
+          const parsed = JSON.parse(legacyMe);
+          if (Array.isArray(parsed)) parsed.forEach(addIfMatching);
+        }
+        const legacyBrij = localStorage.getItem('ig_user_posts_brijmohan');
+        if (legacyBrij) {
+          const parsed = JSON.parse(legacyBrij);
+          if (Array.isArray(parsed)) parsed.forEach(addIfMatching);
         }
       }
     } catch {
       // safe fallback
     }
 
+    // 2. Posts from props that match this user
+    (userPosts || []).forEach(addIfMatching);
+
+    // 3. Posts directly attached to current user profile object
+    (user.userPosts || user.posts || []).forEach(addIfMatching);
+
     return Array.from(postMap.values());
   }, [userPosts, user]);
 
-  const effectivePostsCount =
-    resolvedUserPosts.length > 0
-      ? Math.max(user.postsCount || 0, resolvedUserPosts.length)
-      : 0;
+  const safeResolvedPosts = Array.isArray(resolvedUserPosts) ? resolvedUserPosts : [];
+  const safeSavedPosts = Array.isArray(savedPosts) ? savedPosts : [];
+
+  const effectivePostsCount = safeResolvedPosts.length;
 
   const displayPosts =
     activeTab === 'posts'
-      ? resolvedUserPosts
+      ? safeResolvedPosts
       : activeTab === 'saved'
-      ? savedPosts
+      ? safeSavedPosts
       : [];
 
   const handleAddHighlight = () => {
-    const title = prompt('Enter highlight name:', 'Moments ✨');
-    if (!title) return;
+    let title: string | null = null;
+    try {
+      title = window.prompt('Enter highlight name:', 'Moments ✨');
+    } catch {
+      title = 'Moments ✨';
+    }
+    if (!title || !title.trim()) {
+      title = `Highlight ${(highlights || []).length + 1}`;
+    }
     const newHighlight = {
       id: `hl-${Date.now()}`,
-      title,
-      cover: resolvedUserPosts[0]?.mediaUrl || user.avatar,
+      title: title.trim(),
+      cover:
+        safeResolvedPosts[0]?.mediaUrl ||
+        user?.avatar ||
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80',
     };
-    const updated = [...highlights, newHighlight];
+    const updated = [...(highlights || []), newHighlight];
     setHighlights(updated);
     try {
-      safeSetItem('ig_profile_highlights', JSON.stringify(updated));
+      const userKey = user?.id ? `ig_profile_highlights_${user.id}` : 'ig_profile_highlights';
+      safeSetItem(userKey, JSON.stringify(updated));
     } catch {
       // ignore
     }
@@ -230,8 +237,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           >
             <div className="bg-white dark:bg-black p-[3px] rounded-full">
               <img
-                src={user.avatar}
-                alt={user.name}
+                src={user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
+                alt={user?.name || user?.username || 'User'}
                 className="w-20 h-20 sm:w-28 sm:h-28 md:w-36 md:h-36 rounded-full object-cover"
               />
             </div>
@@ -251,8 +258,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <h1 className="text-xl md:text-2xl font-semibold flex items-center gap-1.5">
-                {user.username}
-                {user.isVerified && (
+                {user?.username || 'User'}
+                {user?.isVerified && (
                   <BadgeCheck className="w-5 h-5 text-sky-500 fill-sky-500" />
                 )}
               </h1>
@@ -265,7 +272,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 id="profile-shagun-tip-btn"
                 onClick={() => setShowShagunSheet(true)}
                 className="px-3 py-1.5 bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-amber-500/20 active:scale-95 cursor-pointer"
-                title={`Send UPI Shagun tip to @${user.username} via GPay, PhonePe, Paytm`}
+                title={`Send UPI Shagun tip to @${user?.username || ''} via GPay, PhonePe, Paytm`}
               >
                 <Gift className="w-3.5 h-3.5 animate-bounce [animation-duration:3s]" />
                 <span>Send Shagun 🎁</span>
@@ -328,7 +335,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
                     />
                   </svg>
-                  <span className="hidden sm:inline">{user.email ? 'Google' : 'Sign in'}</span>
+                  <span className="hidden sm:inline">{user?.email ? 'Google' : 'Sign in'}</span>
                 </button>
               )}
 
@@ -356,13 +363,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
             <div>
               <span className="font-bold text-neutral-900 dark:text-white">
-                {user.followersCount.toLocaleString()}
+                {(user?.followersCount || 0).toLocaleString()}
               </span>{' '}
               <span className="text-neutral-500 dark:text-neutral-400">{t.followers}</span>
             </div>
             <div>
               <span className="font-bold text-neutral-900 dark:text-white">
-                {user.followingCount.toLocaleString()}
+                {(user?.followingCount || 0).toLocaleString()}
               </span>{' '}
               <span className="text-neutral-500 dark:text-neutral-400">{t.following}</span>
             </div>
@@ -370,11 +377,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
           {/* Bio & Links */}
           <div className="text-sm">
-            <h2 className="font-semibold text-neutral-900 dark:text-white">{user.name}</h2>
-            <p className="whitespace-pre-line text-neutral-800 dark:text-neutral-200 mt-1">
-              {user.bio}
-            </p>
-            {user.website && (
+            <h2 className="font-semibold text-neutral-900 dark:text-white">{user?.name || user?.username || ''}</h2>
+            {user?.bio && (
+              <p className="whitespace-pre-line text-neutral-800 dark:text-neutral-200 mt-1">
+                {user.bio}
+              </p>
+            )}
+            {user?.website && (
               <a
                 href={user.website}
                 target="_blank"
@@ -411,7 +420,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold text-neutral-800 dark:text-neutral-200 flex items-center gap-1 truncate">
-                    {user.email || t.googleAccount}
+                    {user?.email || t.googleAccount}
                     <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
                   </p>
                   <p className="text-[10px] text-neutral-500">{t.googleVerifiedCreator}</p>
@@ -438,13 +447,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
         <div>
           <div className="font-bold text-neutral-900 dark:text-white">
-            {user.followersCount.toLocaleString()}
+            {(user?.followersCount || 0).toLocaleString()}
           </div>
           <div className="text-xs text-neutral-500">{t.followers}</div>
         </div>
         <div>
           <div className="font-bold text-neutral-900 dark:text-white">
-            {user.followingCount.toLocaleString()}
+            {(user?.followingCount || 0).toLocaleString()}
           </div>
           <div className="text-xs text-neutral-500">{t.following}</div>
         </div>
@@ -452,7 +461,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       {/* Story Highlights */}
       <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-6 border-b border-neutral-200 dark:border-neutral-800/80 mb-2">
-        {highlights.map((hl) => (
+        {(highlights || []).map((hl) => (
           <div
             key={hl.id}
             onClick={onOpenStoryModal}
@@ -528,7 +537,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </div>
 
       {/* Posts Grid */}
-      {displayPosts.length === 0 ? (
+      {(displayPosts || []).length === 0 ? (
         <div className="py-20 text-center text-neutral-500">
           <div className="w-16 h-16 rounded-full border-2 border-dashed border-neutral-300 dark:border-neutral-700 flex items-center justify-center mx-auto mb-3">
             {activeTab === 'saved' ? (
@@ -548,7 +557,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-1 md:gap-4">
-          {displayPosts.map((post) => (
+          {(displayPosts || []).map((post) => (
             <div
               key={post.id}
               id={`profile-grid-post-${post.id}`}
@@ -607,11 +616,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-6 text-white font-semibold text-sm">
                 <div className="flex items-center gap-1.5">
                   <span className="text-base">❤️</span>
-                  <span>{post.likesCount}</span>
+                  <span>{post.likesCount || 0}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-base">💬</span>
-                  <span>{post.comments.length}</span>
+                  <span>{Array.isArray(post.comments) ? post.comments.length : 0}</span>
                 </div>
               </div>
             </div>
@@ -624,12 +633,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         isOpen={showShagunSheet}
         onClose={() => setShowShagunSheet(false)}
         creator={{
-          username: user.username,
-          name: user.name || user.username,
-          avatar: user.avatar,
+          username: user?.username || '',
+          name: user?.name || user?.username || '',
+          avatar: user?.avatar || '',
         }}
         onTipSent={(amount, app, note) => {
-          setToastMsg(`Sent ₹${amount} Shagun to @${user.username} via ${app}! 🎁✨`);
+          setToastMsg(`Sent ₹${amount} Shagun to @${user?.username || ''} via ${app}! 🎁✨`);
           setTimeout(() => setToastMsg(null), 4000);
         }}
       />

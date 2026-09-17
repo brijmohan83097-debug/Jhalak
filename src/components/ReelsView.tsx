@@ -38,6 +38,7 @@ import { recommendationEngine, inferLanguage } from '../services/recommendationE
 import { moderationService } from '../services/moderationService';
 import { adMobService, AdMobNativeAd } from '../services/adMobService';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
+import { safeEncodeURIComponent } from '../utils/safeEncoding';
 
 interface ReelsViewProps {
   reels: Reel[];
@@ -386,7 +387,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   return (
     <div
       id="reels-view-container"
-      className="relative w-full h-[calc(100vh-4rem)] md:h-screen flex items-center justify-center bg-black overflow-hidden select-none"
+      className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden select-none"
     >
       {/* Dynamic Toast for Feed Tuning */}
       {toastMessage && (
@@ -396,9 +397,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         </div>
       )}
 
-      {/* Reel Card Stage */}
+      {/* Reel Card Stage - Full screen vertical without black boxes */}
       <div
-        className="relative w-full h-full max-w-[420px] max-h-[820px] md:rounded-2xl overflow-hidden shadow-2xl bg-neutral-950 flex flex-col justify-end"
+        className="relative w-full h-full overflow-hidden bg-black flex flex-col justify-end"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onWheel={handleWheel}
@@ -447,6 +448,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     }
                   }}
                   src={reel.videoUrl}
+                  poster={reel.thumbnailUrl}
                   autoPlay
                   loop
                   playsInline
@@ -740,8 +742,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             {/* Direct WhatsApp Share */}
             <a
               id="reel-action-whatsapp"
-              href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                `Watch this Reel by @${currentReel.username} on Jhalak:\n"${currentReel.caption}"\n${window.location.href}`
+              href={`https://api.whatsapp.com/send?text=${safeEncodeURIComponent(
+                `Watch this Reel by @${currentReel.username} on Jhalak:\n"${currentReel.caption}"\n${typeof window !== 'undefined' ? window.location.href : ''}`
               )}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -1206,7 +1208,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         onReportSubmitted={(id, reason) => {
           setToastMessage(`Report received (${reason}). Thank you for keeping Jhalak safe! 🛡️`);
           setTimeout(() => setToastMessage(null), 3000);
-          setQueue((prev) => prev.filter((r) => r.id !== id));
+          if (videoRefs.current[activeIndex]) {
+            videoRefs.current[activeIndex]?.pause();
+          }
+          setQueue((prev) => {
+            const next = prev.filter((r) => r.id !== id);
+            if (activeIndex >= next.length && next.length > 0) {
+              setActiveIndex(next.length - 1);
+            }
+            return next;
+          });
           if (onReportReel && currentReel) {
             onReportReel(currentReel, reason);
           }
@@ -1215,12 +1226,19 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           const clean = username.toLowerCase().replace(/^@/, '').trim();
           setToastMessage(`Blocked @${clean}. Their reels are now hidden.`);
           setTimeout(() => setToastMessage(null), 3000);
-          setQueue((prev) =>
-            prev.filter((r) => {
+          if (videoRefs.current[activeIndex]) {
+            videoRefs.current[activeIndex]?.pause();
+          }
+          setQueue((prev) => {
+            const next = prev.filter((r) => {
               if (adMobService.isAdItem(r)) return true;
               return r.username.toLowerCase() !== clean;
-            })
-          );
+            });
+            if (activeIndex >= next.length && next.length > 0) {
+              setActiveIndex(next.length - 1);
+            }
+            return next;
+          });
           if (onBlockUser) {
             onBlockUser(username);
           }

@@ -19,6 +19,9 @@ import {
   Maximize2,
   Check,
   UserPlus,
+  MoreVertical,
+  Flag,
+  Ban,
 } from 'lucide-react';
 import { Post, User } from '../types';
 import { CommentsBottomSheet } from './CommentsBottomSheet';
@@ -38,6 +41,8 @@ interface FullScreenMediaViewerProps {
   onAddComment: (postId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
   onShare: (post: Post) => void;
   onViewUser: (username: string) => void;
+  onReportPost?: (post: Post) => void;
+  onBlockUser?: (username: string) => void;
 }
 
 export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
@@ -50,11 +55,16 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   onAddComment,
   onShare,
   onViewUser,
+  onReportPost,
+  onBlockUser,
 }) => {
+  // Filter valid posts safely
+  const safePosts = Array.isArray(posts) ? posts.filter((p): p is Post => Boolean(p && p.id)) : [];
+
   // Find starting index from initialPostId
   const initialIndex = Math.max(
     0,
-    posts.findIndex((p) => p.id === initialPostId)
+    safePosts.findIndex((p) => p.id === initialPostId)
   );
 
   const [activeIndex, setActiveIndex] = useState<number>(initialIndex);
@@ -62,6 +72,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [showHeartBurst, setShowHeartBurst] = useState<boolean>(false);
   const [showMuteBadge, setShowMuteBadge] = useState<boolean>(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState<boolean>(false);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
   const [expandedCaption, setExpandedCaption] = useState<boolean>(false);
   const [showCommentsSheet, setShowCommentsSheet] = useState<boolean>(false);
@@ -79,11 +90,11 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const lastTapTimeRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const currentPost: Post | undefined = posts[activeIndex] || posts[0];
+  const currentPost: Post | undefined = safePosts[activeIndex] || safePosts[0];
 
   // Navigation handlers
   const goToNext = useCallback(() => {
-    if (activeIndex < posts.length - 1 && !isTransitioningRef.current) {
+    if (activeIndex < safePosts.length - 1 && !isTransitioningRef.current) {
       isTransitioningRef.current = true;
       setActiveIndex((prev) => prev + 1);
       setExpandedCaption(false);
@@ -92,7 +103,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         isTransitioningRef.current = false;
       }, 350);
     }
-  }, [activeIndex, posts.length]);
+  }, [activeIndex, safePosts.length]);
 
   const goToPrev = useCallback(() => {
     if (activeIndex > 0 && !isTransitioningRef.current) {
@@ -290,7 +301,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
           <div className="flex flex-col">
             <span className="text-xs font-semibold tracking-wide text-white/90">
-              {activeIndex + 1} / {posts.length}
+              {activeIndex + 1} / {safePosts.length}
             </span>
             <span className="text-[10px] text-white/60 hidden sm:inline">
               Swipe or use ↑ ↓ keys
@@ -342,6 +353,15 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
           >
             <Share2 className="w-4 h-4" />
           </button>
+
+          <button
+            id="fullscreen-viewer-more-btn"
+            onClick={() => setShowOptionsMenu(true)}
+            aria-label="More options"
+            className="w-10 h-10 rounded-full bg-black/60 hover:bg-black/90 active:scale-95 border border-white/20 text-white flex items-center justify-center backdrop-blur-md transition shadow-lg cursor-pointer"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
@@ -350,7 +370,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         ref={containerRef}
         className="relative w-full h-full flex items-center justify-center overflow-hidden"
       >
-        {posts.map((post, index) => {
+        {safePosts.map((post, index) => {
           const isCurrent = index === activeIndex;
 
           // Render only current and immediate neighbors for optimal memory & performance
@@ -372,7 +392,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
               {/* Subtle ambient colored blur background for photos and videos */}
               <div
                 className="absolute inset-0 bg-cover bg-center filter blur-3xl opacity-20 scale-125 pointer-events-none transition-opacity duration-700"
-                style={{ backgroundImage: `url(${post.mediaUrl})` }}
+                style={{ backgroundImage: post.mediaUrl ? `url(${post.mediaUrl})` : undefined }}
               />
 
               {/* Media Content Container */}
@@ -562,7 +582,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
             />
           </button>
           <span className="text-[11px] font-bold text-white drop-shadow-md">
-            {currentPost.likesCount.toLocaleString()}
+            {(currentPost.likesCount ?? 0).toLocaleString()}
           </span>
         </div>
 
@@ -577,7 +597,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
             <MessageCircle className="w-5 h-5 text-white" />
           </button>
           <span className="text-[11px] font-bold text-white drop-shadow-md">
-            {currentPost.comments.length}
+            {Array.isArray(currentPost.comments) ? currentPost.comments.length : 0}
           </span>
         </div>
 
@@ -655,7 +675,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
           >
             {currentPost.caption}
           </p>
-          {currentPost.caption.length > 80 && (
+          {currentPost.caption && currentPost.caption.length > 80 && (
             <button
               onClick={() => setExpandedCaption((prev) => !prev)}
               className="text-xs font-semibold text-white/70 hover:text-white mt-0.5 underline cursor-pointer"
@@ -682,7 +702,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         {/* Audio marquee / Info */}
         {currentPost.audioTitle && (
           <div className="flex items-center gap-1.5 text-xs text-white/80 bg-black/40 border border-white/15 px-2.5 py-1 rounded-full w-fit backdrop-blur-md">
-            <Music className="w-3 h-3 text-rose-400 animate-pulse" />
+            <Music className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
             <span className="truncate max-w-[200px]">{currentPost.audioTitle}</span>
           </div>
         )}
@@ -697,7 +717,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
               <ShoppingBag className="w-3.5 h-3.5 text-emerald-400" />
               <span>{currentPost.productTag.title}</span>
               <span className="bg-emerald-500 text-black px-1.5 py-0.2 rounded font-bold text-[10px]">
-                ₹{currentPost.productTag.price.toLocaleString('en-IN')}
+                ₹{(currentPost.productTag.price || 0).toLocaleString('en-IN')}
               </span>
             </button>
           </div>
@@ -719,10 +739,10 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         <CommentsBottomSheet
           isOpen={showCommentsSheet}
           onClose={() => setShowCommentsSheet(false)}
-          comments={currentPost.comments}
+          comments={Array.isArray(currentPost.comments) ? currentPost.comments : []}
           currentUser={currentUser}
-          targetAuthorUsername={currentPost.username}
-          commentsCount={currentPost.comments.length}
+          targetAuthorUsername={currentPost.username || ''}
+          commentsCount={Array.isArray(currentPost.comments) ? currentPost.comments.length : 0}
           onAddComment={(text, mediaUrl, mediaType) => {
             onAddComment(currentPost.id, text, mediaUrl, mediaType);
           }}
@@ -740,12 +760,101 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
           isOpen={showProductModal}
           product={currentPost.productTag}
           creator={{
-            username: currentPost.username,
-            avatar: currentPost.userAvatar,
-            isVerified: currentPost.isVerified,
+            username: currentPost.username || '',
+            avatar: currentPost.userAvatar || '',
+            isVerified: !!currentPost.isVerified,
           }}
           onClose={() => setShowProductModal(false)}
         />
+      )}
+
+      {/* 9. OPTIONS MENU (Report Post / Reel, Block User, Share) */}
+      {showOptionsMenu && currentPost && (
+        <div
+          id={`fullscreen-options-backdrop-${currentPost.id}`}
+          className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setShowOptionsMenu(false)}
+        >
+          <div
+            id={`fullscreen-options-menu-${currentPost.id}`}
+            className="w-full max-w-sm bg-white dark:bg-neutral-900 rounded-t-3xl sm:rounded-2xl p-4 shadow-2xl border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white animate-in slide-in-from-bottom duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-1.5 bg-neutral-300 dark:bg-neutral-700 rounded-full mx-auto mb-4 sm:hidden" />
+            <h3 className="text-sm font-bold text-center mb-3">Options</h3>
+
+            <div className="space-y-1.5">
+              {/* Report Post / Reel */}
+              <button
+                id={`fullscreen-report-btn-${currentPost.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  if (onReportPost) {
+                    onReportPost(currentPost);
+                    onClose();
+                  }
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group"
+              >
+                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
+                  <Flag className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Report Content</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    Spam, inappropriate content, or harassment
+                  </p>
+                </div>
+              </button>
+
+              {/* Block User */}
+              <button
+                id={`fullscreen-block-user-btn-${currentPost.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  if (onBlockUser) {
+                    onBlockUser(currentPost.username);
+                    onClose();
+                  }
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group"
+              >
+                <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                  <Ban className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Block @{currentPost.username}</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    Hide all content from this creator
+                  </p>
+                </div>
+              </button>
+
+              {/* Share */}
+              <button
+                id={`fullscreen-share-menu-btn-${currentPost.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  onShare(currentPost);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition"
+              >
+                <Share2 className="w-4 h-4 text-neutral-500" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Share</p>
+                  <p className="text-[11px] text-neutral-500">Share via direct link or apps</p>
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowOptionsMenu(false)}
+              className="w-full mt-3 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs font-semibold hover:opacity-80 transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

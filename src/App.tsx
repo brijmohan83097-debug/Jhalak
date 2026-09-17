@@ -94,6 +94,7 @@ export default function App() {
   // Core Data States
   const [currentUser, setCurrentUser] = useState<User>(() => {
     try {
+      const activeUserId = localStorage.getItem('ig_current_user_id');
       const saved = localStorage.getItem('ig_current_user');
       let user: User = initialCurrentUser;
       if (saved) {
@@ -102,22 +103,23 @@ export default function App() {
           user = parsed;
         }
       }
+      if (activeUserId) {
+        user.id = activeUserId;
+      }
 
-      // Collect user-uploaded posts under profile across all storage keys
+      // Load saved profile data for this specific user ID if available
+      try {
+        const savedProfileRaw = localStorage.getItem(`ig_user_profile_${user.id}`);
+        if (savedProfileRaw) {
+          const parsedProfile = JSON.parse(savedProfileRaw);
+          if (parsedProfile && typeof parsedProfile === 'object') {
+            user = { ...user, ...parsedProfile };
+          }
+        }
+      } catch {}
+
+      // Collect strictly this user's uploaded posts saved by their user ID
       const profilePostsMap = new Map<string, Post>();
-      (user.userPosts || user.posts || []).forEach((p) => {
-        if (p && p.id) profilePostsMap.set(p.id, p);
-      });
-
-      const profileKeys = [
-        'ig_feed_posts',
-        `ig_user_posts_${user.id}`,
-        `ig_user_posts_${user.username}`,
-        'ig_user_posts_user-me',
-        'ig_user_posts_brijmohan',
-        'jhalak_uploaded_posts_v1',
-        'jhalak_user_posts',
-      ];
 
       const isMatchingProfileUser = (p: any): boolean => {
         if (!p || typeof p !== 'object' || !p.id) return false;
@@ -125,40 +127,76 @@ export default function App() {
         const targetUsername = (user.username || '').trim().toLowerCase();
         const postUserId = (p.userId || '').trim().toLowerCase();
         const postUsername = (p.username || '').trim().toLowerCase();
+
         if (targetId && postUserId && targetId === postUserId) return true;
         if (targetUsername && postUsername && targetUsername === postUsername) return true;
-        const aliases = ['user-me', 'brijmohan', 'brijmohan83097', 'user-brijmohan'];
-        if (
-          (aliases.includes(targetId) || aliases.includes(targetUsername)) &&
-          (aliases.includes(postUserId) || aliases.includes(postUsername))
-        ) {
-          return true;
+
+        // Legacy compatibility for Brij Mohan account only
+        const isBrijMohan =
+          targetId === 'user-me' ||
+          targetId === 'user-brijmohan' ||
+          targetId === 'user-brijmohan83097' ||
+          targetUsername === 'brijmohan';
+
+        if (isBrijMohan) {
+          if (
+            postUserId === 'user-me' ||
+            postUserId === 'user-brijmohan' ||
+            postUserId === 'user-brijmohan83097' ||
+            postUsername === 'brijmohan'
+          ) {
+            return true;
+          }
         }
         return false;
       };
 
-      profileKeys.forEach((key) => {
-        try {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const list = JSON.parse(raw);
+      // 1. Check user-specific localStorage key: ig_user_posts_${user.id}
+      try {
+        const userPostsKey = `ig_user_posts_${user.id}`;
+        const raw = localStorage.getItem(userPostsKey);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            list.forEach((p: Post) => {
+              if (p && p.id && isMatchingProfileUser(p)) {
+                profilePostsMap.set(p.id, p);
+              }
+            });
+          }
+        }
+
+        // Legacy fallback exclusively for Brij Mohan
+        const isBrijMohan =
+          user.id === 'user-me' ||
+          user.id === 'user-brijmohan' ||
+          user.id === 'user-brijmohan83097' ||
+          user.username === 'brijmohan';
+
+        if (isBrijMohan) {
+          const legacyMe = localStorage.getItem('ig_user_posts_user-me');
+          if (legacyMe) {
+            const list = JSON.parse(legacyMe);
             if (Array.isArray(list)) {
               list.forEach((p: Post) => {
-                if (p && p.id && isMatchingProfileUser(p)) {
-                  profilePostsMap.set(p.id, p);
-                }
+                if (p && p.id && isMatchingProfileUser(p)) profilePostsMap.set(p.id, p);
               });
-            } else if (list && typeof list === 'object' && isMatchingProfileUser(list)) {
-              profilePostsMap.set(list.id, list);
             }
           }
-        } catch {
-          // safe
+        }
+      } catch {
+        // safe
+      }
+
+      // 2. Attach any posts already directly attached to user object if matching
+      (user.userPosts || user.posts || []).forEach((p) => {
+        if (p && p.id && isMatchingProfileUser(p) && !profilePostsMap.has(p.id)) {
+          profilePostsMap.set(p.id, p);
         }
       });
 
       const resolvedPosts = Array.from(profilePostsMap.values());
-      const verifiedPostsCount = resolvedPosts.length > 0 ? Math.max(user.postsCount || 0, resolvedPosts.length) : 0;
+      const verifiedPostsCount = resolvedPosts.length;
 
       const finalizedUser: User = {
         ...user,
@@ -169,6 +207,7 @@ export default function App() {
 
       try {
         safeSetItem('ig_current_user', JSON.stringify(finalizedUser));
+        safeSetItem(`ig_user_posts_${finalizedUser.id}`, JSON.stringify(resolvedPosts));
       } catch {
         // safe
       }
@@ -503,7 +542,10 @@ export default function App() {
   // Open Immersive Full-Screen Media Viewer
   const handleOpenFullScreen = (post: Post, postList?: Post[]) => {
     const list = postList && postList.length > 0 ? postList : sortedFeedPosts;
-    const finalList = list.some((p) => p.id === post.id) ? list : [post, ...list];
+    const updatedList = (list || []).map((p) =>
+      p.id === post.id ? { ...p, mediaUrl: post.mediaUrl || p.mediaUrl } : p
+    );
+    const finalList = updatedList.some((p) => p.id === post.id) ? updatedList : [post, ...updatedList];
     setFullScreenViewerState({
       isOpen: true,
       initialPostId: post.id,
@@ -703,14 +745,16 @@ export default function App() {
     return recommendationEngine.sortPosts(cleanPosts, currentLanguage);
   }, [posts, blockedVersion, currentLanguage, recsVersion]);
 
-  // Interleave In-Feed Native Ads seamlessly every 6-8 posts
+  const [hiddenAdsVersion, setHiddenAdsVersion] = useState(0);
+
+  // Interleave 1 AdMob/Native ad card after every 2 feed posts/videos (index % 2 === 1)
   const feedItemsWithAds = useMemo(() => {
     return adMobService.insertNativeAds(
       sortedFeedPosts,
       adMobService.getNativeFeedAds(),
-      6
+      2
     );
-  }, [sortedFeedPosts]);
+  }, [sortedFeedPosts, hiddenAdsVersion]);
 
   // Clean Reels filtered against Blocked creators and Reported content
   const unblockedReels = useMemo(() => {
@@ -722,7 +766,7 @@ export default function App() {
 
   // Safety & Moderation Handlers
   const handleReportSubmitted = (id: string, reason: string = 'Inappropriate Content') => {
-    const post = posts.find((p) => p.id === id);
+    const post = posts.find((p) => p.id === id) || reels.find((r) => r.id === id);
     moderationService.reportItem({
       id,
       type: 'post',
@@ -731,24 +775,34 @@ export default function App() {
     });
     setPosts((prev) => prev.filter((p) => p.id !== id));
     setReels((prev) => prev.filter((r) => r.id !== id));
-    showToast('Thank you for reporting. This post has been submitted for review and hidden from your feed.');
+    setBlockedVersion((v) => v + 1);
+    showToast('Thank you for reporting. This content has been submitted for review and hidden from your feed.');
   };
 
-  // Quick Report Handler for Feed 3-dots menu
-  const handleQuickReportPost = (post: Post) => {
-    moderationService.reportItem({
+  const handleOpenReportPostModal = (post: Post) => {
+    setReportTarget({
       id: post.id,
       type: 'post',
       username: post.username,
-      reason: 'Community Violation (User Reported)',
+      caption: post.caption,
+      mode: 'report',
     });
-    setPosts((prev) => prev.filter((p) => p.id !== post.id));
-    setReels((prev) => prev.filter((r) => r.id !== post.id));
-    showToast('Thank you for reporting. This post has been submitted for review and hidden from your feed.');
-    setQuickReportDialogInfo({
-      id: post.id,
-      username: post.username,
+  };
+
+  const handleOpenBlockUserModal = (username: string, caption?: string) => {
+    const clean = username.toLowerCase().replace(/^@/, '').trim();
+    setReportTarget({
+      id: 'user-' + clean,
+      type: 'post',
+      username: clean,
+      caption,
+      mode: 'block',
     });
+  };
+
+  // Quick Report Handler for Feed 3-dots menu fallback
+  const handleQuickReportPost = (post: Post) => {
+    handleOpenReportPostModal(post);
   };
 
   const handleUserBlocked = (username: string) => {
@@ -756,6 +810,7 @@ export default function App() {
     moderationService.blockUser(clean);
     setPosts((prev) => prev.filter((p) => p.username.toLowerCase() !== clean));
     setReels((prev) => prev.filter((r) => r.username.toLowerCase() !== clean));
+    setBlockedVersion((v) => v + 1);
     showToast(`Blocked @${clean}. Their content has been hidden from your feed.`);
   };
 
@@ -934,45 +989,45 @@ export default function App() {
 
   // Create New Post or Reel Handler
   const handlePostCreated = (newPost: Post, newReel?: Reel) => {
-    // 1. Immediately prepend to feed posts state
-    setPosts((prev) => [newPost, ...prev]);
+    // 1. Tag post with currentUser's unique credentials
+    const stampedPost: Post = {
+      ...newPost,
+      userId: currentUser.id,
+      username: currentUser.username,
+      userAvatar: currentUser.avatar,
+      isVerified: currentUser.isVerified,
+    };
 
-    // 2. Automatically append it to localStorage under the current user's profile and increment the profile posts count
+    // Prepend to active feed
+    setPosts((prev) => [stampedPost, ...prev]);
+
+    // 2. Load existing posts exclusively for this currentUser.id
     const profileKeyById = `ig_user_posts_${currentUser.id}`;
-    const profileKeyByName = `ig_user_posts_${currentUser.username}`;
-
     let existingProfilePosts: Post[] = [];
     try {
-      const stored =
-        localStorage.getItem(profileKeyById) ||
-        localStorage.getItem(profileKeyByName) ||
-        localStorage.getItem('jhalak_uploaded_posts_v1') ||
-        localStorage.getItem('jhalak_user_posts');
+      const stored = localStorage.getItem(profileKeyById);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) existingProfilePosts = parsed;
       }
     } catch {
-      existingProfilePosts = currentUser.userPosts || currentUser.posts || [];
+      existingProfilePosts = [];
     }
 
-    const updatedProfilePosts = [newPost, ...existingProfilePosts.filter((p) => p.id !== newPost.id)];
-    const newPostsCount = Math.max((currentUser.postsCount || 0) + 1, updatedProfilePosts.length);
+    const updatedProfilePosts = [stampedPost, ...existingProfilePosts.filter((p) => p.id !== stampedPost.id)];
 
     const updatedUser: User = {
       ...currentUser,
-      postsCount: newPostsCount,
+      postsCount: updatedProfilePosts.length,
       posts: updatedProfilePosts,
       userPosts: updatedProfilePosts,
     };
 
-    // Synchronously append to localStorage under current user's profile and dedicated profile storage keys
+    // Save exclusively under this user ID in localStorage
     try {
       safeSetItem('ig_current_user', JSON.stringify(updatedUser));
+      safeSetItem(`ig_user_profile_${currentUser.id}`, JSON.stringify(updatedUser));
       safeSetItem(profileKeyById, JSON.stringify(updatedProfilePosts));
-      safeSetItem(profileKeyByName, JSON.stringify(updatedProfilePosts));
-      safeSetItem('jhalak_uploaded_posts_v1', JSON.stringify(updatedProfilePosts));
-      safeSetItem('jhalak_user_posts', JSON.stringify(updatedProfilePosts));
     } catch (err) {
       console.warn('Failed to save uploaded post under profile:', err);
     }
@@ -1172,37 +1227,80 @@ export default function App() {
 
   // Google Login Handlers
   const handleGoogleLoginSuccess = (account: GoogleAccount) => {
-    const userPostsToKeep = currentUser.userPosts || currentUser.posts || userPosts;
-    const postsCountToKeep = Math.max(currentUser.postsCount || 0, userPostsToKeep.length);
+    // Generate unique user ID for this account
+    const rawId = account.email
+      ? account.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '')
+      : account.username.toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const newUserId = `user-${rawId}`;
+
+    // Load any saved profile for THIS specific user ID
+    let savedProfile: Partial<User> | null = null;
+    try {
+      const rawProfile = localStorage.getItem(`ig_user_profile_${newUserId}`);
+      if (rawProfile) savedProfile = JSON.parse(rawProfile);
+    } catch {}
+
+    // Load uploaded posts saved exclusively by THIS user ID in localStorage
+    let savedUserPosts: Post[] = [];
+    const userPostsKey = `ig_user_posts_${newUserId}`;
+    try {
+      const rawPosts = localStorage.getItem(userPostsKey);
+      if (rawPosts) {
+        const parsed = JSON.parse(rawPosts);
+        if (Array.isArray(parsed)) savedUserPosts = parsed;
+      } else {
+        // Only if Brij Mohan, check legacy key
+        const isBrijMohan =
+          newUserId === 'user-brijmohan' ||
+          newUserId === 'user-brijmohan83097' ||
+          account.username === 'brijmohan';
+        if (isBrijMohan) {
+          const legacy =
+            localStorage.getItem('ig_user_posts_user-me') ||
+            localStorage.getItem('ig_user_posts_brijmohan');
+          if (legacy) {
+            const parsed = JSON.parse(legacy);
+            if (Array.isArray(parsed)) savedUserPosts = parsed;
+          }
+        }
+      }
+    } catch {
+      savedUserPosts = [];
+    }
+
     const updatedUser: User = {
-      ...currentUser,
-      id: `u-${account.email.split('@')[0]}`,
-      name: account.name,
+      id: newUserId,
+      name: savedProfile?.name || account.name,
       email: account.email,
-      username: account.username,
-      avatar: account.avatar,
+      username: savedProfile?.username || account.username,
+      avatar: savedProfile?.avatar || account.avatar,
       isGoogleAuth: true,
-      bio: currentUser.bio || '',
-      postsCount: postsCountToKeep,
-      posts: userPostsToKeep,
-      userPosts: userPostsToKeep,
-      followersCount: currentUser.followersCount || 0,
-      followingCount: currentUser.followingCount || 0,
+      bio: savedProfile?.bio || '',
+      website: savedProfile?.website || '',
+      postsCount: savedUserPosts.length,
+      posts: savedUserPosts,
+      userPosts: savedUserPosts,
+      followersCount: savedProfile?.followersCount || 0,
+      followingCount: savedProfile?.followingCount || 0,
+      isVerified: savedProfile?.isVerified ?? false,
     };
+
     setCurrentUser(updatedUser);
     setIsAuthenticated(true);
     setIsGuestMode(false);
     setIsGoogleAuthModalOpen(false);
+
     try {
       safeSetItem('jhalak_auth_state', 'true');
       safeSetItem('jhalak_guest_mode', 'false');
+      safeSetItem('ig_current_user_id', newUserId);
       safeSetItem('ig_current_user', JSON.stringify(updatedUser));
-      safeSetItem(`ig_user_posts_${updatedUser.id}`, JSON.stringify(userPostsToKeep));
-      safeSetItem(`ig_user_posts_${updatedUser.username}`, JSON.stringify(userPostsToKeep));
+      safeSetItem(`ig_user_profile_${newUserId}`, JSON.stringify(updatedUser));
+      safeSetItem(userPostsKey, JSON.stringify(savedUserPosts));
     } catch {
       // quota handled
     }
-    showToast(`Welcome, ${account.name}! Signed in with Google 🎉`);
+    showToast(`Welcome, ${updatedUser.name}! Signed in with Google 🎉`);
   };
 
   const handleLogout = () => {
@@ -1295,8 +1393,8 @@ export default function App() {
 
   // Edit Profile Save Handler
   const handleSaveProfile = (updatedUser: User) => {
-    const verifiedPosts = updatedUser.userPosts || updatedUser.posts || currentUser.userPosts || currentUser.posts || userPosts;
-    const verifiedCount = Math.max(updatedUser.postsCount || 0, currentUser.postsCount || 0, verifiedPosts.length);
+    const verifiedPosts = updatedUser.userPosts || updatedUser.posts || currentUser.userPosts || currentUser.posts || [];
+    const verifiedCount = verifiedPosts.length;
     const finalized: User = {
       ...updatedUser,
       postsCount: verifiedCount,
@@ -1306,8 +1404,8 @@ export default function App() {
     setCurrentUser(finalized);
     try {
       safeSetItem('ig_current_user', JSON.stringify(finalized));
+      safeSetItem(`ig_user_profile_${finalized.id}`, JSON.stringify(finalized));
       safeSetItem(`ig_user_posts_${finalized.id}`, JSON.stringify(verifiedPosts));
-      safeSetItem(`ig_user_posts_${finalized.username}`, JSON.stringify(verifiedPosts));
     } catch {
       // safe
     }
@@ -1334,54 +1432,66 @@ export default function App() {
   const userPosts = useMemo(() => {
     const postMap = new Map<string, Post>();
 
-    // 1. Posts stored directly under current user profile
-    (currentUser.userPosts || currentUser.posts || []).forEach((p) => {
-      if (p && p.id) postMap.set(p.id, p);
-    });
+    const isMatchingAppUser = (p: any): boolean => {
+      if (!p || typeof p !== 'object' || !p.id) return false;
+      const targetId = (currentUser.id || '').trim().toLowerCase();
+      const targetUsername = (currentUser.username || '').trim().toLowerCase();
+      const postUserId = (p.userId || '').trim().toLowerCase();
+      const postUsername = (p.username || '').trim().toLowerCase();
 
-    // 2. Persistent storage keys for this user
-    try {
-      const isMatchingAppUser = (p: any): boolean => {
-        if (!p || typeof p !== 'object' || !p.id) return false;
-        const targetId = (currentUser.id || '').trim().toLowerCase();
-        const targetUsername = (currentUser.username || '').trim().toLowerCase();
-        const postUserId = (p.userId || '').trim().toLowerCase();
-        const postUsername = (p.username || '').trim().toLowerCase();
-        if (targetId && postUserId && targetId === postUserId) return true;
-        if (targetUsername && postUsername && targetUsername === postUsername) return true;
-        const aliases = ['user-me', 'brijmohan', 'brijmohan83097', 'user-brijmohan'];
+      if (targetId && postUserId && targetId === postUserId) return true;
+      if (targetUsername && postUsername && targetUsername === postUsername) return true;
+
+      // Legacy fallback exclusively for Brij Mohan
+      const isBrijMohan =
+        targetId === 'user-me' ||
+        targetId === 'user-brijmohan' ||
+        targetId === 'user-brijmohan83097' ||
+        targetUsername === 'brijmohan';
+
+      if (isBrijMohan) {
         if (
-          (aliases.includes(targetId) || aliases.includes(targetUsername)) &&
-          (aliases.includes(postUserId) || aliases.includes(postUsername))
+          postUserId === 'user-me' ||
+          postUserId === 'user-brijmohan' ||
+          postUserId === 'user-brijmohan83097' ||
+          postUsername === 'brijmohan'
         ) {
           return true;
         }
-        return false;
-      };
+      }
+      return false;
+    };
 
-      const keys = [
-        'ig_feed_posts',
-        `ig_user_posts_${currentUser.id}`,
-        `ig_user_posts_${currentUser.username}`,
-        'ig_user_posts_user-me',
-        'ig_user_posts_brijmohan',
-        'jhalak_uploaded_posts_v1',
-        'jhalak_user_posts',
-        'ig_posts',
-        'posts',
-      ];
-      for (const k of keys) {
-        const raw = localStorage.getItem(k);
-        if (raw) {
-          const parsed = JSON.parse(raw);
+    // 1. Check user-specific localStorage key: ig_user_posts_${currentUser.id}
+    try {
+      const userPostsKey = `ig_user_posts_${currentUser.id}`;
+      const raw = localStorage.getItem(userPostsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((p: Post) => {
+            if (p && p.id && isMatchingAppUser(p)) {
+              postMap.set(p.id, p);
+            }
+          });
+        }
+      }
+
+      // Legacy fallback exclusively for Brij Mohan
+      const isBrijMohan =
+        currentUser.id === 'user-me' ||
+        currentUser.id === 'user-brijmohan' ||
+        currentUser.id === 'user-brijmohan83097' ||
+        currentUser.username === 'brijmohan';
+
+      if (isBrijMohan) {
+        const legacyMe = localStorage.getItem('ig_user_posts_user-me');
+        if (legacyMe) {
+          const parsed = JSON.parse(legacyMe);
           if (Array.isArray(parsed)) {
             parsed.forEach((p: Post) => {
-              if (p && p.id && isMatchingAppUser(p) && !postMap.has(p.id)) {
-                postMap.set(p.id, p);
-              }
+              if (p && p.id && isMatchingAppUser(p)) postMap.set(p.id, p);
             });
-          } else if (parsed && typeof parsed === 'object' && isMatchingAppUser(parsed) && !postMap.has(parsed.id)) {
-            postMap.set(parsed.id, parsed);
           }
         }
       }
@@ -1389,13 +1499,16 @@ export default function App() {
       // safe fallback
     }
 
+    // 2. Posts stored directly under current user profile
+    (currentUser.userPosts || currentUser.posts || []).forEach((p) => {
+      if (p && p.id && isMatchingAppUser(p) && !postMap.has(p.id)) {
+        postMap.set(p.id, p);
+      }
+    });
+
     // 3. Current active posts matching user ID or username
     posts.forEach((p) => {
-      if (
-        p.userId === currentUser.id ||
-        (p.username && p.username.toLowerCase() === currentUser.username.toLowerCase()) ||
-        (currentUser.id === 'user-me' && p.username === 'brijmohan')
-      ) {
+      if (isMatchingAppUser(p)) {
         if (!postMap.has(p.id)) {
           postMap.set(p.id, p);
         }
@@ -1494,7 +1607,7 @@ export default function App() {
         />
 
         {/* Content Area */}
-        <main className="flex-1 flex flex-col min-w-0 pb-28 md:pb-16">
+        <main className={`flex-1 flex flex-col min-w-0 ${currentTab === 'reels' ? 'h-[100dvh] pb-16 md:pb-0 overflow-hidden' : 'pb-28 md:pb-16'}`}>
           {/* Mobile Top Header (only on mobile) */}
           <MobileHeader
             currentTab={currentTab}
@@ -1574,6 +1687,11 @@ export default function App() {
                           <AdMobNativeFeedAd
                             key={item.id}
                             ad={item}
+                            onHideAd={(adId) => {
+                              adMobService.hideAd(adId);
+                              setHiddenAdsVersion((v) => v + 1);
+                              showToast('Ad hidden');
+                            }}
                           />
                         );
                       }
@@ -1596,15 +1714,8 @@ export default function App() {
                           onViewUser={handleViewUser}
                           onNotInterested={handleNotInterestedPost}
                           onShowMore={handleShowMorePost}
-                          onReportPost={handleQuickReportPost}
-                          onBlockUser={(username) => {
-                            setReportTarget({
-                              id: 'user-' + username,
-                              type: 'post',
-                              username,
-                              mode: 'block',
-                            });
-                          }}
+                          onReportPost={handleOpenReportPostModal}
+                          onBlockUser={(username) => handleOpenBlockUserModal(username, post.caption)}
                           currentLanguage={currentLanguage}
                         />
                       );
@@ -1633,7 +1744,7 @@ export default function App() {
 
           {/* Tab 3: REELS FEED */}
           {currentTab === 'reels' && (
-            <div className="w-full flex-1 flex justify-center items-center py-0 md:py-3 bg-neutral-950">
+            <div className="w-full h-full flex-1 flex justify-center items-center p-0 m-0 bg-black overflow-hidden">
               <ReelsView
                 reels={unblockedReels}
                 currentUser={currentUser}
@@ -1737,6 +1848,8 @@ export default function App() {
           onShare={(p) => setSharePost(p)}
           onViewUser={handleViewUser}
           onOpenFullScreen={(p) => handleOpenFullScreen(p, posts)}
+          onReportPost={handleOpenReportPostModal}
+          onBlockUser={(u) => handleOpenBlockUserModal(u, selectedPostDetail.caption)}
         />
       )}
 
@@ -1752,6 +1865,8 @@ export default function App() {
           onAddComment={handleAddComment}
           onShare={(p) => setSharePost(p)}
           onViewUser={handleViewUser}
+          onReportPost={handleOpenReportPostModal}
+          onBlockUser={(u) => handleOpenBlockUserModal(u)}
         />
       )}
 

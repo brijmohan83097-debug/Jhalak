@@ -16,6 +16,26 @@ export const presetGoogleAccounts: GoogleAccount[] = [
     avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80',
     username: 'brijmohan',
   },
+  {
+    name: 'Priya Sharma',
+    email: 'priya.sharma92@gmail.com',
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&auto=format&fit=crop&q=80',
+    username: 'priyasharma',
+  },
+  {
+    name: 'Aarav Patel',
+    email: 'aarav.patel.creatives@gmail.com',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+    username: 'aaravpatel',
+  },
+];
+
+const PRESET_AVATARS = [
+  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&auto=format&fit=crop&q=80',
 ];
 
 interface GoogleAuthModalProps {
@@ -38,36 +58,79 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customEmail, setCustomEmail] = useState('');
+  const [customAvatar, setCustomAvatar] = useState(PRESET_AVATARS[0]);
+
+  // Load custom saved accounts from localStorage
+  const allAccounts = React.useMemo(() => {
+    try {
+      const raw = localStorage.getItem('ig_saved_accounts');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const map = new Map<string, GoogleAccount>();
+          presetGoogleAccounts.forEach((acc) => map.set(acc.email.toLowerCase(), acc));
+          parsed.forEach((acc: GoogleAccount) => {
+            if (acc && acc.email) {
+              map.set(acc.email.toLowerCase(), acc);
+            }
+          });
+          return Array.from(map.values());
+        }
+      }
+    } catch {
+      // safe fallback
+    }
+    return presetGoogleAccounts;
+  }, [showCustomInput]);
 
   if (!isOpen) return null;
 
+  const saveAccountToHistory = (account: GoogleAccount) => {
+    try {
+      const raw = localStorage.getItem('ig_saved_accounts');
+      let list: GoogleAccount[] = [];
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) list = parsed;
+      }
+      const filtered = list.filter((a) => a.email.toLowerCase() !== account.email.toLowerCase());
+      filtered.unshift(account);
+      localStorage.setItem('ig_saved_accounts', JSON.stringify(filtered.slice(0, 8)));
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSelectAccount = (account: GoogleAccount) => {
     setSelectedAccount(account);
+    saveAccountToHistory(account);
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
       onLoginSuccess(account);
       onClose();
-    }, 700);
+    }, 600);
   };
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customEmail.trim() || !customName.trim()) return;
 
+    const emailPrefix = customEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').toLowerCase() || 'user';
     const customAccount: GoogleAccount = {
       name: customName.trim(),
       email: customEmail.trim(),
-      username: customEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').toLowerCase() || 'user',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80',
+      username: emailPrefix,
+      avatar: customAvatar || PRESET_AVATARS[0],
     };
 
+    saveAccountToHistory(customAccount);
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
       onLoginSuccess(customAccount);
       onClose();
-    }, 700);
+    }, 600);
   };
 
   return (
@@ -158,6 +221,37 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                   className="w-full px-3.5 py-2.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm text-neutral-900 dark:text-white focus:outline-none focus:border-sky-500"
                 />
               </div>
+              <div>
+                <label className="text-xs font-semibold text-neutral-600 dark:text-neutral-300 block mb-1.5">
+                  Choose Profile Avatar
+                </label>
+                <div className="flex items-center gap-2.5 overflow-x-auto py-1">
+                  {PRESET_AVATARS.map((av, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setCustomAvatar(av)}
+                      className={`relative rounded-full p-0.5 transition ${
+                        customAvatar === av
+                          ? 'ring-2 ring-sky-500 scale-105'
+                          : 'opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      <img
+                        src={av}
+                        alt={`Avatar option ${idx + 1}`}
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
+                      {customAvatar === av && (
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-sky-500 rounded-full flex items-center justify-center text-white">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex items-center gap-2 pt-2">
                 <button
                   type="button"
@@ -177,7 +271,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           ) : (
             /* Accounts List */
             <div className="space-y-2.5">
-              {presetGoogleAccounts.map((account) => {
+              {allAccounts.map((account) => {
                 const isCurrent = currentEmail === account.email;
                 return (
                   <button

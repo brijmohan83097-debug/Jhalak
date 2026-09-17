@@ -12,6 +12,7 @@ import {
   Share2,
 } from 'lucide-react';
 import { ProductTag } from '../types';
+import { safeEncodeURIComponent } from '../utils/safeEncoding';
 
 interface ProductWhatsAppModalProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export const ProductWhatsAppModal: React.FC<ProductWhatsAppModalProps> = ({
 I found your product "${product.title}" (${formattedPrice}) on Jhalak.
 Is it currently available for order? Please share payment & delivery details. Dhanyawad! ✨`;
 
-  const waUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(defaultEnquiry)}`;
+  const waUrl = `https://wa.me/${cleanNumber}?text=${safeEncodeURIComponent(defaultEnquiry)}`;
 
   const handleCopyMessage = async () => {
     try {

@@ -14,6 +14,8 @@ import {
   Phone,
   ShoppingBag,
   Maximize2,
+  Flag,
+  Ban,
 } from 'lucide-react';
 import { Post, User } from '../types';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
@@ -22,6 +24,7 @@ import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
 } from '../utils/imageCompressor';
+import { safeEncodeURIComponent } from '../utils/safeEncoding';
 
 interface PostDetailModalProps {
   post: Post;
@@ -33,6 +36,8 @@ interface PostDetailModalProps {
   onShare: (post: Post) => void;
   onViewUser: (username: string) => void;
   onOpenFullScreen?: (post: Post) => void;
+  onReportPost?: (post: Post) => void;
+  onBlockUser?: (username: string) => void;
 }
 
 const QUICK_REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😢', '😍'];
@@ -47,6 +52,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onShare,
   onViewUser,
   onOpenFullScreen,
+  onReportPost,
+  onBlockUser,
 }) => {
   const [commentText, setCommentText] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'gif' } | null>(null);
@@ -55,6 +62,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [videoError, setVideoError] = useState(false);
   const [likedComments, setLikedComments] = useState<Record<string, boolean>>({});
   const [showProductModal, setShowProductModal] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -241,9 +249,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             </div>
 
             <button
-              onClick={() => onShare(post)}
+              id={`detail-post-more-btn-${post.id}`}
+              onClick={() => setShowOptionsMenu(true)}
               aria-label="More options"
-              className="text-neutral-500 hover:text-neutral-800 dark:hover:text-white"
+              className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-800 dark:hover:text-white transition"
             >
               <MoreHorizontal className="w-5 h-5" />
             </button>
@@ -426,8 +435,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                 </button>
                 <a
                   id={`detail-whatsapp-btn-${post.id}`}
-                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                    `Check out this post by @${post.username} on Jhalak:\n"${post.caption}"\n${window.location.href}`
+                  href={`https://api.whatsapp.com/send?text=${safeEncodeURIComponent(
+                    `Check out this post by @${post.username} on Jhalak:\n"${post.caption}"\n${typeof window !== 'undefined' ? window.location.href : ''}`
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -573,6 +582,95 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             isVerified: post.isVerified,
           }}
         />
+      )}
+
+      {/* 3-Dots Options Menu Modal (Report / Block / Share) for UGC Safety */}
+      {showOptionsMenu && (
+        <div
+          id={`detail-options-backdrop-${post.id}`}
+          className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setShowOptionsMenu(false)}
+        >
+          <div
+            id={`detail-options-menu-${post.id}`}
+            className="w-full max-w-sm bg-white dark:bg-neutral-900 rounded-t-3xl sm:rounded-2xl p-4 shadow-2xl border border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-white animate-in slide-in-from-bottom duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-1.5 bg-neutral-300 dark:bg-neutral-700 rounded-full mx-auto mb-4 sm:hidden" />
+            <h3 className="text-sm font-bold text-center mb-3">Post Options</h3>
+
+            <div className="space-y-1.5">
+              {/* Report Post */}
+              <button
+                id={`detail-report-btn-${post.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  if (onReportPost) {
+                    onReportPost(post);
+                    onClose();
+                  }
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group"
+              >
+                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
+                  <Flag className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Report Post</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    Spam, inappropriate content, or harassment
+                  </p>
+                </div>
+              </button>
+
+              {/* Block User */}
+              <button
+                id={`detail-block-user-btn-${post.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  if (onBlockUser) {
+                    onBlockUser(post.username);
+                    onClose();
+                  }
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group"
+              >
+                <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                  <Ban className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Block @{post.username}</p>
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    Hide all posts & content from this creator
+                  </p>
+                </div>
+              </button>
+
+              {/* Share Post */}
+              <button
+                id={`detail-share-btn-${post.id}`}
+                onClick={() => {
+                  setShowOptionsMenu(false);
+                  onShare(post);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition"
+              >
+                <Send className="w-4 h-4 text-neutral-500" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold">Share Post</p>
+                  <p className="text-[11px] text-neutral-500">Share via direct link or social apps</p>
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowOptionsMenu(false)}
+              className="w-full mt-3 py-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs font-semibold hover:opacity-80 transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
