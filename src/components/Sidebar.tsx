@@ -31,6 +31,7 @@ interface SidebarProps {
   onOpenGoogleLogin?: () => void;
   onOpenSettings?: () => void;
   onOpenLegalPolicies?: () => void;
+  onOpenSearch?: () => void;
   onLogout?: () => void;
   isAuthenticated?: boolean;
   currentLanguage?: SupportedLanguage;
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenGoogleLogin,
   onOpenSettings,
   onOpenLegalPolicies,
+  onOpenSearch,
   onLogout,
   isAuthenticated = true,
   currentLanguage = 'en',
@@ -147,6 +149,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             );
           })}
+
+          {/* Quick Search Overlay Button */}
+          {onOpenSearch && (
+            <button
+              id="sidebar-search-overlay-btn"
+              onClick={onOpenSearch}
+              className="flex items-center gap-4 p-3 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition group cursor-pointer"
+              title="Search Bhojpuri Reels & Creators"
+            >
+              <div className="relative mx-auto xl:mx-0">
+                <Search className="w-6 h-6 stroke-[1.8] text-rose-500 transition-transform group-hover:scale-105" />
+              </div>
+              <span className="hidden xl:inline text-sm font-medium">Search</span>
+            </button>
+          )}
 
           {/* Notifications Button */}
           {onOpenNotifications && (

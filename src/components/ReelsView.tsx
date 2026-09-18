@@ -25,6 +25,7 @@ import {
   Gift,
   ShoppingBag,
   Clapperboard,
+  Trash2,
 } from 'lucide-react';
 import { Reel, User } from '../types';
 import { SupportedLanguage, translations } from '../translations';
@@ -34,7 +35,7 @@ import { WatermarkDownloadModal } from './WatermarkDownloadModal';
 import { ReportModal } from './ReportModal';
 import { UpiShagunSheet } from './UpiShagunSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
-import { recommendationEngine, inferLanguage } from '../services/recommendationEngine';
+import { recommendationEngine, inferLanguage, inferCategory, isNewlyCreated } from '../services/recommendationEngine';
 import { moderationService } from '../services/moderationService';
 import { adMobService, AdMobNativeAd } from '../services/adMobService';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
@@ -51,6 +52,7 @@ interface ReelsViewProps {
   onUseAudio?: (audioTitle: string, audioArtist?: string) => void;
   onReportReel?: (reel: Reel, reason: string) => void;
   onBlockUser?: (username: string) => void;
+  onDeleteReel?: (reelId: string) => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -65,6 +67,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   onUseAudio,
   onReportReel,
   onBlockUser,
+  onDeleteReel,
   currentLanguage = 'en',
 }) => {
   const [queue, setQueue] = useState<(Reel | AdMobNativeAd)[]>(() => {
@@ -108,8 +111,12 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
   // Re-synchronize queue if upstream initialReels length or content changes significantly
   useEffect(() => {
+    const firstReel = initialReels[0];
+    if (firstReel && isNewlyCreated(firstReel)) {
+      setActiveIndex(0);
+    }
     setQueue(() => {
-      const recQueue = recommendationEngine.getPersonalizedReelsQueue(initialReels, activeIndex);
+      const recQueue = recommendationEngine.getPersonalizedReelsQueue(initialReels, 0);
       return adMobService.insertNativeAds(recQueue, adMobService.getNativeReelAds(), 6);
     });
   }, [initialReels]);
@@ -117,6 +124,46 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const currentItem = queue[activeIndex] || queue[0] || initialReels[0];
   const isAdCurrent = adMobService.isAdItem(currentItem);
   const currentReel = isAdCurrent ? null : (currentItem as Reel);
+
+  const isOwner = Boolean(
+    currentReel && (
+      (currentUser?.id && currentReel?.userId && (
+        currentUser.id === currentReel.userId ||
+        ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
+         (currentReel.userId === 'user-me' || currentReel.userId === 'user-brijmohan' || currentReel.userId === 'user-brijmohan83097'))
+      )) ||
+      (currentUser?.username && currentReel?.username && (
+        currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+        currentReel.username.toLowerCase().replace(/^@/, '').trim()
+      ))
+    )
+  );
+
+  const handleDeleteCurrentReel = () => {
+    if (!currentReel) return;
+    const reelToDelete = currentReel;
+    setShowOptionsMenu(false);
+
+    if (videoRefs.current[activeIndex]) {
+      videoRefs.current[activeIndex]?.pause();
+    }
+
+    moderationService.deletePostPermanently(reelToDelete.id);
+
+    setQueue((prev) => {
+      const next = prev.filter((r) => r.id !== reelToDelete.id);
+      if (activeIndex >= next.length && next.length > 0) {
+        setActiveIndex(Math.max(0, next.length - 1));
+      }
+      return next;
+    });
+
+    showToast('Reel permanently deleted. 🗑️');
+
+    if (onDeleteReel) {
+      onDeleteReel(reelToDelete.id);
+    }
+  };
 
   const reorderUpcomingQueue = useCallback(() => {
     setQueue((prevQueue) => {
@@ -193,17 +240,14 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         lastWatchTickRef.current = now;
       }
 
-      // If user watches > 75% of the Reel, record a completed watch
-      if (pct > 75 && currentReel && !watchedReelsRef.current[currentReel.id]) {
+      // If user watches > 50% of the Reel, record a completed watch and prioritize similar genre videos
+      if (pct > 50 && currentReel && !watchedReelsRef.current[currentReel.id]) {
         watchedReelsRef.current[currentReel.id] = true;
-        const autoBoosted = recommendationEngine.recordInteraction(
-          currentReel.category || 'Travel',
-          'watch_complete'
-        );
-        if (autoBoosted) {
-          // If 2+ videos watched/liked in this category, prioritize similar content in upcoming queue
-          reorderUpcomingQueue();
-        }
+        const cat = inferCategory(currentReel);
+        recommendationEngine.recordInteraction(cat, 'watch_complete', currentReel.id);
+        recommendationEngine.recordLanguageInteraction(inferLanguage(currentReel), 'like');
+        // Prioritize similar genre content in upcoming queue
+        reorderUpcomingQueue();
       }
     }
   };
@@ -211,14 +255,11 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const handleLikeReel = () => {
     if (!currentReel) return;
     onToggleLike(currentReel.id);
+    const cat = inferCategory(currentReel);
     recommendationEngine.recordLanguageInteraction(inferLanguage(currentReel), 'like');
-    const triggered = recommendationEngine.recordInteraction(
-      currentReel.category || 'Travel',
-      'like'
-    );
-    if (triggered) {
-      reorderUpcomingQueue();
-    }
+    recommendationEngine.recordInteraction(cat, 'like', currentReel.id);
+    // Prioritize similar genre content in upcoming queue
+    reorderUpcomingQueue();
   };
 
   const handleVideoClick = () => {
@@ -297,7 +338,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   // 3-dot Menu: Not Interested Action
   const handleNotInterested = () => {
     if (!currentReel) return;
-    const cat = currentReel.category || 'Travel';
+    const cat = currentReel.category || inferCategory(currentReel);
     recommendationEngine.markNotInterested(currentReel.id, cat);
     setShowOptionsMenu(false);
     showToast(`${t.notInterested} (${t.tunedFeedToast})`);
@@ -309,11 +350,74 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   // 3-dot Menu: Show More Like This Action
   const handleShowMore = () => {
     if (!currentReel) return;
-    const cat = currentReel.category || 'Travel';
+    const cat = currentReel.category || inferCategory(currentReel);
     recommendationEngine.markShowMore(cat);
     setShowOptionsMenu(false);
     showToast(`${t.showMoreLikeThis}: ${cat} ✨`);
     reorderUpcomingQueue();
+  };
+
+  // 3-dot Menu: Report Reel Action
+  const handleReportCurrentReel = () => {
+    if (!currentReel) return;
+    const reelToReport = currentReel;
+    setShowOptionsMenu(false);
+
+    if (videoRefs.current[activeIndex]) {
+      videoRefs.current[activeIndex]?.pause();
+    }
+
+    moderationService.reportItem({
+      id: reelToReport.id,
+      type: 'reel',
+      username: reelToReport.username,
+      reason: 'Inappropriate content',
+    });
+
+    setQueue((prev) => {
+      const next = prev.filter((r) => r.id !== reelToReport.id);
+      if (activeIndex >= next.length && next.length > 0) {
+        setActiveIndex(Math.max(0, next.length - 1));
+      }
+      return next;
+    });
+
+    showToast('Reel reported and hidden from your feed 🛡️');
+
+    if (onReportReel) {
+      onReportReel(reelToReport, 'Inappropriate content');
+    }
+  };
+
+  // 3-dot Menu: Block Creator Action
+  const handleBlockCurrentUser = () => {
+    if (!currentReel) return;
+    const rawUsername = currentReel.username;
+    const clean = rawUsername.toLowerCase().replace(/^@/, '').trim();
+    setShowOptionsMenu(false);
+
+    if (videoRefs.current[activeIndex]) {
+      videoRefs.current[activeIndex]?.pause();
+    }
+
+    moderationService.blockUser(clean);
+
+    setQueue((prev) => {
+      const next = prev.filter((r) => {
+        if (adMobService.isAdItem(r)) return true;
+        return r.username.toLowerCase() !== clean;
+      });
+      if (activeIndex >= next.length && next.length > 0) {
+        setActiveIndex(Math.max(0, next.length - 1));
+      }
+      return next;
+    });
+
+    showToast(`Blocked @${clean}. Their reels have been hidden 🚫`);
+
+    if (onBlockUser) {
+      onBlockUser(rawUsername);
+    }
   };
 
   // Keyboard navigation (Arrow keys)
@@ -432,6 +536,17 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             }
 
             const reel = item as Reel;
+            const isImage = Boolean(
+              reel.videoUrl && (
+                reel.videoUrl.endsWith('.jpg') ||
+                reel.videoUrl.endsWith('.jpeg') ||
+                reel.videoUrl.endsWith('.png') ||
+                reel.videoUrl.endsWith('.webp') ||
+                reel.videoUrl.includes('images.unsplash.com') ||
+                reel.videoUrl.startsWith('data:image/')
+              )
+            );
+
             return (
               <div
                 key={reel.id}
@@ -439,38 +554,47 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   isCurrent ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
                 }`}
               >
-                <video
-                  ref={(el) => {
-                    videoRefs.current[index] = el;
-                    if (el) {
-                      el.defaultMuted = true;
-                      el.muted = isMuted;
-                    }
-                  }}
-                  src={reel.videoUrl}
-                  poster={reel.thumbnailUrl}
-                  autoPlay
-                  loop
-                  playsInline
-                  webkit-playsinline="true"
-                  muted={isMuted}
-                  preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'metadata'}
-                  onTimeUpdate={() => handleTimeUpdate(index)}
-                  onEnded={(e) => {
-                    const vid = e.currentTarget;
-                    vid.currentTime = 0;
-                    vid.play().catch(() => {});
-                  }}
-                  onError={(e) => {
-                    // Resilient fallback stream in case of any network drops
-                    const target = e.currentTarget;
-                    if (!target.src.includes('trailer.mp4')) {
-                      target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
-                      target.play().catch(() => {});
-                    }
-                  }}
-                  className="w-full h-full object-cover"
-                />
+                {isImage ? (
+                  <img
+                    src={reel.videoUrl}
+                    alt={reel.caption || 'Reel media'}
+                    className="w-full h-full object-cover select-none"
+                    loading={isCurrent ? 'eager' : 'lazy'}
+                  />
+                ) : (
+                  <video
+                    ref={(el) => {
+                      videoRefs.current[index] = el;
+                      if (el) {
+                        el.defaultMuted = true;
+                        el.muted = isMuted;
+                      }
+                    }}
+                    src={reel.videoUrl}
+                    poster={reel.thumbnailUrl}
+                    autoPlay
+                    loop
+                    playsInline
+                    webkit-playsinline="true"
+                    muted={isMuted}
+                    preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'metadata'}
+                    onTimeUpdate={() => handleTimeUpdate(index)}
+                    onEnded={(e) => {
+                      const vid = e.currentTarget;
+                      vid.currentTime = 0;
+                      vid.play().catch(() => {});
+                    }}
+                    onError={(e) => {
+                      // Resilient fallback stream in case of any network drops
+                      const target = e.currentTarget;
+                      if (!target.src.includes('trailer.mp4')) {
+                        target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
+                        target.play().catch(() => {});
+                      }
+                    }}
+                    className="w-full h-full object-cover"
+                  />
+                )}
               </div>
             );
           })}
@@ -1069,63 +1193,71 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
               <div className="my-1 border-t border-neutral-800/80" />
 
-              {/* Report Reel */}
-              <button
-                id="reel-menu-report"
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  setReportModalTarget({
-                    id: currentReel.id,
-                    type: 'reel',
-                    username: currentReel.username,
-                    caption: currentReel.caption,
-                    mode: 'report',
-                  });
-                }}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-neutral-800/60 hover:bg-neutral-800 text-left transition group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 group-hover:scale-110 transition">
-                    <Flag className="w-5 h-5" />
+              {/* Delete Post (Owner only) */}
+              {isOwner && (
+                <button
+                  id="reel-menu-delete"
+                  onClick={handleDeleteCurrentReel}
+                  className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-rose-500/15 hover:bg-rose-500/25 text-left transition group border border-rose-500/40 cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-rose-500/25 text-rose-500 group-hover:scale-110 transition">
+                      <Trash2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-rose-500">Delete Post</p>
+                      <p className="text-xs text-rose-300/80">
+                        Permanently delete this reel from your account
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-amber-400">Report Reel</p>
-                    <p className="text-xs text-neutral-400">
-                      Spam, inappropriate content, or harassment
-                    </p>
-                  </div>
-                </div>
-              </button>
+                </button>
+              )}
 
-              {/* Block User */}
-              <button
-                id="reel-menu-block"
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  setReportModalTarget({
-                    id: currentReel.id,
-                    type: 'reel',
-                    username: currentReel.username,
-                    caption: currentReel.caption,
-                    mode: 'block',
-                  });
-                }}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-neutral-800/60 hover:bg-neutral-800 text-left transition group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 group-hover:scale-110 transition">
-                    <Ban className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-rose-400">
-                      Block @{currentReel.username}
-                    </p>
-                    <p className="text-xs text-neutral-400">
-                      Hide all reels and prevent interactions
-                    </p>
-                  </div>
-                </div>
-              </button>
+              {/* Report & Block only if NOT owner */}
+              {!isOwner && (
+                <>
+                  {/* Report Reel */}
+                  <button
+                    id="reel-menu-report"
+                    onClick={handleReportCurrentReel}
+                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-neutral-800/60 hover:bg-neutral-800 text-left transition group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 group-hover:scale-110 transition">
+                        <Flag className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-amber-400">Report Reel</p>
+                        <p className="text-xs text-neutral-400">
+                          Spam, inappropriate content, or harassment
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Block User */}
+                  <button
+                    id="reel-menu-block"
+                    onClick={handleBlockCurrentUser}
+                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-neutral-800/60 hover:bg-neutral-800 text-left transition group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 group-hover:scale-110 transition">
+                        <Ban className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-rose-400">
+                          Block @{currentReel.username}
+                        </p>
+                        <p className="text-xs text-neutral-400">
+                          Hide all reels and prevent interactions
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Cancel Button */}

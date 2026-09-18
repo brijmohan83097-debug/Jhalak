@@ -47,14 +47,20 @@ export interface AdMobNativeAd {
 }
 
 export const ADMOB_CONFIG = {
-  // Official Google AdMob Test App ID
-  APP_ID: 'ca-app-pub-3940256099942544~3347511713',
+  // Official Google AdMob App ID
+  APP_ID: 'ca-app-pub-7598643408736998~3347511713',
 
-  // Official Google AdMob Test Ad Unit IDs
-  BANNER_ANDROID: 'ca-app-pub-3940256099942544/6300978111',
-  BANNER_IOS: 'ca-app-pub-3940256099942544/2934735716',
-  NATIVE_ADVANCED_ANDROID: 'ca-app-pub-3940256099942544/2247696110',
-  NATIVE_VIDEO_ANDROID: 'ca-app-pub-3940256099942544/3986624511',
+  // Google AdMob Unit IDs
+  NATIVE: 'ca-app-pub-7598643408736998/9251607358',
+  BANNER: 'ca-app-pub-7598643408736998/4957139129',
+  REWARDED: 'ca-app-pub-7598643408736998/6333724469',
+
+  // Format aliases for backward-compatibility with existing component references
+  BANNER_ANDROID: 'ca-app-pub-7598643408736998/4957139129',
+  BANNER_IOS: 'ca-app-pub-7598643408736998/4957139129',
+  NATIVE_ADVANCED_ANDROID: 'ca-app-pub-7598643408736998/9251607358',
+  NATIVE_VIDEO_ANDROID: 'ca-app-pub-7598643408736998/9251607358',
+  REWARDED_ANDROID: 'ca-app-pub-7598643408736998/6333724469',
 
   // FULL-SCREEN INTERSTITIALS ARE PERMANENTLY DISABLED
   // This guarantees user scrolling and navigating tabs is never abruptly blocked
@@ -66,10 +72,34 @@ export const ADMOB_CONFIG = {
   REELS_AD_INTERVAL: 7,
 };
 
-// Curated official-style AdMob test banners
+export interface AdMobRewardedAdData {
+  adUnitId: string;
+  title: string;
+  headline: string;
+  advertiser: string;
+  advertiserIcon: string;
+  rewardAmount: number;
+  rewardType: string;
+  videoUrl: string;
+  destinationUrl: string;
+}
+
+export const SAMPLE_REWARDED_AD: AdMobRewardedAdData = {
+  adUnitId: ADMOB_CONFIG.REWARDED,
+  title: 'Google Cloud Platform',
+  headline: 'Learn GenAI & Build Apps Faster with Gemini',
+  advertiser: 'Google Cloud',
+  advertiserIcon: 'https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?w=120&auto=format&fit=crop&q=80',
+  rewardAmount: 10,
+  rewardType: '₹10 Creator Settlement Bonus',
+  videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+  destinationUrl: 'https://cloud.google.com',
+};
+
+// Curated official-style AdMob banners
 export const SAMPLE_BANNER_ADS: AdMobBannerData[] = [
   {
-    adUnitId: ADMOB_CONFIG.BANNER_ANDROID,
+    adUnitId: ADMOB_CONFIG.BANNER,
     adChoicesUrl: 'https://policies.google.com/technologies/ads',
     title: 'Google Cloud Platform',
     headline: 'Build AI Apps Faster with Gemini',
@@ -82,7 +112,7 @@ export const SAMPLE_BANNER_ADS: AdMobBannerData[] = [
     accentColor: '#4285F4',
   },
   {
-    adUnitId: ADMOB_CONFIG.BANNER_ANDROID,
+    adUnitId: ADMOB_CONFIG.BANNER,
     adChoicesUrl: 'https://policies.google.com/technologies/ads',
     title: 'Spotify: Music & Podcasts',
     headline: '3 Months of Spotify Premium for ₹119',
@@ -95,7 +125,7 @@ export const SAMPLE_BANNER_ADS: AdMobBannerData[] = [
     accentColor: '#1DB954',
   },
   {
-    adUnitId: ADMOB_CONFIG.BANNER_ANDROID,
+    adUnitId: ADMOB_CONFIG.BANNER,
     adChoicesUrl: 'https://policies.google.com/technologies/ads',
     title: 'Duolingo: Language Lessons',
     headline: 'Learn Spanish, French or German in 5 mins/day',
@@ -114,7 +144,7 @@ export const SAMPLE_NATIVE_FEED_ADS: AdMobNativeAd[] = [
   {
     isAdMobAd: true,
     id: 'admob-native-feed-pixel9',
-    adUnitId: ADMOB_CONFIG.NATIVE_ADVANCED_ANDROID,
+    adUnitId: ADMOB_CONFIG.NATIVE,
     type: 'feed',
     advertiser: 'Google Pixel India',
     advertiserIcon: 'https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?w=120&auto=format&fit=crop&q=80',
@@ -136,7 +166,7 @@ export const SAMPLE_NATIVE_FEED_ADS: AdMobNativeAd[] = [
   {
     isAdMobAd: true,
     id: 'admob-native-feed-swiggy',
-    adUnitId: ADMOB_CONFIG.NATIVE_ADVANCED_ANDROID,
+    adUnitId: ADMOB_CONFIG.NATIVE,
     type: 'feed',
     advertiser: 'Swiggy Food & Instamart',
     advertiserIcon: 'https://images.unsplash.com/photo-1526367790999-0150786686a2?w=120&auto=format&fit=crop&q=80',
@@ -158,7 +188,7 @@ export const SAMPLE_NATIVE_FEED_ADS: AdMobNativeAd[] = [
   {
     isAdMobAd: true,
     id: 'admob-native-feed-cred',
-    adUnitId: ADMOB_CONFIG.NATIVE_ADVANCED_ANDROID,
+    adUnitId: ADMOB_CONFIG.NATIVE,
     type: 'feed',
     advertiser: 'CRED • Pay & Win',
     advertiserIcon: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=120&auto=format&fit=crop&q=80',
@@ -180,7 +210,7 @@ export const SAMPLE_NATIVE_FEED_ADS: AdMobNativeAd[] = [
   {
     isAdMobAd: true,
     id: 'admob-native-feed-flipkart',
-    adUnitId: ADMOB_CONFIG.NATIVE_ADVANCED_ANDROID,
+    adUnitId: ADMOB_CONFIG.NATIVE,
     type: 'feed',
     advertiser: 'Flipkart • Big Billion Days',
     advertiserIcon: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=120&auto=format&fit=crop&q=80',
@@ -202,7 +232,7 @@ export const SAMPLE_NATIVE_FEED_ADS: AdMobNativeAd[] = [
   {
     isAdMobAd: true,
     id: 'admob-native-feed-phonepe',
-    adUnitId: ADMOB_CONFIG.NATIVE_ADVANCED_ANDROID,
+    adUnitId: ADMOB_CONFIG.NATIVE,
     type: 'feed',
     advertiser: 'PhonePe • UPI & Payments',
     advertiserIcon: 'https://images.unsplash.com/photo-1556742049-0a67c5574f73?w=120&auto=format&fit=crop&q=80',
@@ -228,7 +258,7 @@ export const SAMPLE_NATIVE_REELS_ADS: AdMobNativeAd[] = [
   {
     isAdMobAd: true,
     id: 'admob-native-reel-google',
-    adUnitId: ADMOB_CONFIG.NATIVE_VIDEO_ANDROID,
+    adUnitId: ADMOB_CONFIG.NATIVE,
     type: 'reel',
     advertiser: 'Google Workspace',
     advertiserIcon: 'https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?w=120&auto=format&fit=crop&q=80',
@@ -252,7 +282,7 @@ export const SAMPLE_NATIVE_REELS_ADS: AdMobNativeAd[] = [
   {
     isAdMobAd: true,
     id: 'admob-native-reel-spotify',
-    adUnitId: ADMOB_CONFIG.NATIVE_VIDEO_ANDROID,
+    adUnitId: ADMOB_CONFIG.NATIVE,
     type: 'reel',
     advertiser: 'Spotify Music',
     advertiserIcon: 'https://images.unsplash.com/photo-1614680376593-902f749f7ffc?w=120&auto=format&fit=crop&q=80',
@@ -320,6 +350,13 @@ class AdMobService {
    */
   public isAdItem(item: unknown): item is AdMobNativeAd {
     return !!item && typeof item === 'object' && (item as AdMobNativeAd).isAdMobAd === true;
+  }
+
+  /**
+   * Get Rewarded Ad creative and configuration
+   */
+  public getRewardedAd(): AdMobRewardedAdData {
+    return SAMPLE_REWARDED_AD;
   }
 
   /**

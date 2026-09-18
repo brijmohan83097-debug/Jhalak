@@ -16,6 +16,7 @@ import {
   Maximize2,
   Flag,
   Ban,
+  Trash2,
 } from 'lucide-react';
 import { Post, User } from '../types';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
@@ -38,6 +39,7 @@ interface PostDetailModalProps {
   onOpenFullScreen?: (post: Post) => void;
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 const QUICK_REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😢', '😍'];
@@ -54,7 +56,22 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onOpenFullScreen,
   onReportPost,
   onBlockUser,
+  onDeletePost,
 }) => {
+  const isOwner = Boolean(
+    post && (
+      (currentUser?.id && post?.userId && (
+        currentUser.id === post.userId ||
+        ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
+         (post.userId === 'user-me' || post.userId === 'user-brijmohan' || post.userId === 'user-brijmohan83097'))
+      )) ||
+      (currentUser?.username && post?.username && (
+        currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+        post.username.toLowerCase().replace(/^@/, '').trim()
+      ))
+    )
+  );
+
   const [commentText, setCommentText] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'gif' } | null>(null);
   const [showGifPicker, setShowGifPicker] = useState(false);
@@ -600,51 +617,81 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             <h3 className="text-sm font-bold text-center mb-3">Post Options</h3>
 
             <div className="space-y-1.5">
-              {/* Report Post */}
-              <button
-                id={`detail-report-btn-${post.id}`}
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  if (onReportPost) {
-                    onReportPost(post);
+              {/* Delete Post (Owner only) */}
+              {isOwner && (
+                <button
+                  id={`detail-delete-btn-${post.id}`}
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    if (onDeletePost) {
+                      onDeletePost(post.id);
+                    }
                     onClose();
-                  }
-                }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group"
-              >
-                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
-                  <Flag className="w-4 h-4" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold">Report Post</p>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Spam, inappropriate content, or harassment
-                  </p>
-                </div>
-              </button>
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-left transition text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 group cursor-pointer"
+                >
+                  <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">Delete Post</p>
+                    <p className="text-[11px] text-rose-500/80">
+                      Permanently delete this post from Jhalak
+                    </p>
+                  </div>
+                </button>
+              )}
 
-              {/* Block User */}
-              <button
-                id={`detail-block-user-btn-${post.id}`}
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  if (onBlockUser) {
-                    onBlockUser(post.username);
-                    onClose();
-                  }
-                }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group"
-              >
-                <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
-                  <Ban className="w-4 h-4" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold">Block @{post.username}</p>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Hide all posts & content from this creator
-                  </p>
-                </div>
-              </button>
+              {/* Report & Block only if NOT owner */}
+              {!isOwner && (
+                <>
+                  {/* Report Post */}
+                  <button
+                    id={`detail-report-btn-${post.id}`}
+                    onClick={() => {
+                      setShowOptionsMenu(false);
+                      if (onReportPost) {
+                        onReportPost(post);
+                        onClose();
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group cursor-pointer"
+                  >
+                    <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
+                      <Flag className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold">Report Post</p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        Spam, inappropriate content, or harassment
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Block User */}
+                  <button
+                    id={`detail-block-user-btn-${post.id}`}
+                    onClick={() => {
+                      setShowOptionsMenu(false);
+                      if (onBlockUser) {
+                        onBlockUser(post.username);
+                        onClose();
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group cursor-pointer"
+                  >
+                    <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                      <Ban className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold">Block @{post.username}</p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        Hide all posts & content from this creator
+                      </p>
+                    </div>
+                  </button>
+                </>
+              )}
 
               {/* Share Post */}
               <button

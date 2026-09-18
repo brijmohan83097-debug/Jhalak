@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react';
 import { User } from '../types';
+import { AdMobRewardedAdModal } from './AdMobRewardedAdModal';
 
 interface TipTransaction {
   id: string;
@@ -44,6 +45,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
   const [tempUpi, setTempUpi] = useState(upiId);
   const [isProcessingPayout, setIsProcessingPayout] = useState(false);
   const [payoutSuccessMessage, setPayoutSuccessMessage] = useState<string | null>(null);
+  const [showRewardedAd, setShowRewardedAd] = useState(false);
 
   // Simulation mode for testing all milestone stages
   const [simProfile, setSimProfile] = useState<'current' | 'level1' | 'level2_prog' | 'level3_prog'>('current');
@@ -161,6 +163,23 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
     setPayoutSuccessMessage(null);
   };
 
+  const handleRewardedAdCompleted = (rewardText: string, amount: number) => {
+    setBalance((prev) => prev + amount);
+    const newTx: TipTransaction = {
+      id: `tx-rewarded-${Date.now()}`,
+      from: 'Google AdMob Rewards',
+      avatar: 'https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?w=100',
+      amount: amount,
+      app: 'Google AdMob',
+      note: `${rewardText} (Ad Unit: 6333724469)`,
+      date: 'Just now',
+      type: 'credit',
+    };
+    setTransactions((prev) => [newTx, ...prev]);
+    setPayoutSuccessMessage(`🎉 ${rewardText} credited to your UPI balance!`);
+    setTimeout(() => setPayoutSuccessMessage(null), 5000);
+  };
+
   return (
     <div id="creator-monetization-view" className="space-y-4 pb-2">
       {/* Simulation Stage Quick Selector (Helps test all milestone levels easily) */}
@@ -263,15 +282,27 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               </span>
             </div>
 
-            {balance === 0 && (
+            <div className="flex flex-col items-end gap-1">
               <button
+                id="watch-rewarded-ad-btn"
                 type="button"
-                onClick={handleTopUpSimulation}
-                className="text-[11px] text-amber-400 hover:text-amber-300 underline font-semibold flex items-center gap-1"
+                onClick={() => setShowRewardedAd(true)}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                title="Watch Google AdMob Rewarded Ad to earn bonus payout"
               >
-                <RefreshCw className="w-3 h-3" /> Top Up (Test)
+                <Gift className="w-3 h-3 text-amber-400" />
+                <span>+₹10 Rewarded Ad</span>
               </button>
-            )}
+              {balance === 0 && (
+                <button
+                  type="button"
+                  onClick={handleTopUpSimulation}
+                  className="text-[11px] text-amber-400 hover:text-amber-300 underline font-semibold flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" /> Top Up (Test)
+                </button>
+              )}
+            </div>
           </div>
 
           {/* UPI ID Setup / Quick Edit */}
@@ -656,6 +687,17 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
           ))}
         </div>
       </div>
+
+      {/* AdMob Rewarded Video Ad Modal */}
+      {showRewardedAd && (
+        <AdMobRewardedAdModal
+          isOpen={showRewardedAd}
+          onClose={() => setShowRewardedAd(false)}
+          onRewardEarned={handleRewardedAdCompleted}
+          rewardLabel="₹10 Creator Payout Bonus"
+          rewardAmount={10}
+        />
+      )}
     </div>
   );
 };

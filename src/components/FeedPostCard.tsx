@@ -23,12 +23,14 @@ import {
   Gift,
   ShoppingBag,
   Maximize2,
+  Trash2,
 } from 'lucide-react';
 import { Post, User, ContentCategory } from '../types';
 import { SupportedLanguage, translations } from '../translations';
 import { UpiShagunSheet } from './UpiShagunSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
 import { recommendationEngine, inferLanguage } from '../services/recommendationEngine';
+import { moderationService } from '../services/moderationService';
 import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
@@ -50,6 +52,7 @@ interface FeedPostCardProps {
   onShowMore?: (category?: ContentCategory) => void;
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
+  onDeletePost?: (postId: string) => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -68,6 +71,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onShowMore,
   onReportPost,
   onBlockUser,
+  onDeletePost,
   currentLanguage = 'en',
 }) => {
   const [commentText, setCommentText] = useState('');
@@ -80,6 +84,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
   const [videoError, setVideoError] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(false);
 
   const t = translations[currentLanguage];
 
@@ -230,6 +235,55 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   };
 
   const isLongCaption = post.caption.length > 90;
+
+  const handleReportPostAction = () => {
+    setShowOptionsMenu(false);
+    setIsDismissed(true);
+    moderationService.reportItem({
+      id: post.id,
+      type: 'post',
+      username: post.username,
+      reason: 'Inappropriate content',
+    });
+    if (onReportPost) {
+      onReportPost(post);
+    }
+  };
+
+  const isOwner = Boolean(
+    (currentUser?.id && post?.userId && (
+      currentUser.id === post.userId ||
+      ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
+       (post.userId === 'user-me' || post.userId === 'user-brijmohan' || post.userId === 'user-brijmohan83097'))
+    )) ||
+    (currentUser?.username && post?.username && (
+      currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+      post.username.toLowerCase().replace(/^@/, '').trim()
+    ))
+  );
+
+  const handleDeletePostAction = () => {
+    setShowOptionsMenu(false);
+    setIsDismissed(true);
+    moderationService.deletePostPermanently(post.id);
+    if (onDeletePost) {
+      onDeletePost(post.id);
+    }
+  };
+
+  const handleBlockUserAction = () => {
+    setShowOptionsMenu(false);
+    setIsDismissed(true);
+    const clean = post.username.toLowerCase().replace(/^@/, '').trim();
+    moderationService.blockUser(clean);
+    if (onBlockUser) {
+      onBlockUser(post.username);
+    }
+  };
+
+  if (isDismissed) {
+    return null;
+  }
 
   return (
     <article
@@ -806,45 +860,63 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
               <div className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
 
-              {/* Report Post */}
-              <button
-                id={`post-report-btn-${post.id}`}
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  onReportPost?.(post);
-                }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group"
-              >
-                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
-                  <Flag className="w-4 h-4" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold">Report Post</p>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Spam, inappropriate, or harassment
-                  </p>
-                </div>
-              </button>
+              {/* Delete Post for user's own post */}
+              {isOwner && (
+                <button
+                  id={`post-delete-btn-${post.id}`}
+                  onClick={handleDeletePostAction}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-left transition text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 group cursor-pointer"
+                >
+                  <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">Delete Post</p>
+                    <p className="text-[11px] text-rose-500/80">
+                      Permanently delete this post from Jhalak
+                    </p>
+                  </div>
+                </button>
+              )}
 
-              {/* Block User */}
-              <button
-                id={`post-block-user-btn-${post.id}`}
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  onBlockUser?.(post.username);
-                }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group"
-              >
-                <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
-                  <Ban className="w-4 h-4" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold">Block @{post.username}</p>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Hide all posts & content from this creator
-                  </p>
-                </div>
-              </button>
+              {/* Report & Block only for other users' posts */}
+              {!isOwner && (
+                <>
+                  {/* Report Post */}
+                  <button
+                    id={`post-report-btn-${post.id}`}
+                    onClick={handleReportPostAction}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group cursor-pointer"
+                  >
+                    <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
+                      <Flag className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold">Report Post</p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        Spam, inappropriate, or harassment
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Block User */}
+                  <button
+                    id={`post-block-user-btn-${post.id}`}
+                    onClick={handleBlockUserAction}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group cursor-pointer"
+                  >
+                    <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                      <Ban className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold">Block @{post.username}</p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        Hide all posts & content from this creator
+                      </p>
+                    </div>
+                  </button>
+                </>
+              )}
             </div>
 
             <button

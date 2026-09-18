@@ -93,6 +93,8 @@ export interface Post {
   viewsCount?: number;
   language?: string;
   productTag?: ProductTag;
+  createdAt?: number;
+  isUserCreated?: boolean;
 }
 
 export interface Reel {
@@ -118,6 +120,8 @@ export interface Reel {
   timestamp: string;
   language?: string;
   productTag?: ProductTag;
+  createdAt?: number;
+  isUserCreated?: boolean;
 }
 
 export interface CategoryAffinity {

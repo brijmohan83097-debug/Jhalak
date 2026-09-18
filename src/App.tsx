@@ -28,14 +28,15 @@ import { FullScreenMediaViewer } from './components/FullScreenMediaViewer';
 import { GoogleAuthModal, GoogleAccount } from './components/GoogleAuthModal';
 import { GoogleWelcomeScreen } from './components/GoogleWelcomeScreen';
 import { CommentsBottomSheet } from './components/CommentsBottomSheet';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ReportModal } from './components/ReportModal';
 import { LegalPoliciesModal } from './components/LegalPoliciesModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
-import { CheckCircle, Plus } from 'lucide-react';
+import { CheckCircle, Plus, Search, ArrowLeft } from 'lucide-react';
 import { SupportedLanguage, translations } from './translations';
-import { recommendationEngine } from './services/recommendationEngine';
+import { recommendationEngine, inferCategory, inferLanguage } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
 import { adMobService, ADMOB_CONFIG } from './services/adMobService';
 import { AdMobBannerAd } from './components/AdMobBannerAd';
@@ -394,6 +395,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<'privacy' | 'terms' | 'ugc'>('privacy');
+  const [isSearchOverlayOpen, setIsSearchOverlayOpen] = useState(false);
   const [isCreateStoryModalOpen, setIsCreateStoryModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
   const [isAdminModDashboardOpen, setIsAdminModDashboardOpen] = useState(false);
@@ -563,7 +565,9 @@ export default function App() {
 
     const post = posts.find((p) => p.id === postId);
     if (post && !post.isLiked) {
-      recommendationEngine.recordInteraction(post.category || 'Travel', 'like');
+      const cat = post.category || inferCategory(post);
+      recommendationEngine.recordInteraction(cat, 'like', post.id);
+      recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
     }
 
     setPosts((prev) =>
@@ -614,7 +618,8 @@ export default function App() {
 
     const post = posts.find((p) => p.id === postId);
     if (post && !post.isSaved) {
-      recommendationEngine.recordInteraction(post.category || 'Travel', 'save');
+      const cat = post.category || inferCategory(post);
+      recommendationEngine.recordInteraction(cat, 'save', post.id);
     }
 
     setPosts((prev) =>
@@ -668,7 +673,8 @@ export default function App() {
 
     const post = posts.find((p) => p.id === postId);
     if (post) {
-      recommendationEngine.recordInteraction(post.category || 'Travel', 'comment');
+      const cat = post.category || inferCategory(post);
+      recommendationEngine.recordInteraction(cat, 'comment', post.id);
     }
 
     const newComment: Comment = {
@@ -800,9 +806,18 @@ export default function App() {
     });
   };
 
-  // Quick Report Handler for Feed 3-dots menu fallback
-  const handleQuickReportPost = (post: Post) => {
-    handleOpenReportPostModal(post);
+  // Quick Report Handler for Feed 3-dots menu
+  const handleQuickReportPost = (post: Post, reason: string = 'Inappropriate content') => {
+    moderationService.reportItem({
+      id: post.id,
+      type: 'post',
+      username: post.username,
+      reason,
+    });
+    setPosts((prev) => prev.filter((p) => p.id !== post.id));
+    setReels((prev) => prev.filter((r) => r.id !== post.id));
+    setBlockedVersion((v) => v + 1);
+    showToast(`Report received. Post by @${post.username} hidden from your feed 🛡️`);
   };
 
   const handleUserBlocked = (username: string) => {
@@ -811,7 +826,7 @@ export default function App() {
     setPosts((prev) => prev.filter((p) => p.username.toLowerCase() !== clean));
     setReels((prev) => prev.filter((r) => r.username.toLowerCase() !== clean));
     setBlockedVersion((v) => v + 1);
-    showToast(`Blocked @${clean}. Their content has been hidden from your feed.`);
+    showToast(`Blocked @${clean}. Their content has been hidden from your feed 🚫`);
   };
 
   // 4. Admin Moderation Dashboard Handlers
@@ -827,6 +842,51 @@ export default function App() {
     setReels((prev) => prev.filter((r) => r.id !== id));
     setBlockedVersion((v) => v + 1);
     showToast('Post permanently deleted from Jhalak. 🗑️');
+  };
+
+  const handleDeletePost = (postId: string) => {
+    moderationService.deletePostPermanently(postId);
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    setReels((prev) => prev.filter((r) => r.id !== postId));
+    setBlockedVersion((v) => v + 1);
+
+    const profileKeyById = `ig_user_posts_${currentUser.id}`;
+    try {
+      const stored = localStorage.getItem(profileKeyById);
+      if (stored) {
+        const parsed: Post[] = JSON.parse(stored);
+        localStorage.setItem(profileKeyById, JSON.stringify(parsed.filter((p) => p.id !== postId)));
+      }
+      const legacyMe = localStorage.getItem('ig_user_posts_user-me');
+      if (legacyMe) {
+        const parsed: Post[] = JSON.parse(legacyMe);
+        localStorage.setItem('ig_user_posts_user-me', JSON.stringify(parsed.filter((p) => p.id !== postId)));
+      }
+      const legacyReels = localStorage.getItem('jhalak_uploaded_reels_v1');
+      if (legacyReels) {
+        const parsed: Reel[] = JSON.parse(legacyReels);
+        localStorage.setItem('jhalak_uploaded_reels_v1', JSON.stringify(parsed.filter((r) => r.id !== postId)));
+      }
+    } catch {}
+
+    setCurrentUser((prev) => {
+      const updatedUserPosts = (prev.userPosts || prev.posts || []).filter((p) => p.id !== postId);
+      return {
+        ...prev,
+        postsCount: Math.max(0, updatedUserPosts.length),
+        posts: updatedUserPosts,
+        userPosts: updatedUserPosts,
+      };
+    });
+
+    if (selectedPostDetail && selectedPostDetail.id === postId) {
+      setSelectedPostDetail(null);
+    }
+    if (fullScreenViewerState && fullScreenViewerState.initialPostId === postId) {
+      setFullScreenViewerState(null);
+    }
+
+    showToast('Post permanently deleted. 🗑️');
   };
 
   const handleAdminBanUser = (username: string) => {
@@ -989,6 +1049,8 @@ export default function App() {
 
   // Create New Post or Reel Handler
   const handlePostCreated = (newPost: Post, newReel?: Reel) => {
+    const now = Date.now();
+    const inferredCat = newPost.category || inferCategory(newPost);
     // 1. Tag post with currentUser's unique credentials
     const stampedPost: Post = {
       ...newPost,
@@ -996,10 +1058,17 @@ export default function App() {
       username: currentUser.username,
       userAvatar: currentUser.avatar,
       isVerified: currentUser.isVerified,
+      createdAt: newPost.createdAt || now,
+      timestamp: 'Just now',
+      isUserCreated: true,
+      category: inferredCat,
     };
 
-    // Prepend to active feed
-    setPosts((prev) => [stampedPost, ...prev]);
+    // Prepend to active feed at the very top (unshift / reverse chronological order)
+    setPosts((prev) => [stampedPost, ...prev.filter((p) => p.id !== stampedPost.id)]);
+
+    // Record interaction so the category gets an immediate boost
+    recommendationEngine.recordInteraction(inferredCat, 'boost', stampedPost.id);
 
     // 2. Load existing posts exclusively for this currentUser.id
     const profileKeyById = `ig_user_posts_${currentUser.id}`;
@@ -1036,11 +1105,25 @@ export default function App() {
     setCurrentUser(updatedUser);
 
     if (newReel) {
-      setReels((prev) => [newReel, ...prev]);
+      const stampedReel: Reel = {
+        ...newReel,
+        userId: currentUser.id,
+        username: currentUser.username,
+        userAvatar: currentUser.avatar,
+        isVerified: currentUser.isVerified,
+        createdAt: newReel.createdAt || now,
+        timestamp: 'Just now',
+        isUserCreated: true,
+        category: newReel.category || inferredCat,
+      };
+
+      // Always show newly created reel at the very top (unshift / reverse chronological order)
+      setReels((prev) => [stampedReel, ...prev.filter((r) => r.id !== stampedReel.id)]);
+
       try {
         const existingReelsStr = localStorage.getItem('jhalak_uploaded_reels_v1');
         const existingReels: Reel[] = existingReelsStr ? JSON.parse(existingReelsStr) : [];
-        const updatedReels = [newReel, ...existingReels.filter((r) => r.id !== newReel.id)];
+        const updatedReels = [stampedReel, ...existingReels.filter((r) => r.id !== stampedReel.id)];
         safeSetItem('jhalak_uploaded_reels_v1', JSON.stringify(updatedReels));
       } catch (err) {
         console.warn('Failed to save uploaded reel permanently:', err);
@@ -1049,10 +1132,10 @@ export default function App() {
 
     if (newPost.mediaType === 'video' && newReel) {
       setCurrentTab('reels');
-      showToast('Your Reel has been published! 🎬');
+      showToast('Your Reel has been published at the top! 🎬');
     } else {
       setCurrentTab('home');
-      showToast('Your post was shared successfully! 🎉');
+      showToast('Your post has been published at the top! 🎉');
     }
   };
 
@@ -1062,6 +1145,13 @@ export default function App() {
       setIsGoogleAuthModalOpen(true);
       showToast('Sign in with Google to like reels ❤️');
       return;
+    }
+
+    const targetReel = reels.find((r) => r.id === reelId);
+    if (targetReel) {
+      const cat = targetReel.category || inferCategory(targetReel);
+      recommendationEngine.recordInteraction(cat, 'like', targetReel.id);
+      recommendationEngine.recordLanguageInteraction(inferLanguage(targetReel), 'like');
     }
 
     setReels((prev) =>
@@ -1084,6 +1174,12 @@ export default function App() {
       setIsGoogleAuthModalOpen(true);
       showToast('Sign in with Google to save reels 🔖');
       return;
+    }
+
+    const targetReel = reels.find((r) => r.id === reelId);
+    if (targetReel) {
+      const cat = targetReel.category || inferCategory(targetReel);
+      recommendationEngine.recordInteraction(cat, 'save', targetReel.id);
     }
 
     setReels((prev) =>
@@ -1117,6 +1213,12 @@ export default function App() {
       return;
     }
 
+    const targetReel = reels.find((r) => r.id === reelId);
+    if (targetReel) {
+      const cat = targetReel.category || inferCategory(targetReel);
+      recommendationEngine.recordInteraction(cat, 'comment', targetReel.id);
+    }
+
     const newComment: Comment = {
       id: `c-reel-${Date.now()}`,
       username: currentUser.username,
@@ -1145,6 +1247,9 @@ export default function App() {
   };
 
   const handleShareReel = (reel: Reel) => {
+    const cat = reel.category || inferCategory(reel);
+    recommendationEngine.recordInteraction(cat, 'share', reel.id);
+
     const asPost: Post = {
       id: reel.id,
       userId: reel.userId,
@@ -1601,6 +1706,7 @@ export default function App() {
             setLegalModalTab('privacy');
             setIsLegalModalOpen(true);
           }}
+          onOpenSearch={() => setIsSearchOverlayOpen(true)}
           onLogout={handleLogout}
           isAuthenticated={isAuthenticated}
           currentLanguage={currentLanguage}
@@ -1624,6 +1730,7 @@ export default function App() {
               setLegalModalTab('privacy');
               setIsLegalModalOpen(true);
             }}
+            onOpenSearch={() => setIsSearchOverlayOpen(true)}
             currentLanguage={currentLanguage}
           />
 
@@ -1714,8 +1821,9 @@ export default function App() {
                           onViewUser={handleViewUser}
                           onNotInterested={handleNotInterestedPost}
                           onShowMore={handleShowMorePost}
-                          onReportPost={handleOpenReportPostModal}
-                          onBlockUser={(username) => handleOpenBlockUserModal(username, post.caption)}
+                          onReportPost={handleQuickReportPost}
+                          onBlockUser={handleUserBlocked}
+                          onDeletePost={handleDeletePost}
                           currentLanguage={currentLanguage}
                         />
                       );
@@ -1735,29 +1843,36 @@ export default function App() {
 
           {/* Tab 2: EXPLORE GRID */}
           {currentTab === 'explore' && (
-            <ExploreView
-              posts={allExploreItems}
-              onSelectPost={(p) => handleOpenFullScreen(p, allExploreItems)}
-              currentLanguage={currentLanguage}
-            />
+            <ErrorBoundary compact fallbackTitle="Explore Feed">
+              <ExploreView
+                posts={allExploreItems}
+                onSelectPost={(p) => handleOpenFullScreen(p, allExploreItems)}
+                onViewUser={handleViewUser}
+                onUseAudio={handleUseAudio}
+                currentLanguage={currentLanguage}
+              />
+            </ErrorBoundary>
           )}
 
           {/* Tab 3: REELS FEED */}
           {currentTab === 'reels' && (
             <div className="w-full h-full flex-1 flex justify-center items-center p-0 m-0 bg-black overflow-hidden">
-              <ReelsView
-                reels={unblockedReels}
-                currentUser={currentUser}
-                onToggleLike={handleToggleLikeReel}
-                onToggleSave={handleToggleSaveReel}
-                onAddComment={handleAddReelComment}
-                onShare={handleShareReel}
-                onViewUser={handleViewUser}
-                onUseAudio={handleUseAudio}
-                onReportReel={(r, reason) => handleReportSubmitted(r.id, reason)}
-                onBlockUser={(u) => handleUserBlocked(u)}
-                currentLanguage={currentLanguage}
-              />
+              <ErrorBoundary compact fallbackTitle="Reels Player">
+                <ReelsView
+                  reels={unblockedReels}
+                  currentUser={currentUser}
+                  onToggleLike={handleToggleLikeReel}
+                  onToggleSave={handleToggleSaveReel}
+                  onAddComment={handleAddReelComment}
+                  onShare={handleShareReel}
+                  onViewUser={handleViewUser}
+                  onUseAudio={handleUseAudio}
+                  onReportReel={(r, reason) => handleReportSubmitted(r.id, reason)}
+                  onBlockUser={(u) => handleUserBlocked(u)}
+                  onDeleteReel={handleDeletePost}
+                  currentLanguage={currentLanguage}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -1848,8 +1963,15 @@ export default function App() {
           onShare={(p) => setSharePost(p)}
           onViewUser={handleViewUser}
           onOpenFullScreen={(p) => handleOpenFullScreen(p, posts)}
-          onReportPost={handleOpenReportPostModal}
-          onBlockUser={(u) => handleOpenBlockUserModal(u, selectedPostDetail.caption)}
+          onReportPost={(p) => {
+            setSelectedPostDetail(null);
+            handleQuickReportPost(p);
+          }}
+          onBlockUser={(u) => {
+            setSelectedPostDetail(null);
+            handleUserBlocked(u);
+          }}
+          onDeletePost={handleDeletePost}
         />
       )}
 
@@ -1865,8 +1987,15 @@ export default function App() {
           onAddComment={handleAddComment}
           onShare={(p) => setSharePost(p)}
           onViewUser={handleViewUser}
-          onReportPost={handleOpenReportPostModal}
-          onBlockUser={(u) => handleOpenBlockUserModal(u)}
+          onReportPost={(p) => {
+            setFullScreenViewerState(null);
+            handleQuickReportPost(p);
+          }}
+          onBlockUser={(u) => {
+            setFullScreenViewerState(null);
+            handleUserBlocked(u);
+          }}
+          onDeletePost={handleDeletePost}
         />
       )}
 
@@ -1978,6 +2107,75 @@ export default function App() {
         onClose={() => setIsLegalModalOpen(false)}
         initialTab={legalModalTab}
       />
+
+      {/* OVERLAY: Live Search & Explore Overlay */}
+      {isSearchOverlayOpen && (
+        <div
+          id="search-explore-overlay"
+          className="fixed inset-0 z-50 bg-white dark:bg-neutral-950 flex flex-col overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-150 select-none"
+        >
+          {/* Top Navigation Bar of Search Overlay */}
+          <div className="sticky top-0 z-30 bg-white/95 dark:bg-neutral-950/95 backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800/80 px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <button
+                id="close-search-overlay-btn"
+                type="button"
+                onClick={() => setIsSearchOverlayOpen(false)}
+                className="p-1.5 sm:p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200 transition cursor-pointer active:scale-95"
+                aria-label="Back"
+                title="Back"
+              >
+                <ArrowLeft className="w-5 h-5 stroke-[2]" />
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-rose-500 via-amber-500 to-rose-600 flex items-center justify-center text-white shadow-xs">
+                  <Search className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
+                <div className="flex flex-col text-left">
+                  <h2 className="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white leading-tight">
+                    Search Bhojpuri Reels & Stars
+                  </h2>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-amber-500 dark:text-amber-400 uppercase tracking-wider leading-none">
+                    Trending Creators, Tags & Music
+                  </span>
+                </div>
+              </div>
+            </div>
+            <button
+              id="done-search-overlay-btn"
+              type="button"
+              onClick={() => setIsSearchOverlayOpen(false)}
+              className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 transition cursor-pointer"
+            >
+              Done
+            </button>
+          </div>
+
+          {/* Explore & Search View Body */}
+          <div className="flex-1 pb-16">
+            <ErrorBoundary compact fallbackTitle="Search & Explore" onReset={() => setIsSearchOverlayOpen(false)}>
+              <ExploreView
+                posts={allExploreItems}
+                onSelectPost={(p) => {
+                  setIsSearchOverlayOpen(false);
+                  handleOpenFullScreen(p, allExploreItems);
+                }}
+                onViewUser={(username) => {
+                  setIsSearchOverlayOpen(false);
+                  handleViewUser(username);
+                }}
+                onUseAudio={(title, artist) => {
+                  setIsSearchOverlayOpen(false);
+                  handleUseAudio(title, artist);
+                }}
+                onClose={() => setIsSearchOverlayOpen(false)}
+                currentLanguage={currentLanguage}
+                autoFocusSearch={true}
+              />
+            </ErrorBoundary>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 11: Real User Story Creator */}
       <CreateStoryModal

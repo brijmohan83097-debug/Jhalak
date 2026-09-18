@@ -152,7 +152,7 @@ export const AdMobBannerAd: React.FC<AdMobBannerAdProps> = ({
                 </div>
                 <div>
                   <h3 id="admob-info-title" className="text-sm font-bold text-neutral-900 dark:text-white">
-                    Google AdMob Test Ad
+                    Google AdMob Banner Ad
                   </h3>
                   <span className="text-[10px] text-neutral-500">
                     Google AdChoices Transparency
@@ -170,10 +170,10 @@ export const AdMobBannerAd: React.FC<AdMobBannerAdProps> = ({
             <div className="space-y-2.5 text-xs text-neutral-600 dark:text-neutral-300">
               <div className="p-2.5 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 space-y-1">
                 <div className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
-                  Test Ad Unit ID (Android Banner)
+                  Ad Unit ID (Banner)
                 </div>
                 <code className="block text-[11px] font-mono text-blue-600 dark:text-blue-400 break-all select-all">
-                  {ADMOB_CONFIG.BANNER_ANDROID}
+                  {ADMOB_CONFIG.BANNER}
                 </code>
               </div>
 

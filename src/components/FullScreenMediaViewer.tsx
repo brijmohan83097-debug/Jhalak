@@ -22,6 +22,7 @@ import {
   MoreVertical,
   Flag,
   Ban,
+  Trash2,
 } from 'lucide-react';
 import { Post, User } from '../types';
 import { CommentsBottomSheet } from './CommentsBottomSheet';
@@ -43,6 +44,7 @@ interface FullScreenMediaViewerProps {
   onViewUser: (username: string) => void;
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
@@ -57,6 +59,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   onViewUser,
   onReportPost,
   onBlockUser,
+  onDeletePost,
 }) => {
   // Filter valid posts safely
   const safePosts = Array.isArray(posts) ? posts.filter((p): p is Post => Boolean(p && p.id)) : [];
@@ -91,6 +94,20 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const currentPost: Post | undefined = safePosts[activeIndex] || safePosts[0];
+
+  const isOwner = Boolean(
+    currentPost && (
+      (currentUser?.id && currentPost?.userId && (
+        currentUser.id === currentPost.userId ||
+        ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
+         (currentPost.userId === 'user-me' || currentPost.userId === 'user-brijmohan' || currentPost.userId === 'user-brijmohan83097'))
+      )) ||
+      (currentUser?.username && currentPost?.username && (
+        currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+        currentPost.username.toLowerCase().replace(/^@/, '').trim()
+      ))
+    )
+  );
 
   // Navigation handlers
   const goToNext = useCallback(() => {
@@ -402,11 +419,11 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
               >
                 {post.mediaType === 'video' ? (
                   mediaErrors[post.id] || (!post.mediaUrl && !post.thumbnailUrl) ? (
-                    <div className="relative max-w-full max-h-full flex items-center justify-center">
+                    <div className="relative w-full h-full flex items-center justify-center">
                       <img
                         src={post.thumbnailUrl || createVideoFallbackDataUrl(post.caption)}
                         alt={post.caption || 'Video preview'}
-                        className={`max-w-full max-h-full object-contain ${post.filter || ''} drop-shadow-2xl`}
+                        className={`w-full h-full object-cover ${post.filter || ''}`}
                         onError={(e) => {
                           const target = e.currentTarget;
                           target.src = createVideoFallbackDataUrl(post.caption);
@@ -438,7 +455,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                         setMediaErrors((prev) => ({ ...prev, [post.id]: true }));
                       }}
                       onTimeUpdate={() => handleTimeUpdate(index)}
-                      className={`max-w-full max-h-full object-contain ${post.filter || ''}`}
+                      className={`w-full h-full object-cover ${post.filter || ''}`}
                     />
                   )
                 ) : (
@@ -449,7 +466,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                       const target = e.currentTarget;
                       target.src = createPhotoFallbackDataUrl(post.caption);
                     }}
-                    className={`max-w-full max-h-full object-contain ${post.filter || ''} drop-shadow-2xl`}
+                    className={`w-full h-full object-cover ${post.filter || ''} select-none`}
                     loading={isCurrent ? 'eager' : 'lazy'}
                   />
                 )}
@@ -784,51 +801,81 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
             <h3 className="text-sm font-bold text-center mb-3">Options</h3>
 
             <div className="space-y-1.5">
-              {/* Report Post / Reel */}
-              <button
-                id={`fullscreen-report-btn-${currentPost.id}`}
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  if (onReportPost) {
-                    onReportPost(currentPost);
+              {/* Delete Post (Owner only) */}
+              {isOwner && (
+                <button
+                  id={`fullscreen-delete-btn-${currentPost.id}`}
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    if (onDeletePost) {
+                      onDeletePost(currentPost.id);
+                    }
                     onClose();
-                  }
-                }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group"
-              >
-                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
-                  <Flag className="w-4 h-4" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold">Report Content</p>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Spam, inappropriate content, or harassment
-                  </p>
-                </div>
-              </button>
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-left transition text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 group cursor-pointer"
+                >
+                  <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">Delete Post</p>
+                    <p className="text-[11px] text-rose-500/80">
+                      Permanently delete this post from Jhalak
+                    </p>
+                  </div>
+                </button>
+              )}
 
-              {/* Block User */}
-              <button
-                id={`fullscreen-block-user-btn-${currentPost.id}`}
-                onClick={() => {
-                  setShowOptionsMenu(false);
-                  if (onBlockUser) {
-                    onBlockUser(currentPost.username);
-                    onClose();
-                  }
-                }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group"
-              >
-                <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
-                  <Ban className="w-4 h-4" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold">Block @{currentPost.username}</p>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Hide all content from this creator
-                  </p>
-                </div>
-              </button>
+              {/* Report & Block only if NOT owner */}
+              {!isOwner && (
+                <>
+                  {/* Report Post / Reel */}
+                  <button
+                    id={`fullscreen-report-btn-${currentPost.id}`}
+                    onClick={() => {
+                      setShowOptionsMenu(false);
+                      if (onReportPost) {
+                        onReportPost(currentPost);
+                        onClose();
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/20 text-left transition text-amber-600 dark:text-amber-400 group cursor-pointer"
+                  >
+                    <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 group-hover:scale-110 transition">
+                      <Flag className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold">Report Content</p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        Spam, inappropriate content, or harassment
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Block User */}
+                  <button
+                    id={`fullscreen-block-user-btn-${currentPost.id}`}
+                    onClick={() => {
+                      setShowOptionsMenu(false);
+                      if (onBlockUser) {
+                        onBlockUser(currentPost.username);
+                        onClose();
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 text-left transition text-rose-600 dark:text-rose-400 group cursor-pointer"
+                  >
+                    <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
+                      <Ban className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold">Block @{currentPost.username}</p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        Hide all content from this creator
+                      </p>
+                    </div>
+                  </button>
+                </>
+              )}
 
               {/* Share */}
               <button

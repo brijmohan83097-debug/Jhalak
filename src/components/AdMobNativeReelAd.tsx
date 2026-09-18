@@ -338,10 +338,10 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
             <div className="space-y-2 text-xs text-neutral-600 dark:text-neutral-300">
               <div className="p-2.5 rounded-lg bg-neutral-50 dark:bg-neutral-800/60">
                 <span className="text-[10px] uppercase font-bold text-neutral-400 block mb-0.5">
-                  Test Ad Unit ID (Native Video)
+                  Ad Unit ID (Native Video)
                 </span>
                 <code className="text-[11px] font-mono text-blue-600 dark:text-blue-400 break-all select-all">
-                  {ADMOB_CONFIG.NATIVE_VIDEO_ANDROID}
+                  {ADMOB_CONFIG.NATIVE}
                 </code>
               </div>
 

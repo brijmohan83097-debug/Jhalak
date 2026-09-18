@@ -12,6 +12,7 @@ import {
   Globe2,
   Settings,
   Scale,
+  Search,
 } from 'lucide-react';
 import { NavTab, User } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
@@ -29,6 +30,7 @@ interface MobileNavProps {
   onOpenGoogleLogin?: () => void;
   onOpenSettings?: () => void;
   onOpenLegalPolicies?: () => void;
+  onOpenSearch?: () => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -37,40 +39,57 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
   currentUser,
   onOpenGoogleLogin,
   onOpenSettings,
+  onOpenLegalPolicies,
+  onOpenSearch,
 }) => {
   return (
     <header
       id="mobile-top-header"
-      className="md:hidden sticky top-0 z-40 h-14 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800/80 px-3.5 sm:px-4 flex items-center justify-between transition-colors select-none"
+      className="md:hidden sticky top-0 z-40 h-14 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800/80 px-2.5 sm:px-4 flex items-center justify-between gap-1.5 sm:gap-2 transition-colors select-none"
     >
       {/* 1. Left side: Square Tiranga 'J' badge logo and "Jhalak Reels: Made in India" branding */}
-      <div className="flex items-center">
+      <div className="flex items-center flex-shrink-0">
         <button
           id="top-brand-header-title"
           onClick={() => onTabChange('home')}
-          className="group flex items-center gap-2.5 focus:outline-none cursor-pointer active:scale-98 transition-transform"
+          className="group flex items-center gap-2 sm:gap-2.5 focus:outline-none cursor-pointer active:scale-98 transition-transform"
           aria-label="Jhalak Reels: Made in India"
         >
-          <JhalakLogo size={34} showGlow={false} animate={false} />
+          <JhalakLogo size={32} showGlow={false} animate={false} />
           <div className="flex flex-col text-left">
-            <span className="font-extrabold text-sm sm:text-base tracking-tight text-neutral-900 dark:text-white leading-tight">
-              Jhalak Reels:
+            <span className="font-extrabold text-xs sm:text-sm tracking-tight text-neutral-900 dark:text-white leading-tight">
+              Jhalak Reels
             </span>
-            <span className="text-[10px] sm:text-[11px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase leading-none">
+            <span className="text-[9px] sm:text-[10px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase leading-none">
               Made in India
             </span>
           </div>
         </button>
       </div>
 
-      {/* 2. Right side: Streamlined, uncluttered controls (Account & Settings) */}
-      <div className="flex items-center gap-1.5 text-neutral-900 dark:text-white">
+      {/* Prominent Search bar / quick explore right next to the Jhalak Reels logo */}
+      <button
+        id="top-header-search-bar"
+        onClick={onOpenSearch || (() => onTabChange('explore'))}
+        type="button"
+        className="flex-1 min-w-[110px] max-w-[210px] sm:max-w-xs flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800/90 border border-neutral-200/90 dark:border-neutral-700/80 text-neutral-500 dark:text-neutral-400 hover:border-rose-500/50 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 transition active:scale-98 cursor-pointer shadow-2xs group"
+        aria-label="Search Bhojpuri Reels, Creators & Tags"
+        title="Search Bhojpuri Reels & Creators"
+      >
+        <Search className="w-3.5 h-3.5 text-rose-500 flex-shrink-0 group-hover:scale-110 transition-transform" />
+        <span className="text-[11px] sm:text-xs font-medium text-neutral-600 dark:text-neutral-300 truncate">
+          Search Bhojpuri...
+        </span>
+      </button>
+
+      {/* 2. Right side: Streamlined, uncluttered controls (Account, Legal & Settings) */}
+      <div className="flex items-center gap-1 text-neutral-900 dark:text-white flex-shrink-0">
         {onOpenGoogleLogin && (
           <button
             id="mobile-google-btn"
             onClick={onOpenGoogleLogin}
             aria-label="Google Account"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-800 bg-neutral-100/70 dark:bg-neutral-900/70 hover:bg-neutral-200/80 dark:hover:bg-neutral-800 transition active:scale-95 cursor-pointer text-xs font-semibold text-neutral-800 dark:text-neutral-200"
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-800 bg-neutral-100/70 dark:bg-neutral-900/70 hover:bg-neutral-200/80 dark:hover:bg-neutral-800 transition active:scale-95 cursor-pointer text-xs font-semibold text-neutral-800 dark:text-neutral-200"
             title={currentUser?.name ? currentUser.name : 'Google Account'}
           >
             {currentUser?.avatar ? (
@@ -89,9 +108,21 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
                 </svg>
               </div>
             )}
-            <span className="max-w-[70px] sm:max-w-[90px] truncate text-[11px] font-medium">
+            <span className="max-w-[50px] sm:max-w-[70px] truncate text-[11px] font-medium hidden xs:inline">
               {currentUser?.name || 'Sign In'}
             </span>
+          </button>
+        )}
+
+        {onOpenLegalPolicies && (
+          <button
+            id="mobile-legal-btn"
+            onClick={onOpenLegalPolicies}
+            aria-label="Legal & Privacy Policy"
+            className="p-1.5 sm:p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition active:scale-95 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer"
+            title="Privacy Policy & Terms"
+          >
+            <Scale className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.8]" />
           </button>
         )}
 
@@ -100,10 +131,10 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
             id="mobile-settings-btn"
             onClick={onOpenSettings}
             aria-label="Settings"
-            className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition active:scale-95 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition active:scale-95 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer"
             title="Settings & Privacy"
           >
-            <Settings className="w-5 h-5 stroke-[1.8]" />
+            <Settings className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.8]" />
           </button>
         )}
       </div>

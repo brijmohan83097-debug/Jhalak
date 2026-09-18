@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   X,
+  Camera,
   Image as ImageIcon,
   Sparkles,
   MapPin,
@@ -23,7 +24,11 @@ import {
 } from 'lucide-react';
 import { Post, User, Reel } from '../types';
 import { GoLiveStudio } from './GoLiveStudio';
+import { ReelsCamera } from './ReelsCamera';
+import { ErrorBoundary } from './ErrorBoundary';
+import { ReelsAudioSelector } from './ReelsAudioSelector';
 import { moderationService } from '../services/moderationService';
+import { inferCategory } from '../services/recommendationEngine';
 import {
   compressImage,
   generateVideoThumbnail,
@@ -51,20 +56,20 @@ const filterOptions = [
 
 const defaultTrendingAudios = [
   'Original Audio • Original Track',
+  'Lollypop Lagelu • Pawan Singh',
+  'Pudina Ae Hasina • Pawan Singh',
+  'Nathuniya • Khesari Lal Yadav',
+  'Pagal Banaibe Ka Re Patarki • Khesari Lal',
+  'Raja Ji Ke Dilwa • Shilpi Raj',
+  'Relia Re • Shilpi Raj',
+  'Dhibari Me Rahue Na Tel • Pawan Singh & Shilpi Raj',
+  'Le Le Aayi Coca Cola • Pawan Singh',
+  'Saiya Ke Roti • Khesari Lal Yadav',
+  'Kamar Kamra Ba • Shilpi Raj',
+  'Ara Jila Ghar Ba • Folk Dholak Bass',
   'Kesariya • Acoustic Soul (Brahmāstra)',
   'Chaleya • Jawan Beats',
   'Brown Munde • AP Dhillon & Gurinder Gill',
-  'Pasoori • Coke Studio Beats',
-  'Dil Nu • Punjabi Wave',
-  'Apna Bana Le • Soulful Melodies',
-  'Raanjhanaa • Flute & Classical Tabla',
-  'Baarishein • Anuv Jain Indie Acoustic',
-  'Taal Se Taal • Flute & Tabla Fusion',
-  'Maan Meri Jaan • King Pop',
-  'Dhoom Machale • Funny Remix',
-  'Tech Beat Synthwave • Future Tokyo',
-  'Workshop Lo-Fi Beats • Craftsman Sound',
-  'Tujhe Dekha Toh • Evergreen Romance',
 ];
 
 const readFileAsDataUrl = (file: File): Promise<string> => {
@@ -121,6 +126,60 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isAudioSelectorOpen, setIsAudioSelectorOpen] = useState(false);
+
+  const handleVideoRecorded = async (
+    videoBlob: Blob,
+    videoUrl: string,
+    thumbnail?: string,
+    audioTitle?: string
+  ) => {
+    setMediaType('video');
+    setSelectedMediaUrl(videoUrl);
+    setShareAsReel(true);
+    setIsCameraOpen(false);
+
+    if (audioTitle) {
+      setSelectedAudio(audioTitle);
+    }
+
+    if (thumbnail) {
+      setThumbnailDataUrl(thumbnail);
+    } else {
+      try {
+        const thumb = await generateVideoThumbnail(
+          new File([videoBlob], 'recorded-reel.mp4', {
+            type: videoBlob.type || 'video/mp4',
+          }),
+          640,
+          640,
+          0.7
+        );
+        setThumbnailDataUrl(thumb);
+      } catch {
+        setThumbnailDataUrl(createVideoFallbackDataUrl('Recorded Reel'));
+      }
+    }
+
+    if (videoBlob.size <= 1.8 * 1024 * 1024) {
+      try {
+        const dataUrl = await fileToDataUrl(
+          new File([videoBlob], 'recorded-reel.mp4', {
+            type: videoBlob.type || 'video/mp4',
+          })
+        );
+        setSelectedMediaUrl(dataUrl);
+      } catch {
+        // Keep object URL
+      }
+    }
+
+    setStep('edit');
+    if (onShowToast) {
+      onShowToast('🎬 Reel video recorded and added directly!');
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -297,12 +356,20 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           }
         : undefined;
 
-    const postId = `post-${Date.now()}`;
+    const now = Date.now();
+    const postId = `post-${now}`;
     const persistedThumbnail =
       thumbnailDataUrl ||
       (mediaType === 'image'
         ? selectedMediaUrl
         : createVideoFallbackDataUrl(caption || 'Video Reel'));
+
+    const parsedCategory = inferCategory({
+      caption,
+      tags: parsedTags,
+      audioTitle: finalAudioTitle,
+      location,
+    });
 
     const newPost: Post = {
       id: postId,
@@ -316,6 +383,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       mediaType: mediaType === 'video' ? 'video' : 'image',
       caption: caption.trim() || (mediaType === 'video' ? 'New Reel' : 'No caption'),
       tags: parsedTags,
+      category: parsedCategory,
       likesCount: 0,
       isLiked: false,
       isSaved: false,
@@ -325,12 +393,14 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       audioTitle: mediaType === 'video' ? finalAudioTitle : undefined,
       viewsCount: mediaType === 'video' ? 1 : undefined,
       productTag,
+      createdAt: now,
+      isUserCreated: true,
     };
 
     let newReel: Reel | undefined;
     if (mediaType === 'video' && shareAsReel) {
       newReel = {
-        id: `reel-${Date.now()}`,
+        id: `reel-${now}`,
         userId: currentUser.id,
         username: currentUser.username,
         userAvatar: currentUser.avatar,
@@ -338,6 +408,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         videoUrl: selectedMediaUrl,
         thumbnailUrl: persistedThumbnail,
         caption: caption.trim() || 'New Reel',
+        category: parsedCategory,
         audioTitle: finalAudioTitle,
         audioArtist: currentUser.username,
         likesCount: 0,
@@ -349,6 +420,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         tags: parsedTags,
         timestamp: 'Just now',
         productTag,
+        createdAt: now,
+        isUserCreated: true,
       };
     }
 
@@ -442,6 +515,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   <span>Video / Reel</span>
                 </button>
                 <button
+                  id="tab-open-camera"
+                  type="button"
+                  onClick={() => setIsCameraOpen(true)}
+                  className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold text-neutral-500 dark:text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400 transition cursor-pointer"
+                  title="Record video with Reels Camera"
+                >
+                  <Camera className="w-4 h-4 text-rose-500" />
+                  <span>Camera</span>
+                </button>
+                <button
                   id="tab-select-live"
                   onClick={() => setMediaType('live')}
                   className="flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 text-white shadow-sm transition"
@@ -503,6 +586,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   <span>Video / Reel</span>
                 </button>
                 <button
+                  id="tab-select-camera"
+                  type="button"
+                  onClick={() => setIsCameraOpen(true)}
+                  className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold text-neutral-500 dark:text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400 transition cursor-pointer"
+                  title="Record with Reels Camera"
+                >
+                  <Camera className="w-4 h-4 text-rose-500" />
+                  <span>Camera</span>
+                </button>
+                <button
                   id="tab-select-live"
                   onClick={() => setMediaType('live')}
                   className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
@@ -549,13 +642,32 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     ? 'High definition vertical Reels or horizontal clips'
                     : 'Supports high-res photography (auto-optimized)'}
                 </p>
-                <button
-                  id="select-computer-btn"
-                  type="button"
-                  className="bg-sky-500 hover:bg-sky-600 text-white font-semibold text-xs px-4 py-2 rounded-lg shadow-sm transition"
-                >
-                  Select from computer
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    id="select-computer-btn"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                    className="bg-sky-500 hover:bg-sky-600 text-white font-semibold text-xs px-4 py-2 rounded-lg shadow-sm transition active:scale-95 cursor-pointer"
+                  >
+                    Select from computer
+                  </button>
+                  <button
+                    id="open-camera-btn"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsCameraOpen(true);
+                    }}
+                    className="bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white font-semibold text-xs px-4 py-2 rounded-lg shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    title="Open Reels Camera to record video"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Open Camera</span>
+                  </button>
+                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -651,14 +763,34 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   <div className="space-y-4">
                     {/* Audio Track Picker */}
                     <div>
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Music className="w-4 h-4 text-rose-500" />
-                        <h4 className="text-sm font-semibold text-neutral-900 dark:text-white">
-                          Select Audio Track
-                        </h4>
+                      <div className="flex items-center justify-between gap-1.5 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <Music className="w-4 h-4 text-rose-500" />
+                          <h4 className="text-sm font-semibold text-neutral-900 dark:text-white">
+                            Select Audio Track
+                          </h4>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsAudioSelectorOpen(true)}
+                          className="text-[11px] font-bold text-rose-500 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
+                        >
+                          Browse Library →
+                        </button>
                       </div>
 
-                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {/* Prominent Browse Songs Button */}
+                      <button
+                        id="open-bhojpuri-audio-selector-btn"
+                        type="button"
+                        onClick={() => setIsAudioSelectorOpen(true)}
+                        className="w-full mb-2.5 py-2 px-3 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                      >
+                        <Music className="w-3.5 h-3.5" />
+                        <span>Search & Pick Bhojpuri Song (Pawan, Khesari, Shilpi) 🎵</span>
+                      </button>
+
+                      <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                         {trendingAudioOptions.map((track) => (
                           <button
                             key={track}
@@ -941,6 +1073,37 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         </>
       )}
     </div>
+
+    {/* Reels Camera Modal */}
+    {isCameraOpen && (
+      <ErrorBoundary
+        fallbackTitle="Reels Camera Error"
+        onReset={() => setIsCameraOpen(false)}
+      >
+        <ReelsCamera
+          currentUser={currentUser}
+          onCaptureVideo={handleVideoRecorded}
+          onClose={() => setIsCameraOpen(false)}
+        />
+      </ErrorBoundary>
+    )}
+
+    {/* Dedicated Bhojpuri ReelsAudioSelector Modal */}
+    {isAudioSelectorOpen && (
+      <ReelsAudioSelector
+        isOpen={isAudioSelectorOpen}
+        onClose={() => setIsAudioSelectorOpen(false)}
+        currentTrackTitle={selectedAudio}
+        onSelectTrack={(track) => {
+          setSelectedAudio(`${track.title} • ${track.artist}`);
+          setIsCustomAudioActive(false);
+          setIsAudioSelectorOpen(false);
+          if (onShowToast) {
+            onShowToast(`Selected sound: ${track.title} 🎵`);
+          }
+        }}
+      />
+    )}
   </div>
 </div>
   );
