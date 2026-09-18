@@ -35,6 +35,10 @@ import {
   createVideoFallbackDataUrl,
   fileToDataUrl,
 } from '../utils/imageCompressor';
+import {
+  UGCCommunityGuidelinesModal,
+  hasUserConsentedToUGC,
+} from './UGCCommunityGuidelinesModal';
 
 interface CreatePostModalProps {
   currentUser: User;
@@ -43,6 +47,7 @@ interface CreatePostModalProps {
   initialSelectedAudio?: string;
   initialMediaType?: 'image' | 'video' | 'live';
   onShowToast?: (message: string) => void;
+  onOpenLegalPolicy?: (tab: 'privacy' | 'terms' | 'ugc') => void;
 }
 
 const filterOptions = [
@@ -88,6 +93,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   initialSelectedAudio,
   initialMediaType,
   onShowToast,
+  onOpenLegalPolicy,
 }) => {
   const [mediaType, setMediaType] = useState<'image' | 'video' | 'live'>(
     initialMediaType || (initialSelectedAudio ? 'video' : 'image')
@@ -128,6 +134,46 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isAudioSelectorOpen, setIsAudioSelectorOpen] = useState(false);
+  const [isUgcConsentModalOpen, setIsUgcConsentModalOpen] = useState(false);
+  const [pendingActionAfterConsent, setPendingActionAfterConsent] = useState<
+    'camera' | 'upload' | 'share' | null
+  >(null);
+
+  const handleRequestCamera = () => {
+    if (!hasUserConsentedToUGC()) {
+      setPendingActionAfterConsent('camera');
+      setIsUgcConsentModalOpen(true);
+      return;
+    }
+    setIsCameraOpen(true);
+  };
+
+  const handleRequestUpload = () => {
+    if (!hasUserConsentedToUGC()) {
+      setPendingActionAfterConsent('upload');
+      setIsUgcConsentModalOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleConsentAgreed = () => {
+    setIsUgcConsentModalOpen(false);
+    const action = pendingActionAfterConsent;
+    setPendingActionAfterConsent(null);
+    if (action === 'camera') {
+      setIsCameraOpen(true);
+    } else if (action === 'upload') {
+      fileInputRef.current?.click();
+    } else if (action === 'share') {
+      handleShare();
+    }
+  };
+
+  const handleConsentDeclined = () => {
+    setIsUgcConsentModalOpen(false);
+    setPendingActionAfterConsent(null);
+  };
 
   const handleVideoRecorded = async (
     videoBlob: Blob,
@@ -325,6 +371,13 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
   const handleShare = () => {
     if (!selectedMediaUrl) return;
+
+    // Policy Compliance Check: Ensure creator consent has been granted
+    if (!hasUserConsentedToUGC()) {
+      setPendingActionAfterConsent('share');
+      setIsUgcConsentModalOpen(true);
+      return;
+    }
 
     // Automatic Text Moderation (Banned Words Filter)
     const moderationCheck = moderationService.validateContent(caption);
@@ -588,7 +641,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 <button
                   id="tab-select-camera"
                   type="button"
-                  onClick={() => setIsCameraOpen(true)}
+                  onClick={handleRequestCamera}
                   className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold text-neutral-500 dark:text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400 transition cursor-pointer"
                   title="Record with Reels Camera"
                 >
@@ -614,7 +667,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleRequestUpload}
                 className={`w-full max-w-lg border-2 border-dashed rounded-2xl p-7 flex flex-col items-center justify-center cursor-pointer transition text-center ${
                   isDragging
                     ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/20'
@@ -1104,6 +1157,14 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         }}
       />
     )}
+
+    {/* UGC Community Guidelines & Creator Safety Consent Dialog */}
+    <UGCCommunityGuidelinesModal
+      isOpen={isUgcConsentModalOpen}
+      onAccept={handleConsentAgreed}
+      onDecline={handleConsentDeclined}
+      onOpenFullPolicy={onOpenLegalPolicy}
+    />
   </div>
 </div>
   );

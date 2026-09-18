@@ -127,11 +127,18 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
   const videoLiveRef = useRef<HTMLVideoElement>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const recordedBytesRef = useRef<number>(0);
+  const recordedVideoUrlRef = useRef<string | null>(null);
   const timerRef = useRef<number | null>(null);
   const fileFallbackInputRef = useRef<HTMLInputElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeAudioPlayerRef = useRef<{ stop: () => void } | null>(null);
+  const isRetryingCameraRef = useRef(false);
+
+  // Maximum buffer limit for single reel to prevent Out-Of-Memory on mobile WebView
+  const MAX_RECORDING_BYTES = 40 * 1024 * 1024; // 40 MB safe ceiling
 
   const activeFilterPreset =
     FILTER_PRESETS.find((f) => f.id === selectedFilter) || FILTER_PRESETS[0];
@@ -143,6 +150,39 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
       activeAudioPlayerRef.current = null;
     }
     setPreviewingTrackId(null);
+  }, []);
+
+  // Stop all media tracks, detach HTMLMediaElements, and release hardware camera lock
+  const cleanupHardwareResources = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn('Track stop error:', e);
+        }
+      });
+      streamRef.current = null;
+    }
+
+    if (videoLiveRef.current) {
+      try {
+        videoLiveRef.current.pause();
+        videoLiveRef.current.srcObject = null;
+      } catch (e) {
+        console.warn('Live video element detachment error:', e);
+      }
+    }
+
+    if (videoPreviewRef.current) {
+      try {
+        videoPreviewRef.current.pause();
+        videoPreviewRef.current.removeAttribute('src');
+        videoPreviewRef.current.load();
+      } catch (e) {
+        console.warn('Preview video element detachment error:', e);
+      }
+    }
   }, []);
 
   // Filter Bhojpuri tracks by search query and category
@@ -182,36 +222,42 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
     }
   };
 
-  // Initialize Camera with Full Sensor Resolution (prevents over-zoom crop)
+  const [isMicAvailable, setIsMicAvailable] = useState(true);
+  const [cameraLoading, setCameraLoading] = useState(false);
+
+  // Initialize Camera with Multi-Tier Hardware Fallback & Graceful Error Handling
   const startCamera = useCallback(async () => {
+    if (isRetryingCameraRef.current) return;
+    isRetryingCameraRef.current = true;
+    setCameraLoading(true);
     setCameraError(null);
 
-    // Stop existing stream tracks
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setStream(null);
-    }
+    // Stop existing stream and release Android hardware HAL lock
+    cleanupHardwareResources();
+    setStream(null);
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Camera recording is not supported in this browser environment.');
       }
 
-      // Priority 1: Request maximum native sensor coverage (ideal 1920x1080)
-      // Requesting full wide coverage allows the camera to deliver its widest native field-of-view
       let mediaStream: MediaStream | null = null;
+      let micWorking = !isMicMuted;
+
+      // Tier 1: Ideal 1080p full sensor with audio (wide FOV)
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: isFrontCamera ? 'user' : 'environment',
-            width: { ideal: 1920, max: 3840 },
-            height: { ideal: 1080, max: 2160 },
+            width: { ideal: 1920, max: 1920 },
+            height: { ideal: 1080, max: 1080 },
           },
-          audio: !isMicMuted,
+          audio: !isMicMuted ? { echoCancellation: true, noiseSuppression: true } : false,
         });
-      } catch {
+      } catch (t1Err) {
+        console.warn('Camera Tier 1 failed, trying Tier 2 (720p with audio):', t1Err);
+        // Tier 2: Standard 720p resolution with audio
         try {
-          // Priority 2: Standard 720p resolution
           mediaStream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: isFrontCamera ? 'user' : 'environment',
@@ -220,54 +266,115 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
             },
             audio: !isMicMuted,
           });
-        } catch {
-          // Priority 3: Video-only basic fallback
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: isFrontCamera ? 'user' : 'environment',
-            },
-            audio: false,
-          });
+        } catch (t2Err) {
+          console.warn('Camera Tier 2 failed, trying Tier 3 (video-only without audio):', t2Err);
+          // Tier 3: Standard 720p WITHOUT audio (in case microphone is in use, phone call, or mic permission denied)
+          try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                facingMode: isFrontCamera ? 'user' : 'environment',
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              },
+              audio: false,
+            });
+            micWorking = false;
+          } catch (t3Err) {
+            console.warn('Camera Tier 3 failed, trying Tier 4 (basic video):', t3Err);
+            // Tier 4: Basic facingMode video-only (no resolution constraints)
+            try {
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  facingMode: isFrontCamera ? 'user' : 'environment',
+                },
+                audio: false,
+              });
+              micWorking = false;
+            } catch (t4Err) {
+              console.warn('Camera Tier 4 failed, trying Tier 5 (absolute minimal):', t4Err);
+              // Tier 5: Absolute minimal hardware constraint (any available sensor)
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+              });
+              micWorking = false;
+            }
+          }
         }
       }
 
       if (!mediaStream) {
-        throw new Error('Failed to access camera.');
+        throw new Error('Unable to obtain video stream from hardware sensor.');
       }
 
+      streamRef.current = mediaStream;
       setStream(mediaStream);
+      setIsMicAvailable(micWorking);
+
       if (videoLiveRef.current) {
         videoLiveRef.current.srcObject = mediaStream;
-        videoLiveRef.current.play().catch(() => {});
+        videoLiveRef.current.play().catch((playErr) => {
+          console.warn('Auto play video error:', playErr);
+        });
       }
     } catch (err: unknown) {
-      console.warn('Reels Camera access failed:', err);
-      const errorMsg =
-        err instanceof Error
-          ? err.message
-          : 'Unable to access camera. Check device permissions or try uploading a video.';
+      console.warn('Reels Camera access failed across all hardware tiers:', err);
+      let errorMsg = 'Unable to access camera. Check device permissions or try uploading a video.';
+
+      if (err instanceof DOMException || (typeof err === 'object' && err !== null && 'name' in err)) {
+        const domErr = err as { name: string; message?: string };
+        if (domErr.name === 'NotAllowedError' || domErr.name === 'PermissionDeniedError') {
+          errorMsg = 'Camera access was blocked. Please enable Camera permissions in your browser or device settings, or select a video below.';
+        } else if (domErr.name === 'NotFoundError' || domErr.name === 'DevicesNotFoundError') {
+          errorMsg = 'No camera sensor was detected on this device. You can upload an existing video file or generate a sample reel clip.';
+        } else if (domErr.name === 'NotReadableError' || domErr.name === 'TrackStartError') {
+          errorMsg = 'Camera hardware is currently in use by another app or phone call. Please close other camera apps and tap "Retry Camera Access".';
+        } else if (domErr.name === 'OverconstrainedError') {
+          errorMsg = 'Camera resolution could not be satisfied. Tap "Retry Camera Access" to re-initialize.';
+        } else if (domErr.name === 'SecurityError') {
+          errorMsg = 'Camera access requires a secure connection (HTTPS) or device permission.';
+        }
+      } else if (err instanceof Error) {
+        errorMsg = err.message;
+      }
+
       setCameraError(errorMsg);
+    } finally {
+      isRetryingCameraRef.current = false;
+      setCameraLoading(false);
     }
-  }, [isFrontCamera, isMicMuted]);
+  }, [isFrontCamera, isMicMuted, cleanupHardwareResources]);
 
   useEffect(() => {
     startCamera();
     return () => {
       stopTrackPreview();
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      cleanupHardwareResources();
+
       if (timerRef.current) {
         clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          // ignore
+        }
       }
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(() => {});
+        try {
+          audioContextRef.current.close().catch(() => {});
+        } catch {
+          // ignore
+        }
       }
-      if (recordedVideoUrl && recordedVideoUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(recordedVideoUrl);
+      if (recordedVideoUrlRef.current && recordedVideoUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(recordedVideoUrlRef.current);
+        recordedVideoUrlRef.current = null;
       }
     };
-  }, [startCamera, stopTrackPreview, stream, recordedVideoUrl]);
+  }, [startCamera, stopTrackPreview, cleanupHardwareResources]);
 
   // Handle audio mute toggle
   useEffect(() => {
@@ -283,9 +390,10 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
     try {
       const vid = videoLiveRef.current;
       if (vid && vid.videoWidth && vid.videoHeight) {
+        // Optimized 540x960 resolution matches 9:16 mobile reels with 50% lower RAM footprint
         const canvas = document.createElement('canvas');
-        canvas.width = 720;
-        canvas.height = 1280;
+        canvas.width = 540;
+        canvas.height = 960;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           const vWidth = vid.videoWidth;
@@ -316,7 +424,12 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
           ctx.filter = activeFilterPreset.canvasFilter;
 
           ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-          return canvas.toDataURL('image/jpeg', 0.85);
+          const thumbData = canvas.toDataURL('image/jpeg', 0.82);
+
+          // Immediately clear canvas dimensions to release GPU backing store from memory
+          canvas.width = 0;
+          canvas.height = 0;
+          return thumbData;
         }
       }
     } catch (e) {
@@ -329,6 +442,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
   const startRecording = () => {
     if (!stream) return;
     recordedChunksRef.current = [];
+    recordedBytesRef.current = 0;
     setRecordingSeconds(0);
 
     const mimeTypes = [
@@ -346,20 +460,45 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
     }
 
     try {
-      const options = selectedMime ? { mimeType: selectedMime } : undefined;
-      const recorder = new MediaRecorder(stream, options);
+      // Memory-optimized recording options: 2.5 Mbps video, 128 kbps audio to prevent OOM
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, {
+          ...(selectedMime ? { mimeType: selectedMime } : {}),
+          videoBitsPerSecond: 2_500_000,
+          audioBitsPerSecond: 128_000,
+        });
+      } catch {
+        // Safe fallback for webview containers that don't support custom bitrates
+        recorder = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : undefined);
+      }
 
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
+          recordedBytesRef.current += event.data.size;
           recordedChunksRef.current.push(event.data);
+
+          // Hard safety limit: cap single reel recording buffer at 40MB
+          if (recordedBytesRef.current >= MAX_RECORDING_BYTES) {
+            console.warn('Reel recording reached safe memory ceiling. Stopping recording to prevent OOM.');
+            stopRecording();
+          }
         }
       };
 
       recorder.onstop = () => {
+        if (recordedChunksRef.current.length === 0) return;
         const blob = new Blob(recordedChunksRef.current, {
           type: selectedMime || 'video/webm',
         });
+
+        // Revoke previous blob URL to prevent memory leaks
+        if (recordedVideoUrlRef.current && recordedVideoUrlRef.current.startsWith('blob:')) {
+          URL.revokeObjectURL(recordedVideoUrlRef.current);
+        }
+
         const url = URL.createObjectURL(blob);
+        recordedVideoUrlRef.current = url;
         const thumb = captureThumbnailFromStream();
 
         setRecordedBlob(blob);
@@ -368,7 +507,8 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
         setIsPreviewPlaying(true);
       };
 
-      recorder.start(250);
+      // 1000ms timeslice reduces GC pressure and heap fragmentation significantly vs 250ms
+      recorder.start(1000);
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
 
@@ -395,16 +535,23 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
       timerRef.current = null;
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        // ignore
+      }
     }
     setIsRecording(false);
   };
 
   // Retake video
   const handleRetake = () => {
-    if (recordedVideoUrl && recordedVideoUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(recordedVideoUrl);
+    if (recordedVideoUrlRef.current && recordedVideoUrlRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(recordedVideoUrlRef.current);
+      recordedVideoUrlRef.current = null;
     }
+    recordedChunksRef.current = [];
+    recordedBytesRef.current = 0;
     setRecordedBlob(null);
     setRecordedVideoUrl(null);
     setRecordedThumbnail(null);
@@ -582,6 +729,14 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
             <div className="absolute inset-0 pointer-events-none border-4 border-rose-500 animate-pulse z-10" />
           )}
 
+          {/* Non-blocking notification if microphone is in use or muted by system */}
+          {!isMicAvailable && !isMicMuted && !cameraError && (
+            <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-neutral-900/90 text-neutral-200 border border-neutral-700/80 rounded-full px-3.5 py-1.5 text-[11px] font-medium flex items-center gap-1.5 backdrop-blur-md shadow-md">
+              <MicOff className="w-3.5 h-3.5 text-amber-400" />
+              <span>Mic unavailable; recording video in silent mode</span>
+            </div>
+          )}
+
           {/* Fallback View if Camera Permission Denied or Not Available */}
           {cameraError && (
             <div className="absolute inset-0 bg-neutral-900/95 flex flex-col items-center justify-center p-6 text-center z-20">
@@ -594,8 +749,17 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
               <div className="flex flex-col gap-2 w-full max-w-xs">
                 <button
                   type="button"
+                  disabled={cameraLoading}
+                  onClick={() => startCamera()}
+                  className="w-full py-2.5 px-4 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md transition active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  <RotateCcw className={`w-4 h-4 ${cameraLoading ? 'animate-spin' : ''}`} />
+                  <span>{cameraLoading ? 'Connecting Camera...' : 'Retry Camera Access'}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => fileFallbackInputRef.current?.click()}
-                  className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-neutral-700 transition active:scale-95 cursor-pointer"
                 >
                   <Upload className="w-4 h-4" />
                   <span>Choose Video from Device</span>
@@ -603,7 +767,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
                 <button
                   type="button"
                   onClick={handleGenerateDemoReel}
-                  className="w-full py-2.5 px-4 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-neutral-700 transition active:scale-95 cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-neutral-800 transition active:scale-95 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   <span>Simulate 3s Sample Reel Clip</span>

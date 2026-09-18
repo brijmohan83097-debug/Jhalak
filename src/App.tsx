@@ -43,6 +43,10 @@ import { AdMobBannerAd } from './components/AdMobBannerAd';
 import { AdMobNativeFeedAd } from './components/AdMobNativeFeedAd';
 import { SplashScreen } from './components/SplashScreen';
 import {
+  UGCCommunityGuidelinesModal,
+  hasUserConsentedToUGC,
+} from './components/UGCCommunityGuidelinesModal';
+import {
   safeSetItem,
   registerStorageWarningToast,
   STORAGE_QUOTA_EVENT,
@@ -395,6 +399,8 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<'privacy' | 'terms' | 'ugc'>('privacy');
+  const [isUgcConsentModalOpen, setIsUgcConsentModalOpen] = useState(false);
+  const [pendingAudioForUgcConsent, setPendingAudioForUgcConsent] = useState<string | null>(null);
   const [isSearchOverlayOpen, setIsSearchOverlayOpen] = useState(false);
   const [isCreateStoryModalOpen, setIsCreateStoryModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
@@ -1002,11 +1008,15 @@ export default function App() {
     showToast('Your account and all associated personal data have been permanently deleted.');
   };
 
-  // Open Create Post Modal (prompting sign-in if guest)
+  // Open Create Post Modal (prompting sign-in if guest & UGC compliance consent)
   const handleOpenCreateModal = () => {
     if (!isAuthenticated) {
       setIsGoogleAuthModalOpen(true);
       showToast('Sign in with Google to create and share posts 📸');
+      return;
+    }
+    if (!hasUserConsentedToUGC()) {
+      setIsUgcConsentModalOpen(true);
       return;
     }
     setIsCreateModalOpen(true);
@@ -1019,9 +1029,23 @@ export default function App() {
       showToast('Sign in with Google to create with sound 🎵');
       return;
     }
+    if (!hasUserConsentedToUGC()) {
+      setPendingAudioForUgcConsent(audioTitle);
+      setIsUgcConsentModalOpen(true);
+      return;
+    }
     setCreateInitialAudio(audioTitle);
     setIsCreateModalOpen(true);
     showToast(`Using sound: ${audioTitle} 🎵`);
+  };
+
+  const handleUgcConsentAgreed = () => {
+    setIsUgcConsentModalOpen(false);
+    if (pendingAudioForUgcConsent) {
+      setCreateInitialAudio(pendingAudioForUgcConsent);
+      setPendingAudioForUgcConsent(null);
+    }
+    setIsCreateModalOpen(true);
   };
 
   const handleToggleCommentLike = (postId: string, commentId: string) => {
@@ -1948,6 +1972,10 @@ export default function App() {
           onPostCreated={handlePostCreated}
           initialSelectedAudio={createInitialAudio}
           onShowToast={showToast}
+          onOpenLegalPolicy={(tab) => {
+            setLegalModalTab(tab);
+            setIsLegalModalOpen(true);
+          }}
         />
       )}
 
@@ -2106,6 +2134,20 @@ export default function App() {
         isOpen={isLegalModalOpen}
         onClose={() => setIsLegalModalOpen(false)}
         initialTab={legalModalTab}
+      />
+
+      {/* MODAL 11: First-Time UGC Community Guidelines & Creator Terms Consent (Play Store UGC Policy Compliance) */}
+      <UGCCommunityGuidelinesModal
+        isOpen={isUgcConsentModalOpen}
+        onAccept={handleUgcConsentAgreed}
+        onDecline={() => {
+          setIsUgcConsentModalOpen(false);
+          setPendingAudioForUgcConsent(null);
+        }}
+        onOpenFullPolicy={(tab) => {
+          setLegalModalTab(tab);
+          setIsLegalModalOpen(true);
+        }}
       />
 
       {/* OVERLAY: Live Search & Explore Overlay */}
