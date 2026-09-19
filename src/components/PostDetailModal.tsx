@@ -26,6 +26,7 @@ import {
   createPhotoFallbackDataUrl,
 } from '../utils/imageCompressor';
 import { safeEncodeURIComponent } from '../utils/safeEncoding';
+import { isSuperAdmin } from '../constants/admin';
 
 interface PostDetailModalProps {
   post: Post;
@@ -60,11 +61,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 }) => {
   const isOwner = Boolean(
     post && (
-      (currentUser?.id && post?.userId && (
-        currentUser.id === post.userId ||
-        ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
-         (post.userId === 'user-me' || post.userId === 'user-brijmohan' || post.userId === 'user-brijmohan83097'))
-      )) ||
+      isSuperAdmin(currentUser) ||
+      (currentUser?.id && post?.userId && currentUser.id === post.userId) ||
       (currentUser?.username && post?.username && (
         currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
         post.username.toLowerCase().replace(/^@/, '').trim()

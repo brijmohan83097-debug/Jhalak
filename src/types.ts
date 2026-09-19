@@ -8,6 +8,10 @@ export interface User {
   postsCount: number;
   followersCount: number;
   followingCount: number;
+  watchHours?: number;
+  dailyReelsCount?: number;
+  dailyPhotosCount?: number;
+  lastUploadDate?: string;
   isVerified?: boolean;
   email?: string;
   isGoogleAuth?: boolean;

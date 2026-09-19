@@ -34,7 +34,7 @@ import { LegalPoliciesModal } from './components/LegalPoliciesModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
-import { CheckCircle, Plus, Search, ArrowLeft } from 'lucide-react';
+import { CheckCircle, Plus, Search, ArrowLeft, Check } from 'lucide-react';
 import { SupportedLanguage, translations } from './translations';
 import { recommendationEngine, inferCategory, inferLanguage } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
@@ -52,6 +52,17 @@ import {
   STORAGE_QUOTA_EVENT,
   StorageQuotaDetail,
 } from './utils/safeStorage';
+import {
+  subscribeToAuthState,
+  subscribeToFirestorePosts,
+  syncUserProfile,
+  getUserProfile,
+  savePostToFirestore,
+  toggleLikeInFirestore,
+  logOutFirebase,
+  testConnection,
+} from './services/firebase';
+import { ADMIN_EMAIL, isSuperAdmin } from './constants/admin';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState<boolean>(true);
@@ -79,8 +90,8 @@ export default function App() {
 
   const [isGuestMode, setIsGuestMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('jhalak_guest_mode');
-    // Enable full Guest Mode by default: users can watch all feeds without forcing sign-in
-    return saved !== null ? saved === 'true' : true;
+    // New users start at the Welcome screen to enter their own name / creator profile
+    return saved !== null ? saved === 'true' : false;
   });
 
   const [isGoogleAuthModalOpen, setIsGoogleAuthModalOpen] = useState(false);
@@ -136,19 +147,14 @@ export default function App() {
         if (targetId && postUserId && targetId === postUserId) return true;
         if (targetUsername && postUsername && targetUsername === postUsername) return true;
 
-        // Legacy compatibility for Brij Mohan account only
-        const isBrijMohan =
-          targetId === 'user-me' ||
-          targetId === 'user-brijmohan' ||
-          targetId === 'user-brijmohan83097' ||
-          targetUsername === 'brijmohan';
-
-        if (isBrijMohan) {
+        // Super Admin account match
+        if (isSuperAdmin(user)) {
           if (
             postUserId === 'user-me' ||
             postUserId === 'user-brijmohan' ||
             postUserId === 'user-brijmohan83097' ||
-            postUsername === 'brijmohan'
+            postUsername === 'brijmohan' ||
+            postUsername === 'brijmohan83097'
           ) {
             return true;
           }
@@ -171,14 +177,8 @@ export default function App() {
           }
         }
 
-        // Legacy fallback exclusively for Brij Mohan
-        const isBrijMohan =
-          user.id === 'user-me' ||
-          user.id === 'user-brijmohan' ||
-          user.id === 'user-brijmohan83097' ||
-          user.username === 'brijmohan';
-
-        if (isBrijMohan) {
+        // Legacy fallback exclusively for Super Admin
+        if (isSuperAdmin(user)) {
           const legacyMe = localStorage.getItem('ig_user_posts_user-me');
           if (legacyMe) {
             const list = JSON.parse(legacyMe);
@@ -409,6 +409,11 @@ export default function App() {
     id: string;
     username: string;
   } | null>(null);
+  const [topUploadBar, setTopUploadBar] = useState<{
+    progress: number;
+    completed: boolean;
+    title: string;
+  } | null>(null);
 
   const t = translations[currentLanguage];
 
@@ -430,6 +435,100 @@ export default function App() {
     return moderationService.subscribe(() => {
       setBlockedVersion((v) => v + 1);
     });
+  }, []);
+
+  // Firebase Initialization & Real-Time Sync
+  useEffect(() => {
+    // 1. Check connection
+    testConnection().then((connected) => {
+      if (connected) {
+        console.log('Firebase services initialized and active.');
+      }
+    });
+
+    // 2. Subscribe to Firebase Auth state
+    const unsubscribeAuth = subscribeToAuthState(async (fbUser) => {
+      if (fbUser) {
+        try {
+          const profile = await getUserProfile(fbUser.uid);
+          if (profile) {
+            setCurrentUser((prev) => ({
+              ...prev,
+              id: fbUser.uid,
+              name: profile.name || prev.name,
+              username: profile.username || prev.username,
+              avatar: profile.avatar || prev.avatar,
+              email: profile.email || prev.email,
+              followersCount: profile.followersCount ?? prev.followersCount,
+              watchHours: profile.watchHours ?? prev.watchHours,
+              dailyReelsCount: profile.dailyReelsCount ?? prev.dailyReelsCount,
+              dailyPhotosCount: profile.dailyPhotosCount ?? prev.dailyPhotosCount,
+            }));
+            setIsAuthenticated(true);
+            setIsGuestMode(false);
+          }
+        } catch {
+          // Handled
+        }
+      }
+    });
+
+    // 3. Subscribe to Real-Time Cloud Firestore Posts
+    const unsubscribePosts = subscribeToFirestorePosts((livePosts) => {
+      if (livePosts && livePosts.length > 0) {
+        setPosts((prev) => {
+          const postMap = new Map<string, Post>();
+          livePosts.forEach((lp) => postMap.set(lp.id, lp));
+          prev.forEach((p) => {
+            if (!postMap.has(p.id)) {
+              postMap.set(p.id, p);
+            }
+          });
+          return Array.from(postMap.values());
+        });
+
+        // Also merge video posts into Reels
+        const videoPosts = livePosts.filter((lp) => lp.mediaType === 'video');
+        if (videoPosts.length > 0) {
+          setReels((prev) => {
+            const reelMap = new Map<string, Reel>();
+            videoPosts.forEach((vp) => {
+              reelMap.set(`reel-${vp.id}`, {
+                id: `reel-${vp.id}`,
+                userId: vp.userId,
+                username: vp.username,
+                userAvatar: vp.userAvatar,
+                videoUrl: vp.mediaUrl,
+                thumbnailUrl: vp.thumbnailUrl,
+                caption: vp.caption,
+                category: vp.category,
+                audioTitle: vp.audioTitle || 'Original Audio',
+                audioArtist: vp.username,
+                likesCount: vp.likesCount || 0,
+                commentsCount: (vp.comments || []).length,
+                sharesCount: 0,
+                isLiked: false,
+                isSaved: false,
+                comments: vp.comments || [],
+                tags: vp.tags || [],
+                timestamp: vp.timestamp || 'Recently',
+                createdAt: vp.createdAt,
+                isUserCreated: true,
+              });
+            });
+            prev.forEach((r) => {
+              if (!reelMap.has(r.id)) reelMap.set(r.id, r);
+            });
+            return Array.from(reelMap.values());
+          });
+        }
+      }
+    });
+
+    return () => {
+      if (unsubscribeAuth) unsubscribeAuth();
+      if (unsubscribePosts) unsubscribePosts();
+    };
   }, []);
 
   const showToast = (message: string) => {
@@ -1091,6 +1190,9 @@ export default function App() {
     // Prepend to active feed at the very top (unshift / reverse chronological order)
     setPosts((prev) => [stampedPost, ...prev.filter((p) => p.id !== stampedPost.id)]);
 
+    // Save to real Cloud Firestore database
+    savePostToFirestore(stampedPost).catch((err) => console.warn('Firestore save notice:', err));
+
     // Record interaction so the category gets an immediate boost
     recommendationEngine.recordInteraction(inferredCat, 'boost', stampedPost.id);
 
@@ -1153,6 +1255,31 @@ export default function App() {
         console.warn('Failed to save uploaded reel permanently:', err);
       }
     }
+
+    // 1.5s top progress bar on post with green checkmark
+    setTopUploadBar({
+      progress: 20,
+      completed: false,
+      title: newReel ? 'Publishing Reel...' : 'Publishing Post...',
+    });
+    const DURATION = 1500;
+    const intervalTime = 30;
+    const startTime = Date.now();
+
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(100, Math.round((elapsed / DURATION) * 100));
+
+      if (elapsed >= DURATION) {
+        clearInterval(timer);
+        setTopUploadBar({ progress: 100, completed: true, title: 'Posted successfully!' });
+        setTimeout(() => {
+          setTopUploadBar(null);
+        }, 1200);
+      } else {
+        setTopUploadBar((prev) => (prev ? { ...prev, progress } : null));
+      }
+    }, intervalTime);
 
     if (newPost.mediaType === 'video' && newReel) {
       setCurrentTab('reels');
@@ -1378,12 +1505,11 @@ export default function App() {
         const parsed = JSON.parse(rawPosts);
         if (Array.isArray(parsed)) savedUserPosts = parsed;
       } else {
-        // Only if Brij Mohan, check legacy key
-        const isBrijMohan =
-          newUserId === 'user-brijmohan' ||
-          newUserId === 'user-brijmohan83097' ||
-          account.username === 'brijmohan';
-        if (isBrijMohan) {
+        // If Super Admin, check legacy key
+        const isSuperAdminAccount =
+          account.email?.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase() ||
+          account.username?.trim().toLowerCase() === 'brijmohan';
+        if (isSuperAdminAccount) {
           const legacy =
             localStorage.getItem('ig_user_posts_user-me') ||
             localStorage.getItem('ig_user_posts_brijmohan');
@@ -1397,14 +1523,15 @@ export default function App() {
       savedUserPosts = [];
     }
 
+    const isGoogle = Boolean(account.email && account.email.includes('@'));
     const updatedUser: User = {
       id: newUserId,
       name: savedProfile?.name || account.name,
-      email: account.email,
+      email: account.email || '',
       username: savedProfile?.username || account.username,
       avatar: savedProfile?.avatar || account.avatar,
-      isGoogleAuth: true,
-      bio: savedProfile?.bio || '',
+      isGoogleAuth: isGoogle,
+      bio: savedProfile?.bio || (isGoogle ? 'Creator on Jhalak Reels 🇮🇳' : 'Exploring Jhalak Reels 🇮🇳'),
       website: savedProfile?.website || '',
       postsCount: savedUserPosts.length,
       posts: savedUserPosts,
@@ -1429,33 +1556,83 @@ export default function App() {
     } catch {
       // quota handled
     }
-    showToast(`Welcome, ${updatedUser.name}! Signed in with Google 🎉`);
+
+    // Sync profile to Cloud Firestore
+    syncUserProfile({
+      id: newUserId,
+      name: updatedUser.name,
+      username: updatedUser.username,
+      email: updatedUser.email,
+      avatar: updatedUser.avatar,
+      followersCount: updatedUser.followersCount,
+      watchHours: updatedUser.watchHours,
+    }).catch(console.warn);
+
+    // Fetch existing real Firestore profile if already saved
+    getUserProfile(newUserId).then((remoteProfile) => {
+      if (remoteProfile) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          followersCount: remoteProfile.followersCount ?? prev.followersCount,
+          watchHours: remoteProfile.watchHours ?? prev.watchHours,
+          dailyReelsCount: remoteProfile.dailyReelsCount ?? prev.dailyReelsCount,
+          dailyPhotosCount: remoteProfile.dailyPhotosCount ?? prev.dailyPhotosCount,
+        }));
+      }
+    }).catch(() => {});
+
+    showToast(isGoogle ? `Welcome, ${updatedUser.name}! Signed in with Google 🎉` : `Welcome, ${updatedUser.name}! Profile created 🎉`);
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setIsGuestMode(false);
     setIsSettingsModalOpen(false);
+    logOutFirebase().catch(console.warn);
     try {
+      localStorage.removeItem('ig_current_user_id');
+      localStorage.removeItem('ig_current_user');
       safeSetItem('jhalak_auth_state', 'false');
       safeSetItem('jhalak_guest_mode', 'false');
     } catch {
       // quota handled
     }
-    showToast('Signed out of Google account');
+    showToast('Signed out successfully. Welcome back anytime!');
   };
 
-  const handleExploreAsGuest = () => {
+  const handleExploreAsGuest = (guestName?: string) => {
+    const name = guestName?.trim() || 'Guest User';
+    const cleanUsername = name.toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${Math.floor(1000 + Math.random() * 9000)}`;
+    const guestUser: User = {
+      id: `guest-${cleanUsername}`,
+      name: name,
+      username: cleanUsername,
+      email: '',
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`,
+      bio: 'Exploring Jhalak Reels 🇮🇳 Tap Edit Profile to customize.',
+      website: '',
+      postsCount: 0,
+      posts: [],
+      userPosts: [],
+      followersCount: 0,
+      followingCount: 0,
+      isVerified: false,
+      isGoogleAuth: false,
+    };
+
+    setCurrentUser(guestUser);
     setIsGuestMode(true);
     setIsAuthenticated(false);
     setIsGoogleAuthModalOpen(false);
     try {
       safeSetItem('jhalak_guest_mode', 'true');
       safeSetItem('jhalak_auth_state', 'false');
+      safeSetItem('ig_current_user', JSON.stringify(guestUser));
+      safeSetItem('ig_current_user_id', guestUser.id);
     } catch {
       // quota handled
     }
-    showToast('Browsing Jhalak as Guest');
+    showToast(`Welcome, ${name}! Exploring Jhalak Reels`);
   };
 
   // Mark Story as seen
@@ -1571,19 +1748,14 @@ export default function App() {
       if (targetId && postUserId && targetId === postUserId) return true;
       if (targetUsername && postUsername && targetUsername === postUsername) return true;
 
-      // Legacy fallback exclusively for Brij Mohan
-      const isBrijMohan =
-        targetId === 'user-me' ||
-        targetId === 'user-brijmohan' ||
-        targetId === 'user-brijmohan83097' ||
-        targetUsername === 'brijmohan';
-
-      if (isBrijMohan) {
+      // Super Admin account match
+      if (isSuperAdmin(currentUser)) {
         if (
           postUserId === 'user-me' ||
           postUserId === 'user-brijmohan' ||
           postUserId === 'user-brijmohan83097' ||
-          postUsername === 'brijmohan'
+          postUsername === 'brijmohan' ||
+          postUsername === 'brijmohan83097'
         ) {
           return true;
         }
@@ -1606,14 +1778,8 @@ export default function App() {
         }
       }
 
-      // Legacy fallback exclusively for Brij Mohan
-      const isBrijMohan =
-        currentUser.id === 'user-me' ||
-        currentUser.id === 'user-brijmohan' ||
-        currentUser.id === 'user-brijmohan83097' ||
-        currentUser.username === 'brijmohan';
-
-      if (isBrijMohan) {
+      // Legacy fallback exclusively for Super Admin
+      if (isSuperAdmin(currentUser)) {
         const legacyMe = localStorage.getItem('ig_user_posts_user-me');
         if (legacyMe) {
           const parsed = JSON.parse(legacyMe);
@@ -1684,6 +1850,45 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-black text-neutral-900 dark:text-neutral-100 font-sans transition-colors duration-200">
+      {/* 1.5s Top Upload Progress Bar with Green Checkmark */}
+      {topUploadBar && (
+        <aside
+          aria-label="Upload progress"
+          className="fixed top-0 inset-x-0 z-[100] overflow-hidden select-none pointer-events-none"
+        >
+          {/* Progress bar line */}
+          <div className="w-full h-1.5 bg-black/20">
+            <div
+              className={`h-full transition-all duration-75 ease-out ${
+                topUploadBar.completed
+                  ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.9)]'
+                  : 'bg-gradient-to-r from-sky-500 via-emerald-400 to-emerald-500'
+              }`}
+              style={{ width: `${topUploadBar.progress}%` }}
+            />
+          </div>
+
+          {/* Top banner pill */}
+          <div className="flex items-center justify-center py-2 bg-neutral-900/95 text-white backdrop-blur-md shadow-2xl border-b border-neutral-800">
+            <div className="flex items-center gap-2 text-xs font-semibold">
+              {topUploadBar.completed ? (
+                <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+                  </div>
+                  <span>Post uploaded successfully!</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-neutral-200">
+                  <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                  <span>{topUploadBar.title} {topUploadBar.progress}%</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </aside>
+      )}
+
       {/* Launch Splash Screen */}
       {showSplash && <SplashScreen onFinished={() => setShowSplash(false)} />}
 
@@ -1731,6 +1936,11 @@ export default function App() {
             setIsLegalModalOpen(true);
           }}
           onOpenSearch={() => setIsSearchOverlayOpen(true)}
+          onOpenAdminPanel={() => {
+            if (isSuperAdmin(currentUser)) {
+              setIsAdminModDashboardOpen(true);
+            }
+          }}
           onLogout={handleLogout}
           isAuthenticated={isAuthenticated}
           currentLanguage={currentLanguage}
@@ -1755,6 +1965,11 @@ export default function App() {
               setIsLegalModalOpen(true);
             }}
             onOpenSearch={() => setIsSearchOverlayOpen(true)}
+            onOpenAdminPanel={() => {
+              if (isSuperAdmin(currentUser)) {
+                setIsAdminModDashboardOpen(true);
+              }
+            }}
             currentLanguage={currentLanguage}
           />
 
@@ -1782,34 +1997,19 @@ export default function App() {
                         <Plus className="w-8 h-8 text-neutral-400 stroke-[1.8]" />
                       </div>
                       <h3 className="text-base font-bold text-neutral-900 dark:text-white mb-1.5">
-                        No posts yet
+                        Abhi koi reel ya post nahi hai. Pehli post karein!
                       </h3>
                       <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
-                        No posts yet. Tap the '+' button below to create your first post!
+                        Database me abhi koi posts nahi hain. Niche diye gaye button par click karke apni pehli photo ya video upload karein!
                       </p>
-                      <div className="flex flex-wrap items-center justify-center gap-3">
-                        <button
-                          id="empty-feed-create-post-btn"
-                          onClick={handleOpenCreateModal}
-                          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4 stroke-[3]" />
-                          <span>Create Your First Post</span>
-                        </button>
-                        <button
-                          id="empty-feed-load-preloaded-btn"
-                          onClick={() => {
-                            setPosts(initialPosts);
-                            setReels(initialReels);
-                            safeSetItem('ig_feed_posts', JSON.stringify(initialPosts));
-                            safeSetItem('ig_reels', JSON.stringify(initialReels));
-                            showToast('Loaded preloaded posts to feed! ✨');
-                          }}
-                          className="px-4 py-2.5 rounded-xl border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 text-xs font-semibold transition active:scale-95 cursor-pointer"
-                        >
-                          Load Preloaded Posts
-                        </button>
-                      </div>
+                      <button
+                        id="empty-feed-create-post-btn"
+                        onClick={handleOpenCreateModal}
+                        className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                        <span>Upload First Post</span>
+                      </button>
                     </div>
                   ) : (
                     feedItemsWithAds.map((item) => {
@@ -1894,6 +2094,7 @@ export default function App() {
                   onReportReel={(r, reason) => handleReportSubmitted(r.id, reason)}
                   onBlockUser={(u) => handleUserBlocked(u)}
                   onDeleteReel={handleDeletePost}
+                  onUploadReel={handleOpenCreateModal}
                   currentLanguage={currentLanguage}
                 />
               </ErrorBoundary>
@@ -2073,7 +2274,9 @@ export default function App() {
         }}
         onOpenModerationDashboard={() => {
           setIsSettingsModalOpen(false);
-          setIsAdminModDashboardOpen(true);
+          if (isSuperAdmin(currentUser)) {
+            setIsAdminModDashboardOpen(true);
+          }
         }}
         onDeleteAccount={handleDeleteAccount}
         onLogout={handleLogout}
@@ -2233,17 +2436,20 @@ export default function App() {
         onClose={() => setIsNotificationsModalOpen(false)}
       />
 
-      {/* MODAL 13: Admin Moderation Dashboard (Auto-flagged & Multi-Report Queue) */}
-      <AdminModerationDashboard
-        isOpen={isAdminModDashboardOpen}
-        onClose={() => setIsAdminModDashboardOpen(false)}
-        posts={posts}
-        reels={reels}
-        onKeepPost={handleAdminKeepPost}
-        onDeletePostPermanently={handleAdminDeletePostPermanently}
-        onBanUserAccount={handleAdminBanUser}
-        onUnbanUser={handleAdminUnbanUser}
-      />
+      {/* MODAL 13: Admin Moderation Dashboard (Auto-flagged & Multi-Report Queue, Super Admin strictly for Brijmohan83097@gmail.com) */}
+      {isSuperAdmin(currentUser) && (
+        <AdminModerationDashboard
+          isOpen={isAdminModDashboardOpen}
+          onClose={() => setIsAdminModDashboardOpen(false)}
+          currentUser={currentUser}
+          posts={posts}
+          reels={reels}
+          onKeepPost={handleAdminKeepPost}
+          onDeletePostPermanently={handleAdminDeletePostPermanently}
+          onBanUserAccount={handleAdminBanUser}
+          onUnbanUser={handleAdminUnbanUser}
+        />
+      )}
 
       {/* Quick Report Confirmation Dialog */}
       {quickReportDialogInfo && (

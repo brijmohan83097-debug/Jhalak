@@ -13,10 +13,12 @@ import {
   Settings,
   Scale,
   Search,
+  ShieldAlert,
 } from 'lucide-react';
 import { NavTab, User } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
 import { JhalakLogo } from './JhalakLogo';
+import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
 
 interface MobileNavProps {
   currentTab: NavTab;
@@ -31,6 +33,7 @@ interface MobileNavProps {
   onOpenSettings?: () => void;
   onOpenLegalPolicies?: () => void;
   onOpenSearch?: () => void;
+  onOpenAdminPanel?: () => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -41,6 +44,7 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
   onOpenSettings,
   onOpenLegalPolicies,
   onOpenSearch,
+  onOpenAdminPanel,
 }) => {
   return (
     <header
@@ -123,6 +127,19 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
             title="Privacy Policy & Terms"
           >
             <Scale className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.8]" />
+          </button>
+        )}
+
+        {/* Super Admin Dashboard Button (Strictly for Brijmohan83097@gmail.com) */}
+        {isSuperAdmin(currentUser) && onOpenAdminPanel && (
+          <button
+            id="mobile-admin-dashboard-btn"
+            onClick={onOpenAdminPanel}
+            aria-label="Super Admin Dashboard"
+            className="p-1.5 sm:p-2 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 transition active:scale-95 cursor-pointer"
+            title={`Super Admin Dashboard (${ADMIN_EMAIL})`}
+          >
+            <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
           </button>
         )}
 

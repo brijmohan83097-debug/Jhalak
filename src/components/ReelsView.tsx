@@ -38,6 +38,7 @@ import { ProductWhatsAppModal } from './ProductWhatsAppModal';
 import { recommendationEngine, inferLanguage, inferCategory, isNewlyCreated } from '../services/recommendationEngine';
 import { moderationService } from '../services/moderationService';
 import { adMobService, AdMobNativeAd } from '../services/adMobService';
+import { isSuperAdmin } from '../constants/admin';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
 import { safeEncodeURIComponent } from '../utils/safeEncoding';
 
@@ -53,6 +54,7 @@ interface ReelsViewProps {
   onReportReel?: (reel: Reel, reason: string) => void;
   onBlockUser?: (username: string) => void;
   onDeleteReel?: (reelId: string) => void;
+  onUploadReel?: () => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -68,6 +70,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   onReportReel,
   onBlockUser,
   onDeleteReel,
+  onUploadReel,
   currentLanguage = 'en',
 }) => {
   const [queue, setQueue] = useState<(Reel | AdMobNativeAd)[]>(() => {
@@ -127,11 +130,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
   const isOwner = Boolean(
     currentReel && (
-      (currentUser?.id && currentReel?.userId && (
-        currentUser.id === currentReel.userId ||
-        ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
-         (currentReel.userId === 'user-me' || currentReel.userId === 'user-brijmohan' || currentReel.userId === 'user-brijmohan83097'))
-      )) ||
+      isSuperAdmin(currentUser) ||
+      (currentUser?.id && currentReel?.userId && currentUser.id === currentReel.userId) ||
       (currentUser?.username && currentReel?.username && (
         currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
         currentReel.username.toLowerCase().replace(/^@/, '').trim()
@@ -267,7 +267,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     const DOUBLE_TAP_GAP = 280;
 
     if (now - lastTapTimeRef.current < DOUBLE_TAP_GAP) {
-      // Double tap triggered -> like reel
+      // Double tap triggered -> heart like reel
       if (currentReel && !currentReel.isLiked) {
         handleLikeReel();
       }
@@ -281,20 +281,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
     const currentVideo = videoRefs.current[activeIndex];
 
-    // Click-to-unmute: if the video is currently muted on autoplay, single-clicking directly unmutes it!
-    if (isMuted) {
-      setIsMuted(false);
-      if (currentVideo) {
-        currentVideo.muted = false;
-        if (currentVideo.paused) {
-          currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
-        }
-      }
-      showToast('🔊 Audio unmuted');
-      return;
-    }
-
-    // When already unmuted, single click toggles play/pause
+    // Single screen tap toggles Play / Pause directly
     if (currentVideo) {
       if (currentVideo.paused) {
         currentVideo
@@ -469,20 +456,31 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     }
   };
 
-  if (!currentItem) {
+  if (initialReels.length === 0 || !currentItem || queue.length === 0) {
     return (
       <div
         id="reels-empty-view"
-        className="relative w-full h-[calc(100vh-4rem)] md:h-screen flex items-center justify-center bg-black text-white p-6"
+        className="relative w-full h-[calc(100vh-4rem)] md:h-screen flex items-center justify-center bg-black text-white p-6 select-none"
       >
         <div className="flex flex-col items-center justify-center text-center max-w-sm">
-          <div className="w-16 h-16 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-4 text-neutral-400">
-            <Clapperboard className="w-8 h-8 text-neutral-400" />
+          <div className="w-20 h-20 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-5 text-neutral-400">
+            <Clapperboard className="w-10 h-10 text-neutral-400" />
           </div>
-          <h3 className="text-lg font-bold text-white mb-2">No Reels Yet</h3>
-          <p className="text-xs text-neutral-400 leading-relaxed mb-4">
-            Upload a video to create your first Reel and watch moments come alive!
+          <h2 className="text-xl font-bold text-white mb-2 leading-snug">
+            Abhi koi reel nahi hai. Pehli reel post karein!
+          </h2>
+          <p className="text-xs text-neutral-400 leading-relaxed mb-6">
+            Database me abhi koi video nahi hai. Apni pehli reel upload karein aur community ke saath juden!
           </p>
+          {onUploadReel && (
+            <button
+              id="reels-empty-upload-btn"
+              onClick={onUploadReel}
+              className="px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-bold text-sm shadow-lg shadow-rose-500/20 active:scale-95 transition cursor-pointer"
+            >
+              Upload Reel
+            </button>
+          )}
         </div>
       </div>
     );
@@ -606,16 +604,6 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/30 to-transparent pointer-events-none z-20" />
               <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none z-20" />
 
-              {/* Click-to-unmute Floating Pill */}
-              {isMuted && (
-                <div className="absolute top-16 left-4 z-30 animate-bounce duration-1000 pointer-events-none">
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-semibold shadow-lg border border-white/20">
-                    <VolumeX className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Tap screen to unmute</span>
-                  </div>
-                </div>
-              )}
-
           {/* Heart burst on double tap */}
           {showHeartBurst && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 animate-ping duration-500">
@@ -658,17 +646,28 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Speaker Corner Icon Button */}
               <button
                 id="reel-mute-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setIsMuted((prev) => !prev);
+                  const nextMuted = !isMuted;
+                  setIsMuted(nextMuted);
+                  const currentVideo = videoRefs.current[activeIndex];
+                  if (currentVideo) {
+                    currentVideo.muted = nextMuted;
+                    if (!nextMuted && currentVideo.paused) {
+                      currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
+                    }
+                  }
+                  showToast(nextMuted ? '🔇 Audio muted' : '🔊 Audio unmuted');
                 }}
-                className="p-2 rounded-full bg-black/40 backdrop-blur-md hover:bg-black/60 transition"
+                className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
                 aria-label={isMuted ? 'Unmute' : 'Mute'}
+                title={isMuted ? 'Unmute' : 'Mute'}
               >
                 {isMuted ? (
-                  <VolumeX className="w-4 h-4 text-white" />
+                  <VolumeX className="w-4 h-4 text-rose-400" />
                 ) : (
                   <Volume2 className="w-4 h-4 text-emerald-400" />
                 )}

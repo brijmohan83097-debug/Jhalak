@@ -182,45 +182,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
         avatar: p.userAvatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
         isVerified: p.isVerified || false,
         followersCount: Math.floor(12000 + (p.likesCount || 500) * 1.8),
-        bio: p.caption ? p.caption.slice(0, 60) + '...' : 'Bhojpuri Reels Creator 🎬✨',
+        bio: p.caption ? p.caption.slice(0, 60) + '...' : 'Reels Creator 🎬✨',
       });
-    });
-
-    // Add prominent creators if not in list
-    const defaults = [
-      {
-        id: 'c-pawan',
-        username: 'pawan_singh_fanclub',
-        name: 'Pawan Singh Fan Club',
-        avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
-        isVerified: true,
-        followersCount: 1450000,
-        bio: 'Power Star Pawan Singh official updates & superhit reels 🎤🔥',
-      },
-      {
-        id: 'c-khesari',
-        username: 'khesari_bhojpuri_stars',
-        name: 'Khesari Lal Stars',
-        avatar: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=150&auto=format&fit=crop&q=80',
-        isVerified: true,
-        followersCount: 1820000,
-        bio: 'Bhojpuri Trending Star Khesari Lal stage & dance clips 🕺✨',
-      },
-      {
-        id: 'c-shilpi',
-        username: 'shilpi_raj_hits',
-        name: 'Shilpi Raj Melodies',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-        isVerified: true,
-        followersCount: 920000,
-        bio: 'Trending Queen Shilpi Raj hit folk vocals & beats 🎶🪘',
-      },
-    ];
-
-    defaults.forEach((def) => {
-      if (!map.has(def.username.toLowerCase())) {
-        map.set(def.username.toLowerCase(), def);
-      }
     });
 
     return Array.from(map.values());

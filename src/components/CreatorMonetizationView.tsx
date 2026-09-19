@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   IndianRupee,
   Sparkles,
@@ -16,9 +16,11 @@ import {
   AlertCircle,
   HelpCircle,
   Check,
+  Users,
 } from 'lucide-react';
 import { User } from '../types';
 import { AdMobRewardedAdModal } from './AdMobRewardedAdModal';
+import { MONETIZATION_POLICY } from '../services/monetizationService';
 
 interface TipTransaction {
   id: string;
@@ -32,14 +34,36 @@ interface TipTransaction {
 }
 
 interface CreatorMonetizationViewProps {
-  currentUser: User;
+  currentUser?: User;
+  user?: User;
+  onClose?: () => void;
 }
 
 export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = ({
-  currentUser,
+  currentUser: initialCurrentUser,
+  user: initialUser,
+  onClose,
 }) => {
+  const currentUser: User = initialCurrentUser || initialUser || {
+    id: 'user-me',
+    username: 'creator',
+    name: 'Creator',
+    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+    bio: '',
+    followersCount: 0,
+    followingCount: 0,
+    postsCount: 0,
+    watchHours: 0,
+  };
   // Balance & Payout states
-  const [balance, setBalance] = useState(4850);
+  const [balance, setBalance] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(`ig_creator_balance_${currentUser.id}`);
+      return saved ? Number(saved) : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [upiId, setUpiId] = useState(`${currentUser.username.toLowerCase()}@oksbi`);
   const [isEditingUpi, setIsEditingUpi] = useState(false);
   const [tempUpi, setTempUpi] = useState(upiId);
@@ -47,88 +71,46 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
   const [payoutSuccessMessage, setPayoutSuccessMessage] = useState<string | null>(null);
   const [showRewardedAd, setShowRewardedAd] = useState(false);
 
-  // Simulation mode for testing all milestone stages
-  const [simProfile, setSimProfile] = useState<'current' | 'level1' | 'level2_prog' | 'level3_prog'>('current');
+  // Real transactions list (persisted in local storage per user)
+  const [transactions, setTransactions] = useState<TipTransaction[]>(() => {
+    try {
+      const saved = localStorage.getItem(`ig_creator_txs_${currentUser.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
 
-  // Realistic transactions initial list
-  const [transactions, setTransactions] = useState<TipTransaction[]>([
-    {
-      id: 'tx-1',
-      from: 'ananya_wanderer',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100',
-      amount: 51,
-      app: 'Google Pay',
-      note: 'Chai Shagun for the Jaipur pottery post! ☕✨',
-      date: 'Today, 2:40 PM',
-      type: 'credit',
-    },
-    {
-      id: 'tx-2',
-      from: 'kabir_captures',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100',
-      amount: 101,
-      app: 'PhonePe',
-      note: 'Super Shagun! Loved the artisan story 🙏',
-      date: 'Yesterday, 6:15 PM',
-      type: 'credit',
-    },
-    {
-      id: 'tx-3',
-      from: 'priya_visuals',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100',
-      amount: 251,
-      app: 'Paytm',
-      note: 'Keep inspiring with Indian cultural heritage 🎨',
-      date: '3 days ago',
-      type: 'credit',
-    },
-    {
-      id: 'tx-4',
-      from: 'meera_bangalore',
-      avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100',
-      amount: 501,
-      app: 'BHIM UPI',
-      note: 'Shagun for the brass handicraft collection 🪔',
-      date: '5 days ago',
-      type: 'credit',
-    },
-  ]);
+  // Save balance and transactions
+  useEffect(() => {
+    try {
+      localStorage.setItem(`ig_creator_balance_${currentUser.id}`, String(balance));
+      localStorage.setItem(`ig_creator_txs_${currentUser.id}`, JSON.stringify(transactions));
+    } catch {}
+  }, [balance, transactions, currentUser.id]);
 
-  // Determine followers and views based on simulation or real user
-  const effectiveFollowers =
-    simProfile === 'current'
-      ? currentUser.followersCount || 14820
-      : simProfile === 'level1'
-      ? 0
-      : simProfile === 'level2_prog'
-      ? 65
-      : 340;
+  // Policy Targets
+  const TARGET_FOLLOWERS = MONETIZATION_POLICY.TARGET_FOLLOWERS; // 10,000
+  const TARGET_WATCH_HOURS = MONETIZATION_POLICY.TARGET_WATCH_HOURS; // 20,000
 
-  const effectiveViews =
-    simProfile === 'current'
-      ? 182500
-      : simProfile === 'level1'
-      ? 0
-      : simProfile === 'level2_prog'
-      ? 650
-      : 6200;
+  // Real followers and watch hours loaded exclusively from user profile
+  const effectiveFollowers = currentUser.followersCount || 0;
+  const effectiveWatchHours = currentUser.watchHours || 0;
 
-  // Level 1: 0 followers (Always unlocked!)
-  const level1Unlocked = true;
+  const followersPct = Math.min(100, Math.round((effectiveFollowers / TARGET_FOLLOWERS) * 100));
+  const watchHoursPct = Math.min(100, Math.round((effectiveWatchHours / TARGET_WATCH_HOURS) * 100));
 
-  // Level 2: 100 Followers & 1,000 Views
-  const level2FollowersPct = Math.min(100, Math.round((effectiveFollowers / 100) * 100));
-  const level2ViewsPct = Math.min(100, Math.round((effectiveViews / 1000) * 100));
-  const level2Unlocked = effectiveFollowers >= 100 && effectiveViews >= 1000;
+  const followersRemaining = Math.max(0, TARGET_FOLLOWERS - effectiveFollowers);
+  const watchHoursRemaining = Math.max(0, TARGET_WATCH_HOURS - effectiveWatchHours);
 
-  // Level 3: 500 Followers & 10,000 Views
-  const level3FollowersPct = Math.min(100, Math.round((effectiveFollowers / 500) * 100));
-  const level3ViewsPct = Math.min(100, Math.round((effectiveViews / 10000) * 100));
-  const level3Unlocked = effectiveFollowers >= 500 && effectiveViews >= 10000;
+  // STRICT REQUIREMENT 4: UPI Payout Application locked until BOTH 10,000 followers and 20,000 hours are 100% achieved
+  const isPayoutUnlocked = effectiveFollowers >= TARGET_FOLLOWERS && effectiveWatchHours >= TARGET_WATCH_HOURS;
 
   // Simulated Instant UPI Payout
   const handleExecutePayout = () => {
-    if (balance <= 0) return;
+    if (!isPayoutUnlocked || balance <= 0) return;
     setIsProcessingPayout(true);
     setPayoutSuccessMessage(null);
 
@@ -182,65 +164,6 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
 
   return (
     <div id="creator-monetization-view" className="space-y-4 pb-2">
-      {/* Simulation Stage Quick Selector (Helps test all milestone levels easily) */}
-      <div className="p-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700/80">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-amber-500" />
-            Milestone Simulator (परीक्षण मोड):
-          </span>
-          <span className="text-[10px] text-neutral-400 font-mono">
-            {effectiveFollowers.toLocaleString()} followers • {effectiveViews.toLocaleString()} views
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          <button
-            type="button"
-            onClick={() => setSimProfile('current')}
-            className={`text-[10px] px-2 py-1 rounded-lg font-medium transition ${
-              simProfile === 'current'
-                ? 'bg-amber-500 text-black font-bold shadow-xs'
-                : 'bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700'
-            }`}
-          >
-            🌟 My Profile (All Unlocked)
-          </button>
-          <button
-            type="button"
-            onClick={() => setSimProfile('level1')}
-            className={`text-[10px] px-2 py-1 rounded-lg font-medium transition ${
-              simProfile === 'level1'
-                ? 'bg-amber-500 text-black font-bold shadow-xs'
-                : 'bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700'
-            }`}
-          >
-            🌱 New Creator (0 Followers)
-          </button>
-          <button
-            type="button"
-            onClick={() => setSimProfile('level2_prog')}
-            className={`text-[10px] px-2 py-1 rounded-lg font-medium transition ${
-              simProfile === 'level2_prog'
-                ? 'bg-amber-500 text-black font-bold shadow-xs'
-                : 'bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700'
-            }`}
-          >
-            📈 Level 2 In-Progress (65 F / 650 V)
-          </button>
-          <button
-            type="button"
-            onClick={() => setSimProfile('level3_prog')}
-            className={`text-[10px] px-2 py-1 rounded-lg font-medium transition ${
-              simProfile === 'level3_prog'
-                ? 'bg-amber-500 text-black font-bold shadow-xs'
-                : 'bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700'
-            }`}
-          >
-            💎 Level 3 In-Progress (340 F / 6.2K V)
-          </button>
-        </div>
-      </div>
-
       {/* 1. EARNINGS SUMMARY CARD */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-neutral-900 via-neutral-900 to-emerald-950 p-4 sm:p-5 text-white shadow-xl border border-emerald-500/30">
         {/* Shimmer background glow */}
@@ -347,27 +270,50 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
             )}
           </div>
 
-          {/* Simulated UPI Payout CTA Button */}
-          <div>
-            <button
-              id="simulated-upi-payout-btn"
-              type="button"
-              disabled={balance <= 0 || isProcessingPayout}
-              onClick={handleExecutePayout}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-neutral-950 font-bold text-xs sm:text-sm shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isProcessingPayout ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Processing Instant UPI Payout...</span>
-                </>
-              ) : (
-                <>
-                  <ArrowUpRight className="w-4 h-4" />
-                  <span>Simulated UPI Payout (तुरंत बैंक खाते में निकालें)</span>
-                </>
-              )}
-            </button>
+          {/* UPI Payout CTA Button - Locked until both 10k followers and 20k watch hours are 100% achieved */}
+          <div className="space-y-2">
+            {!isPayoutUnlocked ? (
+              <>
+                <button
+                  id="simulated-upi-payout-btn"
+                  type="button"
+                  disabled
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-neutral-200 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 font-bold text-xs sm:text-sm border border-neutral-300 dark:border-neutral-700 cursor-not-allowed opacity-80"
+                >
+                  <Lock className="w-4 h-4 text-amber-500" />
+                  <span>UPI Payout Application Locked</span>
+                </button>
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-500" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold">Monetization Criteria Not Yet Met:</p>
+                    <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+                      UPI Payouts require <strong>10,000 followers</strong> ({followersRemaining.toLocaleString()} remaining) and <strong>20,000 watch hours</strong> ({watchHoursRemaining.toLocaleString()} remaining) before you can apply.
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <button
+                id="simulated-upi-payout-btn"
+                type="button"
+                disabled={balance <= 0 || isProcessingPayout}
+                onClick={handleExecutePayout}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-neutral-950 font-bold text-xs sm:text-sm shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isProcessingPayout ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Processing Instant UPI Payout...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowUpRight className="w-4 h-4" />
+                    <span>Instant UPI Payout (तुरंत बैंक खाते में निकालें)</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Success Banner */}
@@ -380,37 +326,193 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
         </div>
       </div>
 
-      {/* 2. LOW THRESHOLD ELIGIBILITY TRACKER */}
+      {/* 2. MONETIZATION POLICY & ELIGIBILITY TRACKER (10,000 FOLLOWERS & 20,000 WATCH HOURS) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div>
             <h3 className="font-bold text-sm text-neutral-900 dark:text-white flex items-center gap-1.5">
               <TrendingUp className="w-4 h-4 text-emerald-500" />
-              Eligibility Tracker (पात्रता स्थिति)
+              Monetization Eligibility (पात्रता स्थिति)
             </h3>
             <p className="text-[11px] text-neutral-500">
-              Low threshold milestones crafted for every Indian creator
+              Policy Target: 10,000 Followers & 20,000 Watch Hours
             </p>
           </div>
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full font-bold">
-            Zero Barriers
-          </span>
+          {isPayoutUnlocked ? (
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> 100% Achieved
+            </span>
+          ) : (
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+              <Lock className="w-3 h-3" /> Locked
+            </span>
+          )}
         </div>
 
-        {/* Milestone Level 1: 0 Followers (Instant UPI Shagun & Tipping enabled) */}
+        {/* Card 1: 10,000 Followers Target */}
         <div
-          id="monetization-level-1-card"
-          className="p-3.5 rounded-xl border bg-white dark:bg-neutral-900 border-emerald-500/40 dark:border-emerald-500/30 shadow-xs space-y-2.5"
+          id="monetization-followers-card"
+          className={`p-3.5 rounded-xl border bg-white dark:bg-neutral-900 transition ${
+            effectiveFollowers >= TARGET_FOLLOWERS
+              ? 'border-emerald-500/40 dark:border-emerald-500/30'
+              : 'border-neutral-200 dark:border-neutral-800'
+          } shadow-xs space-y-2.5`}
         >
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center text-xs">
-                L1
+              <div
+                className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center text-xs ${
+                  effectiveFollowers >= TARGET_FOLLOWERS
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500'
+                }`}
+              >
+                <Users className="w-4 h-4" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
-                    Level 1 (0 Followers)
+                    Target 1: 10,000 Followers (फॉलोअर्स)
+                  </h4>
+                  {effectiveFollowers >= TARGET_FOLLOWERS ? (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
+                      <CheckCircle2 className="w-3 h-3" /> UNLOCKED
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20 flex items-center gap-0.5">
+                      <Lock className="w-3 h-3" /> IN PROGRESS
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">
+                  Build community trust & reach active viewers
+                </p>
+              </div>
+            </div>
+
+            <span className="text-[11px] font-bold text-neutral-900 dark:text-white">
+              {followersPct}%
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-2 overflow-hidden">
+            <div
+              className={`h-2 rounded-full transition-all duration-500 ${
+                effectiveFollowers >= TARGET_FOLLOWERS
+                  ? 'bg-emerald-500'
+                  : 'bg-gradient-to-r from-sky-500 to-amber-500'
+              }`}
+              style={{ width: `${followersPct}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[11px]">
+            {followersRemaining === 0 ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> 10,000 followers target 100% achieved!
+              </span>
+            ) : (
+              <span className="text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
+                <span>🎯</span>
+                <strong>{followersRemaining.toLocaleString()}</strong> followers remaining to unlock
+              </span>
+            )}
+            <span className="text-neutral-400 font-mono text-[10px]">
+              {effectiveFollowers.toLocaleString()} / 10,000
+            </span>
+          </div>
+        </div>
+
+        {/* Card 2: 20,000 Watch Hours Target */}
+        <div
+          id="monetization-watch-hours-card"
+          className={`p-3.5 rounded-xl border bg-white dark:bg-neutral-900 transition ${
+            effectiveWatchHours >= TARGET_WATCH_HOURS
+              ? 'border-emerald-500/40 dark:border-emerald-500/30'
+              : 'border-neutral-200 dark:border-neutral-800'
+          } shadow-xs space-y-2.5`}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center text-xs ${
+                  effectiveWatchHours >= TARGET_WATCH_HOURS
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500'
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
+                    Target 2: 20,000 Watch Hours (वॉच आवर्स)
+                  </h4>
+                  {effectiveWatchHours >= TARGET_WATCH_HOURS ? (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
+                      <CheckCircle2 className="w-3 h-3" /> UNLOCKED
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20 flex items-center gap-0.5">
+                      <Lock className="w-3 h-3" /> IN PROGRESS
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">
+                  Accumulated total viewing duration across reels & videos
+                </p>
+              </div>
+            </div>
+
+            <span className="text-[11px] font-bold text-neutral-900 dark:text-white">
+              {watchHoursPct}%
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-2 overflow-hidden">
+            <div
+              className={`h-2 rounded-full transition-all duration-500 ${
+                effectiveWatchHours >= TARGET_WATCH_HOURS
+                  ? 'bg-emerald-500'
+                  : 'bg-gradient-to-r from-amber-500 to-rose-500'
+              }`}
+              style={{ width: `${watchHoursPct}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[11px]">
+            {watchHoursRemaining === 0 ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> 20,000 watch hours target 100% achieved!
+              </span>
+            ) : (
+              <span className="text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
+                <span>⏱️</span>
+                <strong>{watchHoursRemaining.toLocaleString()}</strong> watch hours remaining to unlock
+              </span>
+            )}
+            <span className="text-neutral-400 font-mono text-[10px]">
+              {effectiveWatchHours.toLocaleString()} / 20,000 hrs
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Instant Day-1 Shagun Tipping (0 Followers bonus) */}
+        <div
+          id="monetization-level-1-card"
+          className="p-3.5 rounded-xl border bg-white dark:bg-neutral-900 border-emerald-500/30 shadow-xs space-y-2"
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center text-xs">
+                <Gift className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
+                    Day-1 Shagun & QR Tips (0 Followers)
                   </h4>
                   <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
                     <CheckCircle2 className="w-3 h-3" /> ACTIVE
@@ -427,199 +529,8 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
           </div>
 
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
-            Enabled from day 1 for all creators! Receive tips via Google Pay, PhonePe, Paytm, and BHIM QR codes with 0 platform fees.
+            Receive direct viewer tips via Google Pay, PhonePe, Paytm, and BHIM QR codes with 0% platform commission from your very first day.
           </p>
-
-          {/* Progress Bar (Always 100%) */}
-          <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-2 overflow-hidden">
-            <div className="bg-emerald-500 h-2 rounded-full w-full" />
-          </div>
-
-          <div className="flex items-center gap-2 text-[10px] text-neutral-400">
-            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-              ✓ 0 Followers requirement met
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-              ✓ Direct UPI Payments Active
-            </span>
-          </div>
-        </div>
-
-        {/* Milestone Level 2: 100 Followers & 1K views (Rising Star Creator badge) */}
-        <div
-          id="monetization-level-2-card"
-          className={`p-3.5 rounded-xl border bg-white dark:bg-neutral-900 transition ${
-            level2Unlocked
-              ? 'border-amber-500/40 dark:border-amber-500/30'
-              : 'border-neutral-200 dark:border-neutral-800'
-          } shadow-xs space-y-2.5`}
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center text-xs ${
-                  level2Unlocked
-                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500'
-                }`}
-              >
-                L2
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
-                    Level 2 (100 Followers & 1K views)
-                  </h4>
-                  {level2Unlocked ? (
-                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20 flex items-center gap-0.5">
-                      <CheckCircle2 className="w-3 h-3" /> UNLOCKED
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold text-neutral-500 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                      <Lock className="w-3 h-3" /> IN PROGRESS
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
-                  Rising Star Creator Badge 🌟
-                </p>
-              </div>
-            </div>
-
-            <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-400">
-              {level2Unlocked ? '100%' : `${Math.round((level2FollowersPct + level2ViewsPct) / 2)}%`}
-            </span>
-          </div>
-
-          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
-            Perks: Official Rising Star badge on profile, featured ranking in Explore, and priority discovery for regional reels.
-          </p>
-
-          {/* Progress Bars for Followers and Views */}
-          <div className="space-y-2 pt-0.5">
-            {/* Followers Tracker */}
-            <div>
-              <div className="flex justify-between text-[10px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                <span>Followers (फॉलोअर्स):</span>
-                <span>
-                  {effectiveFollowers.toLocaleString()} / 100{' '}
-                  {effectiveFollowers >= 100 && '✓'}
-                </span>
-              </div>
-              <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${level2FollowersPct}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Views Tracker */}
-            <div>
-              <div className="flex justify-between text-[10px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                <span>Total Views (कुल व्यूज):</span>
-                <span>
-                  {effectiveViews.toLocaleString()} / 1,000{' '}
-                  {effectiveViews >= 1000 && '✓'}
-                </span>
-              </div>
-              <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${level2ViewsPct}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Milestone Level 3: 500 Followers & 10K views (Full Ad Revenue Sharing & Blue Tick) */}
-        <div
-          id="monetization-level-3-card"
-          className={`p-3.5 rounded-xl border bg-white dark:bg-neutral-900 transition ${
-            level3Unlocked
-              ? 'border-sky-500/40 dark:border-sky-500/30'
-              : 'border-neutral-200 dark:border-neutral-800'
-          } shadow-xs space-y-2.5`}
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center text-xs ${
-                  level3Unlocked
-                    ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
-                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500'
-                }`}
-              >
-                L3
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
-                    Level 3 (500 Followers & 10K views)
-                  </h4>
-                  {level3Unlocked ? (
-                    <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-1.5 py-0.2 rounded border border-sky-500/20 flex items-center gap-0.5">
-                      <CheckCircle2 className="w-3 h-3" /> UNLOCKED
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold text-neutral-500 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                      <Lock className="w-3 h-3" /> IN PROGRESS
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] font-semibold text-sky-600 dark:text-sky-400">
-                  Full Ad Revenue Sharing & Blue Tick 💎
-                </p>
-              </div>
-            </div>
-
-            <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-400">
-              {level3Unlocked ? '100%' : `${Math.round((level3FollowersPct + level3ViewsPct) / 2)}%`}
-            </span>
-          </div>
-
-          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
-            Perks: 55% in-stream Ad revenue share, Verified Blue Tick verification badge, and direct brand sponsorship contact hub.
-          </p>
-
-          {/* Progress Bars for Followers and Views */}
-          <div className="space-y-2 pt-0.5">
-            {/* Followers Tracker */}
-            <div>
-              <div className="flex justify-between text-[10px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                <span>Followers (फॉलोअर्स):</span>
-                <span>
-                  {effectiveFollowers.toLocaleString()} / 500{' '}
-                  {effectiveFollowers >= 500 && '✓'}
-                </span>
-              </div>
-              <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${level3FollowersPct}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Views Tracker */}
-            <div>
-              <div className="flex justify-between text-[10px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                <span>Total Views (कुल व्यूज):</span>
-                <span>
-                  {effectiveViews.toLocaleString()} / 10,000{' '}
-                  {effectiveViews >= 10000 && '✓'}
-                </span>
-              </div>
-              <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${level3ViewsPct}%` }}
-                />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -635,57 +546,69 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
           </span>
         </div>
 
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/80 bg-white dark:bg-neutral-900 overflow-hidden">
-          {transactions.map((tx) => (
-            <div key={tx.id} className="p-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="relative">
-                  <img
-                    src={tx.avatar}
-                    alt={tx.from}
-                    className="w-8 h-8 rounded-full object-cover border border-neutral-200 dark:border-neutral-700"
-                  />
-                  <div
-                    className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] ${
+        {transactions.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 p-6 text-center bg-white/50 dark:bg-neutral-900/50">
+            <Gift className="w-8 h-8 text-neutral-400 mx-auto mb-2 opacity-60" />
+            <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+              Abhi koi transaction nahi hai
+            </p>
+            <p className="text-[11px] text-neutral-400 mt-1">
+              Jab viewers aapko UPI Shagun ya tips bhejenge, toh unki details yahan dikhengi.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/80 bg-white dark:bg-neutral-900 overflow-hidden">
+            {transactions.map((tx) => (
+              <div key={tx.id} className="p-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="relative">
+                    <img
+                      src={tx.avatar}
+                      alt={tx.from}
+                      className="w-8 h-8 rounded-full object-cover border border-neutral-200 dark:border-neutral-700"
+                    />
+                    <div
+                      className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] ${
+                        tx.type === 'credit'
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-amber-500 text-black'
+                      }`}
+                    >
+                      {tx.type === 'credit' ? '+' : '↑'}
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-neutral-900 dark:text-white truncate">
+                        @{tx.from}
+                      </span>
+                      <span className="text-[10px] text-neutral-400 font-medium">
+                        via {tx.app}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-500 truncate">{tx.note}</p>
+                    <span className="text-[10px] text-neutral-400 block">{tx.date}</span>
+                  </div>
+                </div>
+
+                <div className="text-right flex-shrink-0">
+                  <span
+                    className={`text-xs font-bold font-mono ${
                       tx.type === 'credit'
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-amber-500 text-black'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-neutral-700 dark:text-neutral-300'
                     }`}
                   >
-                    {tx.type === 'credit' ? '+' : '↑'}
-                  </div>
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold text-neutral-900 dark:text-white truncate">
-                      @{tx.from}
-                    </span>
-                    <span className="text-[10px] text-neutral-400 font-medium">
-                      via {tx.app}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-neutral-500 truncate">{tx.note}</p>
-                  <span className="text-[10px] text-neutral-400 block">{tx.date}</span>
+                    {tx.type === 'credit' ? '+' : '-'}₹{tx.amount.toLocaleString('en-IN')}
+                  </span>
+                  <span className="block text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    Settled
+                  </span>
                 </div>
               </div>
-
-              <div className="text-right flex-shrink-0">
-                <span
-                  className={`text-xs font-bold font-mono ${
-                    tx.type === 'credit'
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-neutral-700 dark:text-neutral-300'
-                  }`}
-                >
-                  {tx.type === 'credit' ? '+' : '-'}₹{tx.amount.toLocaleString('en-IN')}
-                </span>
-                <span className="block text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">
-                  Settled
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* AdMob Rewarded Video Ad Modal */}

@@ -18,6 +18,8 @@ import {
   Wand2,
   Disc,
   Search,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { User } from '../types';
 import {
@@ -122,6 +124,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const [recordedThumbnail, setRecordedThumbnail] = useState<string | null>(null);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(true);
+  const [isPreviewMuted, setIsPreviewMuted] = useState(false);
 
   // Refs
   const videoLiveRef = useRef<HTMLVideoElement>(null);
@@ -542,7 +545,50 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
       }
     }
     setIsRecording(false);
+
+    // CRITICAL: Stop and kill all microphone tracks immediately to eliminate echo / feedback
+    try {
+      if (streamRef.current) {
+        streamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+          track.stop();
+        });
+      }
+      if (stream) {
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+          track.stop();
+        });
+      }
+      if (videoLiveRef.current) {
+        videoLiveRef.current.pause();
+      }
+    } catch (e) {
+      console.warn('Error terminating microphone tracks on recording stop:', e);
+    }
   };
+
+  // Auto-play recorded clip smoothly with audio once ready
+  useEffect(() => {
+    if (recordedVideoUrl && videoPreviewRef.current) {
+      const vid = videoPreviewRef.current;
+      vid.muted = isPreviewMuted;
+      vid.currentTime = 0;
+      const playPromise = vid.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPreviewPlaying(true);
+          })
+          .catch((err) => {
+            console.warn('Unmuted autoplay prevented by browser policy, falling back to muted autoplay:', err);
+            vid.muted = true;
+            setIsPreviewMuted(true);
+            vid.play().then(() => setIsPreviewPlaying(true)).catch(() => {});
+          });
+      }
+    }
+  }, [recordedVideoUrl]);
 
   // Retake video
   const handleRetake = () => {
@@ -556,6 +602,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
     setRecordedVideoUrl(null);
     setRecordedThumbnail(null);
     setRecordingSeconds(0);
+    setIsPreviewMuted(false);
     startCamera();
   };
 
@@ -693,6 +740,28 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
             <Check className="w-3.5 h-3.5" />
             <span>Reel Video Captured ({activeFilterPreset.name})</span>
           </div>
+
+          {/* Speaker Mute/Unmute Corner Button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (videoPreviewRef.current) {
+                const nextMuted = !isPreviewMuted;
+                videoPreviewRef.current.muted = nextMuted;
+                setIsPreviewMuted(nextMuted);
+              }
+            }}
+            className="absolute top-16 right-5 z-20 p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
+            aria-label={isPreviewMuted ? 'Unmute recorded clip' : 'Mute recorded clip'}
+            title={isPreviewMuted ? 'Unmute' : 'Mute'}
+          >
+            {isPreviewMuted ? (
+              <VolumeX className="w-5 h-5 text-rose-400" />
+            ) : (
+              <Volume2 className="w-5 h-5 text-emerald-400" />
+            )}
+          </button>
         </div>
       ) : (
         /* State B: Live Camera Feed (Absolute Full Screen with Balanced Headroom) */

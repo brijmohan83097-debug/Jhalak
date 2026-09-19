@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { SupportedLanguage, SUPPORTED_LANGUAGES, translations } from '../translations';
 import { User } from '../types';
+import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
 import { CreatorMonetizationView } from './CreatorMonetizationView';
 import { AccountDeletionModal } from './AccountDeletionModal';
 
@@ -392,35 +393,37 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
               </button>
 
-              {/* 7. Moderation Dashboard (Admin / Mod View) */}
-              <button
-                id="settings-moderation-dashboard-btn"
-                onClick={() => {
-                  resetAndClose();
-                  if (onOpenModerationDashboard) {
-                    onOpenModerationDashboard();
-                  }
-                }}
-                className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                    <ShieldAlert className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="text-sm font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
-                      Moderation Dashboard
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold border border-amber-500/30 uppercase tracking-wider">
-                        Admin / Mod View
+              {/* 7. Moderation Dashboard (Super Admin View strictly for Brijmohan83097@gmail.com) */}
+              {isSuperAdmin(currentUser) && (
+                <button
+                  id="settings-moderation-dashboard-btn"
+                  onClick={() => {
+                    resetAndClose();
+                    if (onOpenModerationDashboard) {
+                      onOpenModerationDashboard();
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/30 transition group text-left border border-amber-500/30 bg-amber-500/5 my-1"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                      <ShieldAlert className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                        Super Admin Dashboard
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-black font-extrabold uppercase tracking-wider">
+                          Admin
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-xs text-neutral-500">
-                      Review reported posts, auto-hidden content & ban accounts
-                    </span>
+                      <span className="text-xs text-amber-700/80 dark:text-amber-400/80 block">
+                        UGC moderation, banned users & creator payout approvals
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
-              </button>
+                  <ChevronRight className="w-4 h-4 text-amber-500 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              )}
 
               <hr className="my-2 border-neutral-200 dark:border-neutral-800" />
 
@@ -655,7 +658,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   <div className="flex items-center justify-between py-1">
                     <span className="text-neutral-400">Google Email:</span>
                     <span className="font-semibold text-neutral-900 dark:text-white truncate max-w-[200px]">
-                      {currentUser.email || 'brijmohan83097@gmail.com'}
+                      {currentUser.email || 'Not linked'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-1">

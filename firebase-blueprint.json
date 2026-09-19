@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with follower counts, watch hours, and daily limits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "username": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "maxLength": 150 },
+        "avatar": { "type": "string" },
+        "bio": { "type": "string", "maxLength": 300 },
+        "website": { "type": "string", "maxLength": 150 },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "postsCount": { "type": "number" },
+        "watchHours": { "type": "number" },
+        "isVerified": { "type": "boolean" },
+        "dailyReelsCount": { "type": "number" },
+        "dailyPhotosCount": { "type": "number" },
+        "lastUploadDate": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "username"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "User uploaded video reel or photo post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "author": { "type": "string", "maxLength": 100 },
+        "username": { "type": "string", "maxLength": 50 },
+        "userAvatar": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["photo", "video"] },
+        "mediaUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "caption": { "type": "string", "maxLength": 1000 },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "sharesCount": { "type": "number" },
+        "viewsCount": { "type": "number" },
+        "location": { "type": "string", "maxLength": 100 },
+        "audioTitle": { "type": "string", "maxLength": 100 },
+        "audioArtist": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "mediaType", "mediaUrl"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores user profiles, creator metrics, and daily posting counters"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Stores feed posts and video reels"
+    }
+  }
+}

@@ -31,6 +31,7 @@ import { UpiShagunSheet } from './UpiShagunSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
 import { recommendationEngine, inferLanguage } from '../services/recommendationEngine';
 import { moderationService } from '../services/moderationService';
+import { isSuperAdmin } from '../constants/admin';
 import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
@@ -195,7 +196,29 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Single tap on photo or video opens full-screen viewer as requested
+    // Video posts: screen tap toggles Play / Pause directly, double-tap triggers heart like!
+    if (post.mediaType === 'video' && videoRef.current) {
+      if (videoRef.current.paused) {
+        videoRef.current
+          .play()
+          .then(() => {
+            setIsPlaying(true);
+            setShowPlayPauseIcon('play');
+            setTimeout(() => setShowPlayPauseIcon(null), 600);
+          })
+          .catch(() => {
+            setIsPlaying(false);
+          });
+      } else {
+        videoRef.current.pause();
+        setIsPlaying(false);
+        setShowPlayPauseIcon('pause');
+        setTimeout(() => setShowPlayPauseIcon(null), 600);
+      }
+      return;
+    }
+
+    // Photo posts: single tap opens full-screen viewer as requested
     if (onOpenFullScreen) {
       const activeImageUrl = post.mediaUrl || post.thumbnailUrl || '';
       onOpenFullScreen({
@@ -205,25 +228,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       return;
     }
 
-    // Fallback: single tap on video toggles play/pause, photo opens detail
-    if (post.mediaType === 'video' && videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play().then(() => {
-          setIsPlaying(true);
-          setShowPlayPauseIcon('play');
-          setTimeout(() => setShowPlayPauseIcon(null), 600);
-        }).catch(() => {
-          setIsPlaying(false);
-        });
-      } else {
-        videoRef.current.pause();
-        setIsPlaying(false);
-        setShowPlayPauseIcon('pause');
-        setTimeout(() => setShowPlayPauseIcon(null), 600);
-      }
-    } else {
-      onOpenDetail(post);
-    }
+    onOpenDetail(post);
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {
@@ -251,11 +256,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   };
 
   const isOwner = Boolean(
-    (currentUser?.id && post?.userId && (
-      currentUser.id === post.userId ||
-      ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
-       (post.userId === 'user-me' || post.userId === 'user-brijmohan' || post.userId === 'user-brijmohan83097'))
-    )) ||
+    isSuperAdmin(currentUser) ||
+    (currentUser?.id && post?.userId && currentUser.id === post.userId) ||
     (currentUser?.username && post?.username && (
       currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
       post.username.toLowerCase().replace(/^@/, '').trim()
@@ -405,11 +407,25 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                 className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
               />
 
-            {/* Video Badge */}
-            <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[11px] font-medium pointer-events-none">
+            {/* Video Badge / Fullscreen expand button */}
+            <button
+              type="button"
+              id={`feed-video-fullscreen-btn-${post.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onOpenFullScreen) {
+                  onOpenFullScreen({
+                    ...post,
+                    mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
+                  });
+                }
+              }}
+              className="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[11px] font-medium transition cursor-pointer border border-white/20 active:scale-95"
+              title="Expand full screen"
+            >
               <Clapperboard className="w-3.5 h-3.5 text-amber-400" />
-              <span>Video</span>
-            </div>
+              <span>Watch Reel</span>
+            </button>
 
             {/* Tagged Product Pill Overlay on Video */}
             {post.productTag && (

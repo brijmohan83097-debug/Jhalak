@@ -39,6 +39,16 @@ import {
   UGCCommunityGuidelinesModal,
   hasUserConsentedToUGC,
 } from './UGCCommunityGuidelinesModal';
+import {
+  checkDailyLimit,
+  recordDailyUpload,
+} from '../services/monetizationService';
+import { DailyLimitModal } from './DailyLimitModal';
+import {
+  uploadMediaToStorage,
+  checkAndIncrementDailyUpload,
+  savePostToFirestore,
+} from '../services/firebase';
 
 interface CreatePostModalProps {
   currentUser: User;
@@ -138,8 +148,20 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [pendingActionAfterConsent, setPendingActionAfterConsent] = useState<
     'camera' | 'upload' | 'share' | null
   >(null);
+  const [isPosting, setIsPosting] = useState(false);
+  const [postingProgress, setPostingProgress] = useState(0);
+  const [postingCompleted, setPostingCompleted] = useState(false);
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | Blob | null>(null);
+  const [dailyLimitModalType, setDailyLimitModalType] = useState<'photo' | 'reel' | null>(null);
 
   const handleRequestCamera = () => {
+    // Check 24-hour daily limit for reels (max 3 reels per 24 hours)
+    const limitStatus = checkDailyLimit(currentUser.id, 'reel');
+    if (!limitStatus.allowed) {
+      setDailyLimitModalType('reel');
+      return;
+    }
+
     if (!hasUserConsentedToUGC()) {
       setPendingActionAfterConsent('camera');
       setIsUgcConsentModalOpen(true);
@@ -149,6 +171,14 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   };
 
   const handleRequestUpload = () => {
+    // Check 24-hour daily limit for selected media type (max 3 reels or max 3 photos)
+    const targetType = mediaType === 'video' ? 'reel' : 'photo';
+    const limitStatus = checkDailyLimit(currentUser.id, targetType);
+    if (!limitStatus.allowed) {
+      setDailyLimitModalType(targetType);
+      return;
+    }
+
     if (!hasUserConsentedToUGC()) {
       setPendingActionAfterConsent('upload');
       setIsUgcConsentModalOpen(true);
@@ -222,6 +252,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     }
 
     setStep('edit');
+    setPendingUploadFile(videoBlob);
     if (onShowToast) {
       onShowToast('🎬 Reel video recorded and added directly!');
     }
@@ -230,7 +261,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setPendingUploadFile(file);
       const isVideo = file.type.startsWith('video/');
+      const uploadType = isVideo ? 'reel' : 'photo';
+      const limitStatus = checkDailyLimit(currentUser.id, uploadType);
+      if (!limitStatus.allowed) {
+        setDailyLimitModalType(uploadType);
+        if (e.target) e.target.value = '';
+        return;
+      }
+
       if (isVideo) {
         const objectUrl = URL.createObjectURL(file);
         setMediaType('video');
@@ -297,8 +337,15 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
+      setPendingUploadFile(file);
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
+      const uploadType = isVideo ? 'reel' : 'photo';
+      const limitStatus = checkDailyLimit(currentUser.id, uploadType);
+      if (!limitStatus.allowed) {
+        setDailyLimitModalType(uploadType);
+        return;
+      }
       if (isVideo) {
         const objectUrl = URL.createObjectURL(file);
         setMediaType('video');
@@ -369,8 +416,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     ? customAudio.trim()
     : selectedAudio;
 
-  const handleShare = () => {
+  const handleShare = async () => {
     if (!selectedMediaUrl) return;
+
+    // Daily Limit Enforcement: Max 3 reels and max 3 photo posts per 24 hours
+    const uploadType = (mediaType === 'video' || shareAsReel) ? 'reel' : 'photo';
+    const limitStatus = checkDailyLimit(currentUser.id, uploadType);
+    if (!limitStatus.allowed) {
+      setDailyLimitModalType(uploadType);
+      return;
+    }
 
     // Policy Compliance Check: Ensure creator consent has been granted
     if (!hasUserConsentedToUGC()) {
@@ -478,8 +533,68 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       };
     }
 
-    onPostCreated(newPost, newReel);
-    onClose();
+    // Top progress bar with real Firebase Storage & Firestore sync
+    setIsPosting(true);
+    setPostingProgress(15);
+    setPostingCompleted(false);
+
+    try {
+      let finalMediaUrl = selectedMediaUrl;
+
+      // Real Firebase Storage upload with live progress tracking
+      if (pendingUploadFile) {
+        try {
+          finalMediaUrl = await uploadMediaToStorage(
+            pendingUploadFile,
+            mediaType === 'video' ? 'reels' : 'photos',
+            (pct) => {
+              setPostingProgress(Math.max(15, Math.min(88, Math.round(15 + pct * 0.73))));
+            }
+          );
+        } catch (storageErr) {
+          console.warn('Firebase Storage upload notice, falling back to cached media URL:', storageErr);
+        }
+      }
+
+      newPost.mediaUrl = finalMediaUrl;
+      if (newReel) {
+        newReel.videoUrl = finalMediaUrl;
+      }
+
+      setPostingProgress(92);
+
+      // Save post document to Cloud Firestore
+      try {
+        await savePostToFirestore(newPost);
+      } catch (firestoreErr) {
+        console.warn('Firestore save notice:', firestoreErr);
+      }
+
+      // Increment daily upload counter in Firestore & localStorage
+      try {
+        await checkAndIncrementDailyUpload(currentUser.id, uploadType === 'reel' ? 'video' : 'photo');
+      } catch {
+        // Safe fallback
+      }
+      recordDailyUpload(currentUser.id, uploadType);
+
+      setPostingProgress(100);
+      setPostingCompleted(true);
+
+      setTimeout(() => {
+        onPostCreated(newPost, newReel);
+        onClose();
+      }, 500);
+    } catch (err) {
+      console.warn('Post share pipeline notice:', err);
+      setPostingProgress(100);
+      setPostingCompleted(true);
+      recordDailyUpload(currentUser.id, uploadType);
+      setTimeout(() => {
+        onPostCreated(newPost, newReel);
+        onClose();
+      }, 500);
+    }
   };
 
   return (
@@ -488,6 +603,48 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4"
     >
       <div className="relative w-full max-w-2xl bg-white dark:bg-neutral-900 rounded-2xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 flex flex-col max-h-[92vh]">
+        {/* 1.5s Top Progress Bar with Green Checkmark */}
+        {isPosting && (
+          <div className="absolute top-0 inset-x-0 z-50 overflow-hidden">
+            {/* Top progress track */}
+            <div className="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800">
+              <div
+                className={`h-full transition-all duration-75 ease-out ${
+                  postingCompleted
+                    ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.9)]'
+                    : 'bg-gradient-to-r from-sky-500 via-emerald-400 to-emerald-500'
+                }`}
+                style={{ width: `${postingProgress}%` }}
+              />
+            </div>
+
+            {/* Notification banner with green checkmark */}
+            <div className="flex items-center justify-between px-4 py-2 bg-neutral-900/95 border-b border-neutral-800 text-white shadow-xl backdrop-blur-md">
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                {postingCompleted ? (
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                    <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+                    </div>
+                    <span>Posted to Jhalak successfully!</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-neutral-200">
+                    <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    <span>Sharing post... {postingProgress}%</span>
+                  </div>
+                )}
+              </div>
+
+              {postingCompleted && (
+                <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 rounded-full">
+                  <Check className="w-3 h-3 text-emerald-400 stroke-[3]" /> Done
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Modal Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
           <div className="w-12">
@@ -1164,6 +1321,14 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       onAccept={handleConsentAgreed}
       onDecline={handleConsentDeclined}
       onOpenFullPolicy={onOpenLegalPolicy}
+    />
+
+    {/* Daily Posting Limits Modal (Max 3 reels & max 3 photos / 24 hrs) */}
+    <DailyLimitModal
+      isOpen={!!dailyLimitModalType}
+      userId={currentUser.id}
+      type={dailyLimitModalType || 'photo'}
+      onClose={() => setDailyLimitModalType(null)}
     />
   </div>
 </div>

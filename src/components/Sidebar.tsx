@@ -13,11 +13,13 @@ import {
   Globe2,
   Scale,
   Heart,
+  ShieldAlert,
 } from 'lucide-react';
 import { NavTab, User } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
 import { JhalakLogo } from './JhalakLogo';
 import { PWAInstallButton } from './PWAInstallButton';
+import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -32,6 +34,7 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenLegalPolicies?: () => void;
   onOpenSearch?: () => void;
+  onOpenAdminPanel?: () => void;
   onLogout?: () => void;
   isAuthenticated?: boolean;
   currentLanguage?: SupportedLanguage;
@@ -50,6 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   onOpenLegalPolicies,
   onOpenSearch,
+  onOpenAdminPanel,
   onLogout,
   isAuthenticated = true,
   currentLanguage = 'en',
@@ -230,6 +234,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-sm font-medium">{t.settings}</span>
               <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 {activeLang?.name}
+              </span>
+            </div>
+          </button>
+        )}
+
+        {/* Super Admin Dashboard (Strictly visible ONLY for Brijmohan83097@gmail.com) */}
+        {isSuperAdmin(currentUser) && onOpenAdminPanel && (
+          <button
+            id="sidebar-admin-panel-btn"
+            onClick={onOpenAdminPanel}
+            className="flex items-center gap-4 p-3 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition group border border-amber-500/30 text-left shadow-2xs"
+            title={`Super Admin Dashboard (${ADMIN_EMAIL})`}
+          >
+            <ShieldAlert className="w-6 h-6 mx-auto xl:mx-0 stroke-[2.2] text-amber-500 group-hover:scale-105 transition-transform" />
+            <div className="hidden xl:flex items-center justify-between w-full">
+              <span className="text-sm font-bold text-neutral-900 dark:text-white">Admin Panel</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-black font-extrabold uppercase">
+                Admin
               </span>
             </div>
           </button>

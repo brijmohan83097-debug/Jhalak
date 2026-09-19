@@ -31,6 +31,7 @@ import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
 } from '../utils/imageCompressor';
+import { isSuperAdmin } from '../constants/admin';
 
 interface FullScreenMediaViewerProps {
   posts: Post[];
@@ -97,11 +98,8 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
   const isOwner = Boolean(
     currentPost && (
-      (currentUser?.id && currentPost?.userId && (
-        currentUser.id === currentPost.userId ||
-        ((currentUser.id === 'user-me' || currentUser.id === 'user-brijmohan' || currentUser.id === 'user-brijmohan83097') &&
-         (currentPost.userId === 'user-me' || currentPost.userId === 'user-brijmohan' || currentPost.userId === 'user-brijmohan83097'))
-      )) ||
+      isSuperAdmin(currentUser) ||
+      (currentUser?.id && currentPost?.userId && currentUser.id === currentPost.userId) ||
       (currentUser?.username && currentPost?.username && (
         currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
         currentPost.username.toLowerCase().replace(/^@/, '').trim()
@@ -249,7 +247,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
   // Tap handler on media:
   // - Double-tap: likes post with heart burst animation
-  // - Single-tap on video: toggles mute / unmute with floating sound indicator
+  // - Single-tap on video: toggles Play / Pause directly with momentary indicator
   const handleMediaTap = () => {
     const now = Date.now();
     const DOUBLE_TAP_THRESHOLD = 280;
@@ -267,11 +265,28 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // For single tap on video: toggle mute/unmute as requested
+    // Single screen tap on video toggles Play / Pause directly
     if (currentPost?.mediaType === 'video') {
-      setIsMuted((prev) => !prev);
-      setShowMuteBadge(true);
-      setTimeout(() => setShowMuteBadge(false), 900);
+      const currentVid = videoRefs.current[activeIndex];
+      if (currentVid) {
+        if (currentVid.paused) {
+          currentVid
+            .play()
+            .then(() => {
+              setIsPlaying(true);
+              setShowPlayPauseIcon('play');
+              setTimeout(() => setShowPlayPauseIcon(null), 600);
+            })
+            .catch(() => {
+              setIsPlaying(false);
+            });
+        } else {
+          currentVid.pause();
+          setIsPlaying(false);
+          setShowPlayPauseIcon('pause');
+          setTimeout(() => setShowPlayPauseIcon(null), 600);
+        }
+      }
     }
   };
 

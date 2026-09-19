@@ -15,10 +15,12 @@ import {
   Gift,
 } from 'lucide-react';
 import { User, Post } from '../types';
-import { profileHighlights } from '../data/mockData';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
 import { UpiShagunSheet } from './UpiShagunSheet';
+import { CreatorDashboardCard } from './CreatorDashboardCard';
+import { CreatorMonetizationView } from './CreatorMonetizationView';
 import { safeSetItem } from '../utils/safeStorage';
+import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
 import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
@@ -33,6 +35,7 @@ interface ProfileViewProps {
   onSelectPost: (post: Post) => void;
   onOpenStoryModal?: () => void;
   onOpenGoogleLogin?: () => void;
+  onOpenMonetizationView?: () => void;
   onLogout?: () => void;
   currentLanguage?: SupportedLanguage;
 }
@@ -46,10 +49,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onSelectPost,
   onOpenStoryModal,
   onOpenGoogleLogin,
+  onOpenMonetizationView,
   onLogout,
   currentLanguage = 'en',
 }) => {
   const [activeTab, setActiveTab] = useState<'posts' | 'saved' | 'tagged'>('posts');
+  const [showMonetizationModal, setShowMonetizationModal] = useState(false);
   const [highlights, setHighlights] = useState<any[]>(() => {
     try {
       const userKey = user?.id ? `ig_profile_highlights_${user.id}` : 'ig_profile_highlights';
@@ -107,19 +112,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     // 2. Direct match by username
     if (targetUsername && postUsername && targetUsername === postUsername) return true;
 
-    // 3. Legacy compatibility for default Brij Mohan account only
-    const isBrijMohan =
-      targetId === 'user-me' ||
-      targetId === 'user-brijmohan' ||
-      targetId === 'user-brijmohan83097' ||
-      targetUsername === 'brijmohan';
-
-    if (isBrijMohan) {
+    // 3. Super Admin account match
+    if (isSuperAdmin(user)) {
       if (
         postUserId === 'user-me' ||
         postUserId === 'user-brijmohan' ||
         postUserId === 'user-brijmohan83097' ||
-        postUsername === 'brijmohan'
+        postUsername === 'brijmohan' ||
+        postUsername === 'brijmohan83097'
       ) {
         return true;
       }
@@ -152,14 +152,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         }
       }
 
-      // Legacy fallback exclusively for Brij Mohan
-      const isBrijMohan =
-        user.id === 'user-me' ||
-        user.id === 'user-brijmohan' ||
-        user.id === 'user-brijmohan83097' ||
-        user.username === 'brijmohan';
-
-      if (isBrijMohan) {
+      // Legacy fallback exclusively for Super Admin
+      if (isSuperAdmin(user)) {
         const legacyMe = localStorage.getItem('ig_user_posts_user-me');
         if (legacyMe) {
           const parsed = JSON.parse(legacyMe);
@@ -257,10 +251,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           {/* Username & Action Buttons */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <h1 className="text-xl md:text-2xl font-semibold flex items-center gap-1.5">
+              <h1 className="text-xl md:text-2xl font-semibold flex items-center gap-1.5 flex-wrap">
                 {user?.username || 'User'}
                 {user?.isVerified && (
                   <BadgeCheck className="w-5 h-5 text-sky-500 fill-sky-500" />
+                )}
+                {isSuperAdmin(user) && (
+                  <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-amber-500 text-black shadow-xs tracking-wider">
+                    Super Admin
+                  </span>
                 )}
               </h1>
             </div>
@@ -460,7 +459,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </div>
 
       {/* Story Highlights */}
-      <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-6 border-b border-neutral-200 dark:border-neutral-800/80 mb-2">
+      <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-6 border-b border-neutral-200 dark:border-neutral-800/80 mb-4">
         {(highlights || []).map((hl) => (
           <div
             key={hl.id}
@@ -492,6 +491,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             New
           </span>
         </div>
+      </div>
+
+      {/* Creator Dashboard & Monetization Progress Card (10k Followers, 20k Watch Hours, Daily Limits) */}
+      <div className="mb-6">
+        <CreatorDashboardCard
+          user={user}
+          onOpenMonetizationView={() => {
+            if (onOpenMonetizationView) {
+              onOpenMonetizationView();
+            } else {
+              setShowMonetizationModal(true);
+            }
+          }}
+        />
       </div>
 
       {/* Profile Tabs Navigation */}
@@ -547,12 +560,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </div>
           <h3 className="text-base font-semibold text-neutral-800 dark:text-neutral-200">
-            {activeTab === 'saved' ? t.noSavedPosts : t.noPostsYet}
+            {activeTab === 'saved' ? t.noSavedPosts : 'Abhi koi reel ya post nahi hai'}
           </h3>
           <p className="text-xs text-neutral-500 mt-1 max-w-sm mx-auto">
             {activeTab === 'saved'
-              ? 'Save photos and videos that you want to see again. No one is notified, and only you can see what you’ve saved.'
-              : 'When you share photos and videos, they will appear on your profile.'}
+              ? 'Save photos and videos that you want to see again. Only you can see what you’ve saved.'
+              : 'Pehli reel ya photo post karein taaki wo aapki profile par dikhe.'}
           </p>
         </div>
       ) : (
@@ -642,6 +655,25 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           setTimeout(() => setToastMsg(null), 4000);
         }}
       />
+
+      {/* Full Creator Monetization & UPI Payout Modal */}
+      {showMonetizationModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-4 sm:p-6 relative">
+            <button
+              onClick={() => setShowMonetizationModal(false)}
+              className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-neutral-900 dark:hover:text-white rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition z-10"
+              aria-label="Close monetization dashboard"
+            >
+              ✕
+            </button>
+            <CreatorMonetizationView
+              user={user}
+              onClose={() => setShowMonetizationModal(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Success Toast */}
       {toastMsg && (
