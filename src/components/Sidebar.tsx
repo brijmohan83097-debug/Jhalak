@@ -68,14 +68,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Home,
     },
     {
-      id: 'explore' as NavTab,
-      label: t.explore,
-      icon: Compass,
-    },
-    {
       id: 'reels' as NavTab,
       label: t.reels,
       icon: Clapperboard,
+    },
+    {
+      id: 'explore' as NavTab,
+      label: t.explore,
+      icon: Compass,
     },
     {
       id: 'messages' as NavTab,

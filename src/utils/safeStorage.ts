@@ -94,10 +94,6 @@ export function safeSetItem(key: string, value: string): boolean {
     return true;
   } catch (error: unknown) {
     const quotaHit = isQuotaExceeded(error);
-    console.warn(
-      `[safeStorage] setItem("${key}") failed with ${quotaHit ? 'QuotaExceededError' : 'Error'}:`,
-      error
-    );
     notifyStorageIssue(key, error, quotaHit);
     return false;
   }
@@ -112,8 +108,7 @@ export function safeGetItem(key: string): string | null {
       return null;
     }
     return window.localStorage.getItem(key);
-  } catch (error) {
-    console.warn(`[safeStorage] getItem("${key}") failed:`, error);
+  } catch {
     return null;
   }
 }
@@ -128,8 +123,7 @@ export function safeRemoveItem(key: string): boolean {
     }
     window.localStorage.removeItem(key);
     return true;
-  } catch (error) {
-    console.warn(`[safeStorage] removeItem("${key}") failed:`, error);
+  } catch {
     return false;
   }
 }
@@ -144,14 +138,10 @@ if (typeof window !== 'undefined' && window.localStorage) {
         originalSetItem(key, value);
       } catch (err: unknown) {
         const quotaHit = isQuotaExceeded(err);
-        console.warn(
-          `[localStorage.setItem Guard] Caught ${quotaHit ? 'QuotaExceededError' : 'StorageError'} on key "${key}"`,
-          err
-        );
         notifyStorageIssue(key, err, quotaHit);
       }
     };
-  } catch (patchErr) {
-    console.warn('[safeStorage] Could not attach defensive localStorage patch:', patchErr);
+  } catch {
+    // Patched silently
   }
 }

@@ -169,8 +169,7 @@ export const CommentsBottomSheet: React.FC<CommentsBottomSheetProps> = ({
         type: 'image',
       });
       setShowGifPicker(false);
-    } catch (err) {
-      console.warn('Comment image compression fallback:', err);
+    } catch {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {

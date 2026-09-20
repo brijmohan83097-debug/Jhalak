@@ -53,8 +53,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
         // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
         const compressed = await compressImage(file, 800, 800, 0.7);
         setAvatar(compressed);
-      } catch (err) {
-        console.warn('Canvas compression error, falling back to FileReader:', err);
+      } catch {
         const reader = new FileReader();
         reader.onload = (event) => {
           if (event.target?.result) {

@@ -14,12 +14,16 @@ service cloud.firestore {
       return id is string && id.size() <= 128;
     }
 
+    function isSuperAdmin() {
+      return isSignedIn() && (request.auth.token.email == 'brijmohan83097@gmail.com');
+    }
+
     // Users collection: Public read for creator profiles, reels counters, watch hours
     match /users/{userId} {
       allow get, list: if true;
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if isSignedIn() && request.auth.uid == userId;
+      allow delete: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin());
     }
 
     // Posts collection: Public read for all reels and photo posts
@@ -27,7 +31,7 @@ service cloud.firestore {
       allow get, list: if true;
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid);
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
     }
 
     // Connection test document

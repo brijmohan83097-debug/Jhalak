@@ -2,11 +2,13 @@ export interface BhojpuriTrack {
   id: string;
   title: string;
   artist: string;
-  category: 'Pawan Singh' | 'Khesari Lal' | 'Shilpi Raj' | 'Folk & Dholak' | 'Trending';
+  category: 'Pawan Singh' | 'Khesari Lal' | 'Shilpi Raj' | 'Folk & Dholak' | 'Trending' | 'Royalty-Free' | 'Pixabay Audio';
   duration: string;
   tags: string[];
   notes: number[]; // Frequencies for instant synthetic Web Audio preview
   tempo: number;
+  audioUrl?: string;
+  isRoyaltyFree?: boolean;
 }
 
 export const BHOJPURI_MUSIC_LIBRARY: BhojpuriTrack[] = [
@@ -389,6 +391,74 @@ export const BHOJPURI_MUSIC_LIBRARY: BhojpuriTrack[] = [
     notes: [330, 330, 392, 440, 392, 330, 293, 330, 440],
     tempo: 120,
   },
+
+  // Royalty-Free & Pixabay Audio Library Tracks (Free CC License)
+  {
+    id: 'rf-1',
+    title: 'Sunset Lofi Chill Beats',
+    artist: 'Pixabay Audio • Royalty-Free Chillhop',
+    category: 'Royalty-Free',
+    duration: '0:30',
+    tags: ['lofi', 'chill', 'beats', 'relax', 'pixabay', 'royaltyfree'],
+    notes: [392, 440, 493, 587, 523, 440, 392, 330],
+    tempo: 85,
+    isRoyaltyFree: true,
+  },
+  {
+    id: 'rf-2',
+    title: 'Upbeat Summer Vlog Groove',
+    artist: 'Free Soundworks • Royalty-Free Pop',
+    category: 'Royalty-Free',
+    duration: '0:30',
+    tags: ['upbeat', 'vlog', 'happy', 'summer', 'pop', 'royaltyfree'],
+    notes: [523, 659, 784, 659, 587, 523, 440, 523],
+    tempo: 124,
+    isRoyaltyFree: true,
+  },
+  {
+    id: 'rf-3',
+    title: 'Cinematic Epic Horizon',
+    artist: 'Royalty-Free Orchestra • Pixabay Music',
+    category: 'Royalty-Free',
+    duration: '0:30',
+    tags: ['cinematic', 'epic', 'trailer', 'drama', 'strings', 'royaltyfree'],
+    notes: [330, 392, 440, 493, 523, 659, 587, 493],
+    tempo: 110,
+    isRoyaltyFree: true,
+  },
+  {
+    id: 'rf-4',
+    title: 'Acoustic Morning Breeze',
+    artist: 'Acoustic Vibes • Royalty-Free Folk',
+    category: 'Royalty-Free',
+    duration: '0:30',
+    tags: ['acoustic', 'guitar', 'peaceful', 'morning', 'folk', 'royaltyfree'],
+    notes: [440, 523, 587, 659, 523, 440, 392, 440],
+    tempo: 100,
+    isRoyaltyFree: true,
+  },
+  {
+    id: 'rf-5',
+    title: 'Energetic Trap & Bass Drop',
+    artist: 'Urban Beats • Pixabay Audio',
+    category: 'Royalty-Free',
+    duration: '0:30',
+    tags: ['trap', 'bass', 'hiphop', 'energy', 'reels', 'royaltyfree'],
+    notes: [261, 293, 330, 392, 330, 293, 261, 196],
+    tempo: 140,
+    isRoyaltyFree: true,
+  },
+  {
+    id: 'rf-6',
+    title: 'Desi Fusion Dholak & Flute Beat',
+    artist: 'Indian Folk Collective • Royalty-Free Sound',
+    category: 'Royalty-Free',
+    duration: '0:30',
+    tags: ['dholak', 'flute', 'fusion', 'indian', 'desi', 'royaltyfree'],
+    notes: [440, 493, 523, 587, 659, 587, 523, 493, 440],
+    tempo: 130,
+    isRoyaltyFree: true,
+  },
 ];
 
 /**
@@ -467,14 +537,14 @@ export function playSyntheticTrackPreview(
         if (onEnded) onEnded();
       },
     };
-  } catch (e) {
-    console.warn('Audio preview fallback:', e);
+  } catch {
     return { stop: () => {} };
   }
 }
 
 export const BHOJPURI_AUDIO_CATEGORIES = [
   'All',
+  'Royalty-Free',
   'Pawan Singh',
   'Khesari Lal',
   'Shilpi Raj',

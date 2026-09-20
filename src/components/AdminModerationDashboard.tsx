@@ -41,9 +41,6 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
   onBanUserAccount,
   onUnbanUser,
 }) => {
-  // STRICT SECURITY CHECK: Strictly restricted to Brijmohan83097@gmail.com
-  if (!isOpen || !isSuperAdmin(currentUser)) return null;
-
   const [aggregates, setAggregates] = useState<ReportedItemAggregate[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'queue' | 'banned' | 'payouts'>('queue');
@@ -54,7 +51,7 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
     username: string;
   } | null>(null);
 
-  // Admin Payouts State
+  // Admin Payouts State - Real database / creator requests only
   const [payoutRequests, setPayoutRequests] = useState<Array<{
     id: string;
     username: string;
@@ -68,32 +65,21 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
   }>>(() => {
     try {
       const saved = localStorage.getItem('jhalak_admin_payout_requests');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Purge dummy mock requests if they were stored previously
+        return Array.isArray(parsed)
+          ? parsed.filter(
+              (p: any) =>
+                p.id !== 'payout-req-101' &&
+                p.id !== 'payout-req-102' &&
+                p.username !== 'bhojpuri_star' &&
+                p.username !== 'patna_vines'
+            )
+          : [];
+      }
     } catch {}
-    return [
-      {
-        id: 'payout-req-101',
-        username: 'bhojpuri_star',
-        name: 'Bhojpuri Music Creator',
-        amount: 2500,
-        upiId: 'bhojpuristar@upi',
-        date: new Date().toLocaleDateString('en-IN'),
-        status: 'settled',
-        followers: 12450,
-        watchHours: 21300,
-      },
-      {
-        id: 'payout-req-102',
-        username: 'patna_vines',
-        name: 'Patna Vines Official',
-        amount: 1200,
-        upiId: 'patnavines@okhdfcbank',
-        date: new Date().toLocaleDateString('en-IN'),
-        status: 'pending',
-        followers: 10800,
-        watchHours: 20450,
-      },
-    ];
+    return [];
   });
 
   const [bonusCreatorUsername, setBonusCreatorUsername] = useState('');
@@ -117,7 +103,7 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
     });
   }, []);
 
-  if (!isOpen) return null;
+  if (!isOpen || !isSuperAdmin(currentUser)) return null;
 
   // Find media preview
   const getMediaForRecord = (id: string) => {
@@ -511,7 +497,7 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
                       Creator Monetization & UPI Payout Policy
                     </span>
                     <p className="text-neutral-600 dark:text-neutral-400 mt-0.5">
-                      Creators can apply for instant UPI payouts only upon reaching <strong>10,000 followers</strong> and <strong>20,000 watch hours</strong>. As Super Admin (<span className="font-mono text-[11px] font-bold">{ADMIN_EMAIL}</span>), you can review, approve, or disburse payouts directly to creator UPI IDs.
+                      Creators can apply for instant UPI payouts only upon reaching <strong>2,000 followers</strong> and <strong>2,000 watch hours</strong>. As Super Admin (<span className="font-mono text-[11px] font-bold">{ADMIN_EMAIL}</span>), you can review, approve, or disburse payouts directly to creator UPI IDs.
                     </p>
                   </div>
                 </div>
@@ -650,8 +636,8 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
                         upiId: `${cleanUser}@upi`,
                         date: new Date().toLocaleDateString('en-IN'),
                         status: 'settled' as const,
-                        followers: 10000,
-                        watchHours: 20000,
+                        followers: 2000,
+                        watchHours: 2000,
                       };
                       const updated = [newReq, ...payoutRequests];
                       setPayoutRequests(updated);

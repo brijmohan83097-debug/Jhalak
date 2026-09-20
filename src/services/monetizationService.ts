@@ -1,12 +1,12 @@
 /**
  * monetizationService.ts
- * Manages Creator Monetization Policy (10,000 followers & 20,000 watch hours),
+ * Manages Creator Monetization Policy (2,000 followers & 2,000 watch hours),
  * Creator Dashboard progress tracking, and Daily Upload Limits (Max 3 reels & 3 photos per 24 hours).
  */
 
 export const MONETIZATION_POLICY = {
-  TARGET_FOLLOWERS: 10000,
-  TARGET_WATCH_HOURS: 20000,
+  TARGET_FOLLOWERS: 2000,
+  TARGET_WATCH_HOURS: 2000,
   MAX_DAILY_REELS: 3,
   MAX_DAILY_PHOTOS: 3,
   WINDOW_MS: 24 * 60 * 60 * 1000, // 24 hours
@@ -103,8 +103,8 @@ export function recordDailyUpload(userId: string, type: 'photo' | 'reel'): void 
 
   try {
     localStorage.setItem(key, JSON.stringify(uploads));
-  } catch (err) {
-    console.warn('Unable to persist daily upload timestamp in localStorage:', err);
+  } catch {
+    // Silently handled
   }
 }
 
@@ -136,7 +136,7 @@ export interface CreatorMonetizationStats {
 }
 
 /**
- * Get Creator Monetization stats (Followers vs 10,000 and Watch Hours vs 20,000)
+ * Get Creator Monetization stats (Followers vs 2,000 and Watch Hours vs 2,000)
  */
 export function getCreatorMonetizationStats(
   userId: string,
@@ -177,12 +177,12 @@ export function getCreatorMonetizationStats(
   // Determine watch hours
   let watchHours = storedWatchHours !== null ? storedWatchHours : 0;
   if (storedWatchHours === null) {
-    // Default initial baseline: if followers >= 10k, start unlocked at 21,500 hrs;
+    // Default initial baseline: if followers >= 2,000, start unlocked at 2,150 hrs;
     // if lower, estimate proportionally
-    if (followers >= 10000) {
-      watchHours = 21500;
+    if (followers >= 2000) {
+      watchHours = 2150;
     } else if (followers > 0) {
-      watchHours = Math.min(18500, Math.round(followers * 1.6));
+      watchHours = Math.min(1850, Math.round(followers * 0.95));
     } else {
       watchHours = 0;
     }
@@ -229,7 +229,7 @@ export function setCreatorStats(
       current.customFollowers = updates.customFollowers;
     }
     localStorage.setItem(key, JSON.stringify(current));
-  } catch (err) {
-    console.warn('Unable to persist creator stats:', err);
+  } catch {
+    // Silently handled
   }
 }

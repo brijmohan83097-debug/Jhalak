@@ -89,7 +89,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
               Creator Dashboard (क्रिएटर डैशबोर्ड)
             </h3>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Policy: Target 10,000 Followers & 20,000 Watch Hours
+              Policy: Target 2,000 Followers & 2,000 Watch Hours
             </p>
           </div>
         </div>
@@ -143,7 +143,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
           <div className="flex items-center justify-between text-[11px]">
             {stats.followersRemaining === 0 ? (
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Target 10,000 followers achieved!
+                <CheckCircle2 className="w-3 h-3" /> Target 2,000 followers achieved!
               </span>
             ) : (
               <span className="text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
@@ -151,7 +151,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
                 <strong>{stats.followersRemaining.toLocaleString()}</strong> followers remaining to unlock monetization
               </span>
             )}
-            <span className="text-neutral-400 font-mono text-[10px]">Goal: 10,000</span>
+            <span className="text-neutral-400 font-mono text-[10px]">Goal: 2,000</span>
           </div>
         </div>
 
@@ -188,7 +188,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
           <div className="flex items-center justify-between text-[11px]">
             {stats.watchHoursRemaining === 0 ? (
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Target 20,000 watch hours achieved!
+                <CheckCircle2 className="w-3 h-3" /> Target 2,000 watch hours achieved!
               </span>
             ) : (
               <span className="text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
@@ -196,7 +196,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
                 <strong>{stats.watchHoursRemaining.toLocaleString()}</strong> watch hours remaining to unlock monetization
               </span>
             )}
-            <span className="text-neutral-400 font-mono text-[10px]">Goal: 20,000 hrs</span>
+            <span className="text-neutral-400 font-mono text-[10px]">Goal: 2,000 hrs</span>
           </div>
         </div>
       </div>
@@ -217,7 +217,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
                 UPI Payouts Application Unlocked (पात्रता स्वीकृत)
               </p>
               <p className="text-[11px] text-neutral-600 dark:text-neutral-400 mt-0.5">
-                Both 10,000 followers and 20,000 watch hours criteria are 100% satisfied. You can apply for direct UPI settlement.
+                Both 2,000 followers and 2,000 watch hours criteria are 100% satisfied. You can apply for direct UPI settlement.
               </p>
             </div>
           </>

@@ -53,8 +53,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
         const compressed = await compressImage(file, 800, 800, 0.7);
         setMediaUrl(compressed);
-      } catch (err) {
-        console.warn('Story image compression fallback:', err);
+      } catch {
         const reader = new FileReader();
         reader.onload = (event) => {
           if (event.target?.result) {

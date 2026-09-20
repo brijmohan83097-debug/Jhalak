@@ -92,8 +92,8 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
   }, [balance, transactions, currentUser.id]);
 
   // Policy Targets
-  const TARGET_FOLLOWERS = MONETIZATION_POLICY.TARGET_FOLLOWERS; // 10,000
-  const TARGET_WATCH_HOURS = MONETIZATION_POLICY.TARGET_WATCH_HOURS; // 20,000
+  const TARGET_FOLLOWERS = MONETIZATION_POLICY.TARGET_FOLLOWERS; // 2,000
+  const TARGET_WATCH_HOURS = MONETIZATION_POLICY.TARGET_WATCH_HOURS; // 2,000
 
   // Real followers and watch hours loaded exclusively from user profile
   const effectiveFollowers = currentUser.followersCount || 0;
@@ -105,7 +105,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
   const followersRemaining = Math.max(0, TARGET_FOLLOWERS - effectiveFollowers);
   const watchHoursRemaining = Math.max(0, TARGET_WATCH_HOURS - effectiveWatchHours);
 
-  // STRICT REQUIREMENT 4: UPI Payout Application locked until BOTH 10,000 followers and 20,000 hours are 100% achieved
+  // STRICT REQUIREMENT 4: UPI Payout Application locked until BOTH 2,000 followers and 2,000 hours are 100% achieved
   const isPayoutUnlocked = effectiveFollowers >= TARGET_FOLLOWERS && effectiveWatchHours >= TARGET_WATCH_HOURS;
 
   // Simulated Instant UPI Payout
@@ -270,7 +270,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
             )}
           </div>
 
-          {/* UPI Payout CTA Button - Locked until both 10k followers and 20k watch hours are 100% achieved */}
+          {/* UPI Payout CTA Button - Locked until both 2,000 followers and 2,000 watch hours are 100% achieved */}
           <div className="space-y-2">
             {!isPayoutUnlocked ? (
               <>
@@ -288,7 +288,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
                   <div className="space-y-0.5">
                     <p className="font-bold">Monetization Criteria Not Yet Met:</p>
                     <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
-                      UPI Payouts require <strong>10,000 followers</strong> ({followersRemaining.toLocaleString()} remaining) and <strong>20,000 watch hours</strong> ({watchHoursRemaining.toLocaleString()} remaining) before you can apply.
+                      UPI Payouts require <strong>2,000 followers</strong> ({followersRemaining.toLocaleString()} remaining) and <strong>2,000 watch hours</strong> ({watchHoursRemaining.toLocaleString()} remaining) before you can apply.
                     </p>
                   </div>
                 </div>
@@ -326,7 +326,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
         </div>
       </div>
 
-      {/* 2. MONETIZATION POLICY & ELIGIBILITY TRACKER (10,000 FOLLOWERS & 20,000 WATCH HOURS) */}
+      {/* 2. MONETIZATION POLICY & ELIGIBILITY TRACKER (2,000 FOLLOWERS & 2,000 WATCH HOURS) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div>
@@ -335,7 +335,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               Monetization Eligibility (पात्रता स्थिति)
             </h3>
             <p className="text-[11px] text-neutral-500">
-              Policy Target: 10,000 Followers & 20,000 Watch Hours
+              Policy Target: 2,000 Followers & 2,000 Watch Hours
             </p>
           </div>
           {isPayoutUnlocked ? (
@@ -349,7 +349,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
           )}
         </div>
 
-        {/* Card 1: 10,000 Followers Target */}
+        {/* Card 1: 2,000 Followers Target */}
         <div
           id="monetization-followers-card"
           className={`p-3.5 rounded-xl border bg-white dark:bg-neutral-900 transition ${
@@ -372,7 +372,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
-                    Target 1: 10,000 Followers (फॉलोअर्स)
+                    Target 1: 2,000 Followers (फॉलोअर्स)
                   </h4>
                   {effectiveFollowers >= TARGET_FOLLOWERS ? (
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
@@ -410,7 +410,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
           <div className="flex items-center justify-between text-[11px]">
             {followersRemaining === 0 ? (
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> 10,000 followers target 100% achieved!
+                <CheckCircle2 className="w-3.5 h-3.5" /> 2,000 followers target 100% achieved!
               </span>
             ) : (
               <span className="text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
@@ -419,12 +419,12 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               </span>
             )}
             <span className="text-neutral-400 font-mono text-[10px]">
-              {effectiveFollowers.toLocaleString()} / 10,000
+              {effectiveFollowers.toLocaleString()} / 2,000
             </span>
           </div>
         </div>
 
-        {/* Card 2: 20,000 Watch Hours Target */}
+        {/* Card 2: 2,000 Watch Hours Target */}
         <div
           id="monetization-watch-hours-card"
           className={`p-3.5 rounded-xl border bg-white dark:bg-neutral-900 transition ${
@@ -447,7 +447,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
-                    Target 2: 20,000 Watch Hours (वॉच आवर्स)
+                    Target 2: 2,000 Watch Hours (वॉच आवर्स)
                   </h4>
                   {effectiveWatchHours >= TARGET_WATCH_HOURS ? (
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
@@ -485,7 +485,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
           <div className="flex items-center justify-between text-[11px]">
             {watchHoursRemaining === 0 ? (
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> 20,000 watch hours target 100% achieved!
+                <CheckCircle2 className="w-3.5 h-3.5" /> 2,000 watch hours target 100% achieved!
               </span>
             ) : (
               <span className="text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
@@ -494,7 +494,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               </span>
             )}
             <span className="text-neutral-400 font-mono text-[10px]">
-              {effectiveWatchHours.toLocaleString()} / 20,000 hrs
+              {effectiveWatchHours.toLocaleString()} / 2,000 hrs
             </span>
           </div>
         </div>

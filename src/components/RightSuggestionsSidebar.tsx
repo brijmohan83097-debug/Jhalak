@@ -1,17 +1,26 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { suggestedUsers } from '../data/mockData';
 import { SupportedLanguage, translations } from '../translations';
+
+export interface SuggestedCreator {
+  id: string;
+  username: string;
+  name?: string;
+  avatar: string;
+  subtitle?: string;
+}
 
 interface RightSuggestionsSidebarProps {
   currentUser: User;
   onViewUser: (username: string) => void;
+  creators?: SuggestedCreator[];
   currentLanguage?: SupportedLanguage;
 }
 
 export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = ({
   currentUser,
   onViewUser,
+  creators = [],
   currentLanguage = 'en',
 }) => {
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
@@ -73,8 +82,8 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
         </button>
       </div>
 
-      {/* Suggested Users List */}
-      {suggestedUsers.length === 0 ? (
+      {/* Suggested Users List (Only real creators from Firebase or clean empty state) */}
+      {creators.length === 0 ? (
         <div className="py-4 mb-8 text-left">
           <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
             No suggestions yet. As people join Jhalak and share content, suggestions will appear here.
@@ -82,7 +91,7 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
         </div>
       ) : (
         <div className="space-y-3 mb-8">
-          {suggestedUsers.map((u) => {
+          {creators.map((u) => {
             const isFollowing = followingMap[u.id];
 
             return (
@@ -98,7 +107,7 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
                       {u.username}
                     </span>
                     <span className="text-[11px] text-neutral-400 truncate max-w-[120px]">
-                      {u.subtitle}
+                      {u.subtitle || 'Creator on Jhalak'}
                     </span>
                   </div>
                 </div>

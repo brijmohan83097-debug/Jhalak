@@ -113,8 +113,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
         type: 'image',
       });
       setShowGifPicker(false);
-    } catch (err) {
-      console.warn('Post detail comment image compression fallback:', err);
+    } catch {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {

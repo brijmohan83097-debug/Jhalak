@@ -13,6 +13,9 @@ import {
   CheckCircle2,
   Globe2,
   Gift,
+  Scale,
+  ShieldAlert,
+  Trash2,
 } from 'lucide-react';
 import { User, Post } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
@@ -33,8 +36,11 @@ interface ProfileViewProps {
   onOpenEditProfile: () => void;
   onOpenSettings: () => void;
   onSelectPost: (post: Post) => void;
+  onDeletePost?: (postId: string) => void;
   onOpenStoryModal?: () => void;
   onOpenGoogleLogin?: () => void;
+  onOpenLegalPolicies?: () => void;
+  onOpenAdminPanel?: () => void;
   onOpenMonetizationView?: () => void;
   onLogout?: () => void;
   currentLanguage?: SupportedLanguage;
@@ -47,8 +53,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenEditProfile,
   onOpenSettings,
   onSelectPost,
+  onDeletePost,
   onOpenStoryModal,
   onOpenGoogleLogin,
+  onOpenLegalPolicies,
+  onOpenAdminPanel,
   onOpenMonetizationView,
   onLogout,
   currentLanguage = 'en',
@@ -178,8 +187,55 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return Array.from(postMap.values());
   }, [userPosts, user]);
 
-  const safeResolvedPosts = Array.isArray(resolvedUserPosts) ? resolvedUserPosts : [];
-  const safeSavedPosts = Array.isArray(savedPosts) ? savedPosts : [];
+  const [deletedPostIds, setDeletedPostIds] = useState<string[]>([]);
+
+  // Direct instant delete from Profile
+  const handleDeleteDirect = (postId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+
+    // 1. Immediately hide from profile UI state with 0 latency
+    setDeletedPostIds((prev) => (prev.includes(postId) ? prev : [...prev, postId]));
+
+    // 2. Clear from all potential localStorage post stores
+    try {
+      const targetUserId = user?.id || '';
+      const targetUsername = user?.username || '';
+      const keysToClean = [
+        `ig_user_posts_${targetUserId}`,
+        `ig_user_posts_${targetUsername}`,
+        'ig_user_posts_user-me',
+        'ig_user_posts_brijmohan',
+        'ig_user_posts_brijmohan83097',
+        'jhalak_uploaded_posts_v1',
+        'jhalak_uploaded_reels_v1',
+        'ig_posts',
+        'ig_feed_posts',
+      ];
+      keysToClean.forEach((k) => {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          try {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              localStorage.setItem(k, JSON.stringify(list.filter((x: any) => x?.id !== postId)));
+            }
+          } catch {}
+        }
+      });
+    } catch {}
+
+    // 3. Trigger parent delete handler
+    if (onDeletePost) {
+      onDeletePost(postId);
+    }
+  };
+
+  const safeResolvedPosts = (Array.isArray(resolvedUserPosts) ? resolvedUserPosts : []).filter(
+    (p) => !deletedPostIds.includes(p.id)
+  );
+  const safeSavedPosts = (Array.isArray(savedPosts) ? savedPosts : []).filter(
+    (p) => !deletedPostIds.includes(p.id)
+  );
 
   const effectivePostsCount = safeResolvedPosts.length;
 
@@ -220,6 +276,35 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   return (
     <div id="profile-view" className="w-full max-w-4xl mx-auto px-4 py-6">
+      {/* Guest Mode Banner */}
+      {!user?.email && !user?.isGoogleAuth && onOpenGoogleLogin && (
+        <div
+          id="profile-guest-banner"
+          className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-fuchsia-600/10 border border-amber-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left"
+        >
+          <div>
+            <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+              You are browsing in Guest Mode
+            </h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              Sign in with Google to save reels, like posts, and track creator monetization.
+            </p>
+          </div>
+          <button
+            onClick={onOpenGoogleLogin}
+            className="px-4 py-2 rounded-xl bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white border border-neutral-300 dark:border-neutral-700 text-xs font-bold shadow-xs hover:bg-neutral-50 dark:hover:bg-neutral-700 transition flex items-center gap-2 cursor-pointer flex-shrink-0"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" />
+              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z" />
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+        </div>
+      )}
+
       {/* Profile Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-14 mb-8">
         {/* Avatar with gradient border */}
@@ -335,6 +420,32 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     />
                   </svg>
                   <span className="hidden sm:inline">{user?.email ? 'Google' : 'Sign in'}</span>
+                </button>
+              )}
+
+              {/* Legal & Privacy Policies button */}
+              {onOpenLegalPolicies && (
+                <button
+                  id="profile-legal-btn"
+                  onClick={onOpenLegalPolicies}
+                  className="p-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-800 dark:text-neutral-200 transition flex items-center"
+                  title="Legal, Terms & Privacy Policies"
+                  aria-label="Legal & Privacy Policy"
+                >
+                  <Scale className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Super Admin Dashboard Button */}
+              {isSuperAdmin(user) && onOpenAdminPanel && (
+                <button
+                  id="profile-admin-dashboard-btn"
+                  onClick={onOpenAdminPanel}
+                  className="px-2.5 py-1.5 bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  title={`Super Admin Moderation & Creator Payouts (${ADMIN_EMAIL})`}
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  <span className="hidden sm:inline">Admin</span>
                 </button>
               )}
 
@@ -493,7 +604,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
-      {/* Creator Dashboard & Monetization Progress Card (10k Followers, 20k Watch Hours, Daily Limits) */}
+      {/* Creator Dashboard & Monetization Progress Card (2k Followers, 2k Watch Hours, Daily Limits) */}
       <div className="mb-6">
         <CreatorDashboardCard
           user={user}
@@ -636,6 +747,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   <span>{Array.isArray(post.comments) ? post.comments.length : 0}</span>
                 </div>
               </div>
+
+              {/* Direct Delete Post Button (Owner/SuperAdmin) */}
+              {onDeletePost && isMatchingUser(post) && (
+                <button
+                  id={`profile-direct-delete-btn-${post.id}`}
+                  type="button"
+                  title="Delete post permanently"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm('Are you sure you want to permanently delete this post?')) {
+                      handleDeleteDirect(post.id, e);
+                    }
+                  }}
+                  className="absolute top-2 left-2 z-20 p-1.5 rounded-full bg-rose-600/90 hover:bg-rose-700 text-white shadow-lg transition opacity-90 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           ))}
         </div>

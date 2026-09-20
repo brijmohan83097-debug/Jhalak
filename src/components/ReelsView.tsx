@@ -55,6 +55,7 @@ interface ReelsViewProps {
   onBlockUser?: (username: string) => void;
   onDeleteReel?: (reelId: string) => void;
   onUploadReel?: () => void;
+  onRequireAuth?: (action: 'like' | 'comment' | 'upload' | 'profile') => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -71,6 +72,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   onBlockUser,
   onDeleteReel,
   onUploadReel,
+  onRequireAuth,
   currentLanguage = 'en',
 }) => {
   const [queue, setQueue] = useState<(Reel | AdMobNativeAd)[]>(() => {
@@ -78,7 +80,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
     );
     const recQueue = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
-    return adMobService.insertNativeAds(recQueue, adMobService.getNativeReelAds(), 6);
+    return recQueue;
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
@@ -120,7 +122,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     }
     setQueue(() => {
       const recQueue = recommendationEngine.getPersonalizedReelsQueue(initialReels, 0);
-      return adMobService.insertNativeAds(recQueue, adMobService.getNativeReelAds(), 6);
+      return recQueue;
     });
   }, [initialReels]);
 
@@ -175,8 +177,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       );
       const reordered = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
       const head = prevQueue.slice(0, activeIndex + 1);
-      const newItems = adMobService.insertNativeAds(reordered, adMobService.getNativeReelAds(), 6);
-      return [...head, ...newItems];
+      return [...head, ...reordered];
     });
   }, [activeIndex]);
 
@@ -796,7 +797,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 }`}
               />
               <span className="truncate text-[11px] font-medium tracking-wide group-hover:underline">
-                {currentReel.audioTitle}
+                {currentReel.username && currentReel.audioTitle && !currentReel.audioTitle.includes(currentReel.username)
+                  ? `${currentReel.username} • ${currentReel.audioTitle}`
+                  : currentReel.audioTitle || `${currentReel.username || 'Creator'} • Original Audio`}
               </span>
               <span className="text-[10px] text-white/70 font-semibold ml-0.5 group-hover:text-rose-300">
                 • Use Sound ↗
@@ -834,6 +837,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               id="reel-action-comments"
               onClick={(e) => {
                 e.stopPropagation();
+                if (onRequireAuth && (!currentUser?.email && !currentUser?.isGoogleAuth)) {
+                  onRequireAuth('comment');
+                  return;
+                }
                 setShowCommentsDrawer(true);
               }}
               className="flex flex-col items-center group transition active:scale-110"

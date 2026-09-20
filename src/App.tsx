@@ -2,12 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { NavTab, Post, StoryGroup, User, Conversation, Comment, Message, Reel, ContentCategory } from './types';
 import {
   currentUser as initialCurrentUser,
-  initialPosts,
-  initialStories,
-  initialConversations,
-  initialReels,
-  userProfilePosts,
-  exploreGridItems,
 } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
 import { MobileHeader, MobileBottomNav } from './components/MobileNav';
@@ -34,13 +28,10 @@ import { LegalPoliciesModal } from './components/LegalPoliciesModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
-import { CheckCircle, Plus, Search, ArrowLeft, Check } from 'lucide-react';
+import { CheckCircle, Plus, Search, ArrowLeft, Check, RefreshCw } from 'lucide-react';
 import { SupportedLanguage, translations } from './translations';
 import { recommendationEngine, inferCategory, inferLanguage } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
-import { adMobService, ADMOB_CONFIG } from './services/adMobService';
-import { AdMobBannerAd } from './components/AdMobBannerAd';
-import { AdMobNativeFeedAd } from './components/AdMobNativeFeedAd';
 import { SplashScreen } from './components/SplashScreen';
 import {
   UGCCommunityGuidelinesModal,
@@ -58,6 +49,8 @@ import {
   syncUserProfile,
   getUserProfile,
   savePostToFirestore,
+  deletePostFromFirestore,
+  decrementUserPostsCount,
   toggleLikeInFirestore,
   logOutFirebase,
   testConnection,
@@ -89,9 +82,8 @@ export default function App() {
   });
 
   const [isGuestMode, setIsGuestMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('jhalak_guest_mode');
-    // New users start at the Welcome screen to enter their own name / creator profile
-    return saved !== null ? saved === 'true' : false;
+    // Guest Mode is enabled by default so users can open the app and watch Reels immediately without logging in
+    return true;
   });
 
   const [isGoogleAuthModalOpen, setIsGoogleAuthModalOpen] = useState(false);
@@ -224,142 +216,55 @@ export default function App() {
 
   const [posts, setPosts] = useState<Post[]>(() => {
     try {
-      // 1. Get all user uploaded posts across all profile storage sources
-      const postMap = new Map<string, Post>();
-
-      const checkKeys = [
-        'jhalak_uploaded_posts_v1',
-        'jhalak_user_posts',
-        'ig_user_posts_user-me',
-        'ig_user_posts_brijmohan',
-      ];
-
-      // Also read from saved current user profile
-      try {
-        const userSaved = localStorage.getItem('ig_current_user');
-        if (userSaved) {
-          const u = JSON.parse(userSaved);
-          if (u) {
-            (u.userPosts || u.posts || []).forEach((p: Post) => {
-              if (p && p.id) postMap.set(p.id, p);
-            });
-            if (u.id) checkKeys.push(`ig_user_posts_${u.id}`);
-            if (u.username) checkKeys.push(`ig_user_posts_${u.username}`);
-          }
-        }
-      } catch {
-        // safe
-      }
-
-      checkKeys.forEach((key) => {
-        try {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const list = JSON.parse(raw);
-            if (Array.isArray(list)) {
-              list.forEach((p: Post) => {
-                if (p && p.id) postMap.set(p.id, p);
-              });
-            }
-          }
-        } catch {
-          // safe
-        }
-      });
-
-      // 2. Get saved feed posts, filtering out legacy generic placeholder city items or old preloaded items
-      const legacyDummyIds = new Set([
-        'post-1', 'post-2', 'post-3', 'post-4', 'post-5', 'post-6', 'post-7', 'post-8',
-        'post-bhojpuri-1', 'post-bhojpuri-2', 'post-bhojpuri-3', 'post-bhojpuri-4',
-        'post-bhojpuri-5', 'post-bhojpuri-6', 'post-bhojpuri-7', 'post-bhojpuri-8'
-      ]);
-      const feedSaved = localStorage.getItem('ig_feed_posts');
-      let feedList: Post[] = [];
-      if (feedSaved) {
-        const parsedFeed = JSON.parse(feedSaved);
-        if (Array.isArray(parsedFeed)) {
-          feedList = parsedFeed.filter((p: Post) => !legacyDummyIds.has(p.id));
+      // Strictly load only real user-created posts; all mock and dummy posts are deleted
+      const raw = localStorage.getItem('jhalak_uploaded_posts_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (p: Post) =>
+              p &&
+              p.id &&
+              !p.id.startsWith('dummy-') &&
+              !p.id.startsWith('post-bhojpuri-') &&
+              !p.id.match(/^post-[0-9]+$/)
+          );
         }
       }
-
-      // 3. Combine: User-uploaded posts first, followed by feed list
-      feedList.forEach((p) => {
-        if (!postMap.has(p.id)) {
-          postMap.set(p.id, p);
-        }
-      });
-
-      // 4. Always seed the entertaining Bhojpuri initialPosts
-      initialPosts.forEach((p) => {
-        if (!postMap.has(p.id)) {
-          postMap.set(p.id, p);
-        }
-      });
-
-      return Array.from(postMap.values());
     } catch {
-      return initialPosts;
+      // safe
     }
+    return [];
   });
 
   const [reels, setReels] = useState<Reel[]>(() => {
     try {
-      const uploadedSaved = localStorage.getItem('jhalak_uploaded_reels_v1');
-      let uploadedList: Reel[] = [];
-      if (uploadedSaved) {
-        const parsed = JSON.parse(uploadedSaved);
-        if (Array.isArray(parsed)) uploadedList = parsed;
-      }
-
-      const legacyReelIds = new Set(['reel-1', 'reel-2', 'reel-3', 'reel-4', 'reel-5', 'reel-6', 'reel-7', 'reel-8']);
-      const saved = localStorage.getItem('ig_reels');
-      let savedList: Reel[] = [];
-      if (saved) {
-        const parsed = JSON.parse(saved);
+      // Strictly load only real user-created reels; all mock and dummy reels are deleted
+      const raw = localStorage.getItem('jhalak_uploaded_reels_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          savedList = parsed.filter((r: Reel) => !legacyReelIds.has(r.id));
+          return parsed.filter(
+            (r: Reel) =>
+              r &&
+              r.id &&
+              !r.id.startsWith('dummy-') &&
+              !r.id.startsWith('reel-bhojpuri-') &&
+              !r.id.match(/^reel-[0-9]+$/)
+          );
         }
       }
-
-      const reelMap = new Map<string, Reel>();
-      uploadedList.forEach((r) => reelMap.set(r.id, r));
-      savedList.forEach((r) => {
-        if (!reelMap.has(r.id)) reelMap.set(r.id, r);
-      });
-
-      // Always seed and refresh initialReels with reliable MP4 video URLs
-      const initialMap = new Map(initialReels.map((r) => [r.id, r]));
-      initialReels.forEach((r) => {
-        reelMap.set(r.id, r);
-      });
-
-      return Array.from(reelMap.values()).map((r) => {
-        // Automatically migrate any legacy stored reel with broken commondatastorage link
-        if (r.videoUrl && r.videoUrl.includes('commondatastorage.googleapis.com')) {
-          const fresh = initialMap.get(r.id);
-          return {
-            ...r,
-            videoUrl: fresh ? fresh.videoUrl : 'https://media.w3.org/2010/05/sintel/trailer.mp4',
-          };
-        }
-        return r;
-      });
     } catch {
-      return initialReels;
+      // safe
     }
+    return [];
   });
 
   const [stories, setStories] = useState<StoryGroup[]>(() => {
     try {
-      const saved = localStorage.getItem('ig_stories');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // ignore corrupted data
-    }
-    return initialStories;
+      localStorage.removeItem('ig_stories');
+    } catch {}
+    return [];
   });
 
   const [conversations, setConversations] = useState<Conversation[]>(() => {
@@ -372,7 +277,7 @@ export default function App() {
     } catch {
       // ignore corrupted data
     }
-    return initialConversations;
+    return [];
   });
 
   // Modals & Overlays state
@@ -388,6 +293,16 @@ export default function App() {
   const [sharePost, setSharePost] = useState<Post | null>(null);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null);
+  const activeCommentsPost = useMemo(
+    () => posts.find((p) => p.id === activeCommentsPostId) || null,
+    [posts, activeCommentsPostId]
+  );
+
+  // Pull-to-refresh and swipe gesture states
+  const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
+  const [pullProgress, setPullProgress] = useState(0);
+  const touchStartPosRef = React.useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
+
   const [reportTarget, setReportTarget] = useState<{
     id: string;
     type: 'post' | 'reel';
@@ -416,19 +331,6 @@ export default function App() {
   } | null>(null);
 
   const t = translations[currentLanguage];
-
-  // Auto-restore preloaded posts and reels if feed becomes empty
-  useEffect(() => {
-    if (posts.length === 0) {
-      setPosts(initialPosts);
-    }
-  }, [posts.length]);
-
-  useEffect(() => {
-    if (reels.length === 0) {
-      setReels(initialReels);
-    }
-  }, [reels.length]);
 
   // Subscribe to moderation changes
   useEffect(() => {
@@ -473,56 +375,109 @@ export default function App() {
       }
     });
 
+    // Clean out old legacy mock caches
+    try {
+      localStorage.removeItem('ig_feed_posts');
+      localStorage.removeItem('ig_reels');
+      localStorage.removeItem('ig_explore_posts');
+    } catch {
+      // safe
+    }
+
     // 3. Subscribe to Real-Time Cloud Firestore Posts
     const unsubscribePosts = subscribeToFirestorePosts((livePosts) => {
-      if (livePosts && livePosts.length > 0) {
-        setPosts((prev) => {
-          const postMap = new Map<string, Post>();
-          livePosts.forEach((lp) => postMap.set(lp.id, lp));
-          prev.forEach((p) => {
-            if (!postMap.has(p.id)) {
-              postMap.set(p.id, p);
-            }
-          });
-          return Array.from(postMap.values());
-        });
+      const realLive = (livePosts || []).filter(
+        (lp) =>
+          lp &&
+          lp.id &&
+          !lp.id.startsWith('dummy-') &&
+          !lp.id.startsWith('post-bhojpuri-') &&
+          !lp.id.match(/^post-[0-9]+$/)
+      );
 
-        // Also merge video posts into Reels
-        const videoPosts = livePosts.filter((lp) => lp.mediaType === 'video');
-        if (videoPosts.length > 0) {
-          setReels((prev) => {
-            const reelMap = new Map<string, Reel>();
-            videoPosts.forEach((vp) => {
-              reelMap.set(`reel-${vp.id}`, {
-                id: `reel-${vp.id}`,
-                userId: vp.userId,
-                username: vp.username,
-                userAvatar: vp.userAvatar,
-                videoUrl: vp.mediaUrl,
-                thumbnailUrl: vp.thumbnailUrl,
-                caption: vp.caption,
-                category: vp.category,
-                audioTitle: vp.audioTitle || 'Original Audio',
-                audioArtist: vp.username,
-                likesCount: vp.likesCount || 0,
-                commentsCount: (vp.comments || []).length,
-                sharesCount: 0,
-                isLiked: false,
-                isSaved: false,
-                comments: vp.comments || [],
-                tags: vp.tags || [],
-                timestamp: vp.timestamp || 'Recently',
-                createdAt: vp.createdAt,
-                isUserCreated: true,
-              });
-            });
-            prev.forEach((r) => {
-              if (!reelMap.has(r.id)) reelMap.set(r.id, r);
-            });
-            return Array.from(reelMap.values());
-          });
+      // Also merge any real local session uploads
+      let localUploads: Post[] = [];
+      try {
+        const raw = localStorage.getItem('jhalak_uploaded_posts_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            localUploads = parsed.filter(
+              (p: Post) =>
+                p &&
+                p.id &&
+                !p.id.startsWith('dummy-') &&
+                !p.id.startsWith('post-bhojpuri-') &&
+                !p.id.match(/^post-[0-9]+$/)
+            );
+          }
         }
+      } catch {
+        // safe
       }
+
+      const postMap = new Map<string, Post>();
+      realLive.forEach((lp) => postMap.set(lp.id, lp));
+      localUploads.forEach((up) => {
+        if (!postMap.has(up.id)) postMap.set(up.id, up);
+      });
+
+      const finalPosts = Array.from(postMap.values());
+      setPosts(finalPosts);
+
+      // Also merge video posts into Reels
+      const videoPosts = finalPosts.filter((lp) => lp.mediaType === 'video');
+      const mappedReels: Reel[] = videoPosts.map((vp) => ({
+        id: `reel-${vp.id}`,
+        userId: vp.userId,
+        username: vp.username,
+        userAvatar: vp.userAvatar,
+        videoUrl: vp.mediaUrl,
+        thumbnailUrl: vp.thumbnailUrl,
+        caption: vp.caption,
+        category: vp.category,
+        audioTitle: vp.audioTitle || 'Original Audio',
+        audioArtist: vp.username,
+        likesCount: vp.likesCount || 0,
+        commentsCount: (vp.comments || []).length,
+        sharesCount: 0,
+        isLiked: false,
+        isSaved: false,
+        comments: vp.comments || [],
+        tags: vp.tags || [],
+        timestamp: vp.timestamp || 'Recently',
+        createdAt: vp.createdAt,
+        isUserCreated: true,
+      }));
+
+      // Also check local reel uploads
+      let localReels: Reel[] = [];
+      try {
+        const rawReels = localStorage.getItem('jhalak_uploaded_reels_v1');
+        if (rawReels) {
+          const parsed = JSON.parse(rawReels);
+          if (Array.isArray(parsed)) {
+            localReels = parsed.filter(
+              (r: Reel) =>
+                r &&
+                r.id &&
+                !r.id.startsWith('dummy-') &&
+                !r.id.startsWith('reel-bhojpuri-') &&
+                !r.id.match(/^reel-[0-9]+$/)
+            );
+          }
+        }
+      } catch {
+        // safe
+      }
+
+      const reelMap = new Map<string, Reel>();
+      mappedReels.forEach((r) => reelMap.set(r.id, r));
+      localReels.forEach((lr) => {
+        if (!reelMap.has(lr.id)) reelMap.set(lr.id, lr);
+      });
+
+      setReels(Array.from(reelMap.values()));
     });
 
     return () => {
@@ -569,6 +524,86 @@ export default function App() {
     showToast(`Language switched to ${translations[lang].language}`);
   };
 
+  // Gesture Handling: Right-to-Left Swipe from Home to Reels & Pull-To-Refresh
+  const handleHomeTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartPosRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        time: Date.now(),
+      };
+    }
+  };
+
+  const handleHomeTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      const currentY = e.touches[0].clientY;
+      const currentX = e.touches[0].clientX;
+      const deltaY = currentY - touchStartPosRef.current.y;
+      const deltaX = currentX - touchStartPosRef.current.x;
+      const isAtTop = window.scrollY <= 5;
+
+      if (isAtTop && deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX) && !isRefreshingFeed) {
+        setPullProgress(Math.min(deltaY / 70, 1));
+      } else if (pullProgress > 0) {
+        setPullProgress(0);
+      }
+    }
+  };
+
+  const handleHomeTouchEnd = (e: React.TouchEvent) => {
+    if (e.changedTouches.length === 1) {
+      const endX = e.changedTouches[0].clientX;
+      const endY = e.changedTouches[0].clientY;
+      const deltaX = endX - touchStartPosRef.current.x;
+      const deltaY = endY - touchStartPosRef.current.y;
+
+      // 1. Right-to-left swipe from Home to open Reels (deltaX < -65, predominantly horizontal)
+      if (deltaX < -65 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+        setPullProgress(0);
+        setCurrentTab('reels');
+        return;
+      }
+
+      // 2. Pull-to-refresh on Home feed to load latest posts (deltaY > 55, predominantly vertical, at top)
+      const isAtTop = window.scrollY <= 10;
+      if (isAtTop && deltaY > 55 && Math.abs(deltaY) > Math.abs(deltaX) && !isRefreshingFeed) {
+        setIsRefreshingFeed(true);
+        setPullProgress(1);
+        handleRefreshHomeFeed();
+      } else {
+        setPullProgress(0);
+      }
+    }
+  };
+
+  const handleRefreshHomeFeed = async () => {
+    try {
+      await testConnection();
+      const unsubscribe = subscribeToFirestorePosts((livePosts) => {
+        if (livePosts && livePosts.length > 0) {
+          setPosts((prev) => {
+            const postMap = new Map<string, Post>();
+            livePosts.forEach((lp) => postMap.set(lp.id, lp));
+            prev.forEach((p) => {
+              if (!postMap.has(p.id)) postMap.set(p.id, p);
+            });
+            return Array.from(postMap.values());
+          });
+        }
+        if (unsubscribe) unsubscribe();
+      });
+      showToast('Feed refreshed with latest posts! 🔄');
+    } catch {
+      showToast('Feed refreshed! 🔄');
+    } finally {
+      setTimeout(() => {
+        setIsRefreshingFeed(false);
+        setPullProgress(0);
+      }, 600);
+    }
+  };
+
   // Sync dark mode class on <html>
   useEffect(() => {
     if (darkMode) {
@@ -592,8 +627,7 @@ export default function App() {
   useEffect(() => {
     try {
       safeSetItem('ig_feed_posts', JSON.stringify(posts));
-    } catch (err) {
-      console.warn('Failed to persist feed posts:', err);
+    } catch {
       showToast('⚠️ Storage quota exceeded. Recent posts may not be saved locally.');
     }
   }, [posts]);
@@ -602,8 +636,7 @@ export default function App() {
   useEffect(() => {
     try {
       safeSetItem('ig_reels', JSON.stringify(reels));
-    } catch (err) {
-      console.warn('Failed to persist reels:', err);
+    } catch {
       showToast('⚠️ Storage quota exceeded. Recent reels may not be saved locally.');
     }
   }, [reels]);
@@ -620,8 +653,7 @@ export default function App() {
           safeSetItem('jhalak_uploaded_posts_v1', JSON.stringify(postsToSync));
         }
       }
-    } catch (err) {
-      console.warn('Failed to persist profile/avatar:', err);
+    } catch {
       showToast('⚠️ Storage quota exceeded. Profile changes may not be saved locally.');
     }
   }, [currentUser]);
@@ -630,8 +662,7 @@ export default function App() {
   useEffect(() => {
     try {
       safeSetItem('ig_conversations', JSON.stringify(conversations));
-    } catch (err) {
-      console.warn('Failed to persist messages:', err);
+    } catch {
       showToast('⚠️ Storage quota exceeded. Messages may not be saved locally.');
     }
   }, [conversations]);
@@ -640,8 +671,7 @@ export default function App() {
   useEffect(() => {
     try {
       safeSetItem('ig_stories', JSON.stringify(stories));
-    } catch (err) {
-      console.warn('Failed to persist stories:', err);
+    } catch {
       showToast('⚠️ Storage quota exceeded. Stories may not be saved locally.');
     }
   }, [stories]);
@@ -856,16 +886,25 @@ export default function App() {
     return recommendationEngine.sortPosts(cleanPosts, currentLanguage);
   }, [posts, blockedVersion, currentLanguage, recsVersion]);
 
-  const [hiddenAdsVersion, setHiddenAdsVersion] = useState(0);
-
-  // Interleave 1 AdMob/Native ad card after every 2 feed posts/videos (index % 2 === 1)
-  const feedItemsWithAds = useMemo(() => {
-    return adMobService.insertNativeAds(
-      sortedFeedPosts,
-      adMobService.getNativeFeedAds(),
-      2
-    );
-  }, [sortedFeedPosts, hiddenAdsVersion]);
+  // Derive real suggested creators from posts (no mock users)
+  const suggestedCreators = useMemo(() => {
+    const creatorMap = new Map<
+      string,
+      { id: string; username: string; name?: string; avatar: string; subtitle?: string }
+    >();
+    posts.forEach((p) => {
+      if (p.username && p.username !== currentUser.username && !creatorMap.has(p.username)) {
+        creatorMap.set(p.username, {
+          id: p.userId || p.username,
+          username: p.username,
+          name: p.username,
+          avatar: p.userAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          subtitle: `Shared ${p.category || 'Reels'}`,
+        });
+      }
+    });
+    return Array.from(creatorMap.values()).slice(0, 5);
+  }, [posts, currentUser.username]);
 
   // Clean Reels filtered against Blocked creators and Reported content
   const unblockedReels = useMemo(() => {
@@ -943,37 +982,50 @@ export default function App() {
 
   const handleAdminDeletePostPermanently = (id: string) => {
     moderationService.deletePostPermanently(id);
+    deletePostFromFirestore(id).catch(() => {});
     setPosts((prev) => prev.filter((p) => p.id !== id));
     setReels((prev) => prev.filter((r) => r.id !== id));
     setBlockedVersion((v) => v + 1);
-    showToast('Post permanently deleted from Jhalak. 🗑️');
+    showToast('Post permanently deleted from Firestore & Jhalak. 🗑️');
   };
 
   const handleDeletePost = (postId: string) => {
-    moderationService.deletePostPermanently(postId);
+    if (!postId) return;
+
+    // 1. Immediately remove from active state synchronously
     setPosts((prev) => prev.filter((p) => p.id !== postId));
     setReels((prev) => prev.filter((r) => r.id !== postId));
     setBlockedVersion((v) => v + 1);
 
-    const profileKeyById = `ig_user_posts_${currentUser.id}`;
+    // 2. Clear from all possible localStorage stores
     try {
-      const stored = localStorage.getItem(profileKeyById);
-      if (stored) {
-        const parsed: Post[] = JSON.parse(stored);
-        localStorage.setItem(profileKeyById, JSON.stringify(parsed.filter((p) => p.id !== postId)));
-      }
-      const legacyMe = localStorage.getItem('ig_user_posts_user-me');
-      if (legacyMe) {
-        const parsed: Post[] = JSON.parse(legacyMe);
-        localStorage.setItem('ig_user_posts_user-me', JSON.stringify(parsed.filter((p) => p.id !== postId)));
-      }
-      const legacyReels = localStorage.getItem('jhalak_uploaded_reels_v1');
-      if (legacyReels) {
-        const parsed: Reel[] = JSON.parse(legacyReels);
-        localStorage.setItem('jhalak_uploaded_reels_v1', JSON.stringify(parsed.filter((r) => r.id !== postId)));
-      }
+      const targetUserId = currentUser?.id || '';
+      const targetUsername = currentUser?.username || '';
+      const keysToClean = [
+        `ig_user_posts_${targetUserId}`,
+        `ig_user_posts_${targetUsername}`,
+        'ig_user_posts_user-me',
+        'ig_user_posts_brijmohan',
+        'ig_user_posts_brijmohan83097',
+        'jhalak_uploaded_posts_v1',
+        'jhalak_uploaded_reels_v1',
+        'ig_posts',
+        'ig_feed_posts',
+      ];
+      keysToClean.forEach((k) => {
+        const stored = localStorage.getItem(k);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(k, JSON.stringify(parsed.filter((p: any) => p && p.id !== postId)));
+            }
+          } catch {}
+        }
+      });
     } catch {}
 
+    // 3. Immediately update currentUser posts and postsCount
     setCurrentUser((prev) => {
       const updatedUserPosts = (prev.userPosts || prev.posts || []).filter((p) => p.id !== postId);
       return {
@@ -984,14 +1036,26 @@ export default function App() {
       };
     });
 
+    // 4. Immediately close any open full screen viewer or post detail modal
     if (selectedPostDetail && selectedPostDetail.id === postId) {
       setSelectedPostDetail(null);
     }
-    if (fullScreenViewerState && fullScreenViewerState.initialPostId === postId) {
+    if (fullScreenViewerState) {
       setFullScreenViewerState(null);
     }
 
-    showToast('Post permanently deleted. 🗑️');
+    // 5. Update moderation service state
+    try {
+      moderationService.deletePostPermanently(postId);
+    } catch {}
+
+    // 6. Safe background Firestore permanent deletion
+    deletePostFromFirestore(postId).catch(() => {});
+    if (currentUser?.id) {
+      decrementUserPostsCount(currentUser.id).catch(() => {});
+    }
+
+    showToast('Post removed successfully. 🗑️');
   };
 
   const handleAdminBanUser = (username: string) => {
@@ -1015,7 +1079,7 @@ export default function App() {
     const userIdToDelete = currentUser.id;
 
     // Purge user's posts and comments from remaining posts
-    const purgedPosts = initialPosts
+    const purgedPosts = posts
       .filter((p) => p.username !== usernameToDelete && p.userId !== userIdToDelete)
       .map((p) => ({
         ...p,
@@ -1025,7 +1089,7 @@ export default function App() {
       }));
 
     // Purge user's reels and comments from reels
-    const purgedReels = initialReels
+    const purgedReels = reels
       .filter((r) => r.username !== usernameToDelete && r.userId !== userIdToDelete)
       .map((r) => ({
         ...r,
@@ -1035,12 +1099,12 @@ export default function App() {
       }));
 
     // Purge user's stories
-    const purgedStories = initialStories.filter(
+    const purgedStories = stories.filter(
       (s) => s.username !== usernameToDelete && s.userId !== userIdToDelete
     );
 
     // Purge user's conversations
-    const purgedConversations = initialConversations.filter(
+    const purgedConversations = conversations.filter(
       (c) => c.user.username !== usernameToDelete && c.user.id !== userIdToDelete
     );
 
@@ -1086,9 +1150,9 @@ export default function App() {
     setStories(purgedStories);
     setConversations(purgedConversations);
 
-    // Log out user & redirect to welcome screen
+    // Log out user & redirect to home feed in guest mode
     setIsAuthenticated(false);
-    setIsGuestMode(false); // Directs app to GoogleWelcomeScreen
+    setIsGuestMode(true);
     setCurrentTab('home');
 
     // Close any open modals
@@ -1105,6 +1169,16 @@ export default function App() {
     setReportTarget(null);
 
     showToast('Your account and all associated personal data have been permanently deleted.');
+  };
+
+  // Tab change handler enforcing Guest Mode authentication gate for Profile
+  const handleTabChange = (tab: NavTab) => {
+    if (tab === 'profile' && !isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to view your profile 👤');
+      return;
+    }
+    setCurrentTab(tab);
   };
 
   // Open Create Post Modal (prompting sign-in if guest & UGC compliance consent)
@@ -1191,7 +1265,7 @@ export default function App() {
     setPosts((prev) => [stampedPost, ...prev.filter((p) => p.id !== stampedPost.id)]);
 
     // Save to real Cloud Firestore database
-    savePostToFirestore(stampedPost).catch((err) => console.warn('Firestore save notice:', err));
+    savePostToFirestore(stampedPost).catch(() => {});
 
     // Record interaction so the category gets an immediate boost
     recommendationEngine.recordInteraction(inferredCat, 'boost', stampedPost.id);
@@ -1223,8 +1297,8 @@ export default function App() {
       safeSetItem('ig_current_user', JSON.stringify(updatedUser));
       safeSetItem(`ig_user_profile_${currentUser.id}`, JSON.stringify(updatedUser));
       safeSetItem(profileKeyById, JSON.stringify(updatedProfilePosts));
-    } catch (err) {
-      console.warn('Failed to save uploaded post under profile:', err);
+    } catch {
+      // safe
     }
 
     // Update currentUser state
@@ -1251,8 +1325,8 @@ export default function App() {
         const existingReels: Reel[] = existingReelsStr ? JSON.parse(existingReelsStr) : [];
         const updatedReels = [stampedReel, ...existingReels.filter((r) => r.id !== stampedReel.id)];
         safeSetItem('jhalak_uploaded_reels_v1', JSON.stringify(updatedReels));
-      } catch (err) {
-        console.warn('Failed to save uploaded reel permanently:', err);
+      } catch {
+        // safe
       }
     }
 
@@ -1566,7 +1640,7 @@ export default function App() {
       avatar: updatedUser.avatar,
       followersCount: updatedUser.followersCount,
       watchHours: updatedUser.watchHours,
-    }).catch(console.warn);
+    }).catch(() => {});
 
     // Fetch existing real Firestore profile if already saved
     getUserProfile(newUserId).then((remoteProfile) => {
@@ -1586,18 +1660,20 @@ export default function App() {
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    setIsGuestMode(false);
+    setIsGuestMode(true);
     setIsSettingsModalOpen(false);
-    logOutFirebase().catch(console.warn);
+    logOutFirebase().catch(() => {});
     try {
       localStorage.removeItem('ig_current_user_id');
       localStorage.removeItem('ig_current_user');
       safeSetItem('jhalak_auth_state', 'false');
-      safeSetItem('jhalak_guest_mode', 'false');
+      safeSetItem('jhalak_guest_mode', 'true');
     } catch {
       // quota handled
     }
-    showToast('Signed out successfully. Welcome back anytime!');
+    setCurrentUser(initialCurrentUser);
+    setCurrentTab('home');
+    showToast('Signed out. You are now browsing as Guest.');
   };
 
   const handleExploreAsGuest = (guestName?: string) => {
@@ -1728,6 +1804,11 @@ export default function App() {
   // View User Profile handler
   const handleViewUser = (username: string) => {
     if (username === currentUser.username) {
+      if (!isAuthenticated) {
+        setIsGoogleAuthModalOpen(true);
+        showToast('Sign in with Google to view your profile 👤');
+        return;
+      }
       setCurrentTab('profile');
     } else {
       showToast(`Viewing @${username}'s posts in Explore`);
@@ -1816,8 +1897,8 @@ export default function App() {
   const savedPosts = posts.filter((p) => p.isSaved);
   const totalUnreadMessages = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
 
-  // Combine explore items and feed items for a rich explore grid
-  const allExploreItems = [...exploreGridItems, ...posts];
+  // Real Explore items from Firebase / uploaded posts
+  const allExploreItems = posts;
 
   // If not logged in and not in guest mode, show the realistic Google Welcome & Sign-In Screen
   if (!isAuthenticated && !isGuestMode) {
@@ -1922,7 +2003,7 @@ export default function App() {
         {/* Left Sidebar (Desktop & Tablet) */}
         <Sidebar
           currentTab={currentTab}
-          onTabChange={setCurrentTab}
+          onTabChange={handleTabChange}
           currentUser={currentUser}
           unreadMessagesCount={totalUnreadMessages}
           darkMode={darkMode}
@@ -1951,7 +2032,7 @@ export default function App() {
           {/* Mobile Top Header (only on mobile) */}
           <MobileHeader
             currentTab={currentTab}
-            onTabChange={setCurrentTab}
+            onTabChange={handleTabChange}
             currentUser={currentUser}
             unreadMessagesCount={totalUnreadMessages}
             darkMode={darkMode}
@@ -1975,16 +2056,42 @@ export default function App() {
 
           {/* Tab 1: HOME FEED */}
           {currentTab === 'home' && (
-            <div className="flex justify-center w-full max-w-6xl mx-auto px-0 sm:px-4 py-0 md:py-6">
+            <div
+              id="home-feed-scroll-container"
+              onTouchStart={handleHomeTouchStart}
+              onTouchMove={handleHomeTouchMove}
+              onTouchEnd={handleHomeTouchEnd}
+              className="flex justify-center w-full max-w-6xl mx-auto px-0 sm:px-4 py-0 md:py-6 touch-pan-y"
+            >
               {/* Feed Column */}
               <div className="w-full max-w-[470px] sm:max-w-[540px] flex flex-col">
-                {/* Stories Row */}
-                <StoriesBar
-                  stories={stories}
-                  currentUser={currentUser}
-                  onOpenStory={(index) => setActiveStoryIndex(index)}
-                  onAddStory={handleAddStory}
-                />
+                {/* Pull to Refresh Indicator */}
+                {(pullProgress > 0 || isRefreshingFeed) && (
+                  <div
+                    id="pull-to-refresh-indicator"
+                    className="flex items-center justify-center py-2 transition-all duration-200"
+                    style={{
+                      opacity: Math.max(pullProgress, isRefreshingFeed ? 1 : 0),
+                      transform: `scale(${Math.max(0.85, pullProgress)})`,
+                    }}
+                  >
+                    <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-md text-xs font-semibold text-rose-500">
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${isRefreshingFeed ? 'animate-spin' : ''}`}
+                        style={{
+                          transform: !isRefreshingFeed ? `rotate(${pullProgress * 360}deg)` : undefined,
+                        }}
+                      />
+                      <span>
+                        {isRefreshingFeed
+                          ? 'Refreshing feed...'
+                          : pullProgress >= 1
+                          ? 'Release to refresh'
+                          : 'Pull down to refresh'}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Posts Feed */}
                 <div className="mt-2 md:mt-4 space-y-2">
@@ -2012,46 +2119,37 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    feedItemsWithAds.map((item) => {
-                      if (adMobService.isAdItem(item)) {
-                        return (
-                          <AdMobNativeFeedAd
-                            key={item.id}
-                            ad={item}
-                            onHideAd={(adId) => {
-                              adMobService.hideAd(adId);
-                              setHiddenAdsVersion((v) => v + 1);
-                              showToast('Ad hidden');
-                            }}
-                          />
-                        );
-                      }
-                      const post = item as Post;
-                      return (
-                        <FeedPostCard
-                          key={post.id}
-                          post={post}
-                          currentUser={currentUser}
-                          onToggleLike={handleToggleLike}
-                          onToggleSave={handleToggleSave}
-                          onAddComment={handleAddComment}
-                          onShare={(p) => {
-                            setSharePost(p);
-                            recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
-                          }}
-                          onOpenDetail={(p) => setSelectedPostDetail(p)}
-                          onOpenFullScreen={(p) => handleOpenFullScreen(p, sortedFeedPosts)}
-                          onOpenComments={(p) => setActiveCommentsPostId(p.id)}
-                          onViewUser={handleViewUser}
-                          onNotInterested={handleNotInterestedPost}
-                          onShowMore={handleShowMorePost}
-                          onReportPost={handleQuickReportPost}
-                          onBlockUser={handleUserBlocked}
-                          onDeletePost={handleDeletePost}
-                          currentLanguage={currentLanguage}
-                        />
-                      );
-                    })
+                    sortedFeedPosts.map((post) => (
+                      <FeedPostCard
+                        key={post.id}
+                        post={post}
+                        currentUser={currentUser}
+                        onToggleLike={handleToggleLike}
+                        onToggleSave={handleToggleSave}
+                        onAddComment={handleAddComment}
+                        onShare={(p) => {
+                          setSharePost(p);
+                          recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
+                        }}
+                        onOpenDetail={(p) => setSelectedPostDetail(p)}
+                        onOpenFullScreen={(p) => handleOpenFullScreen(p, sortedFeedPosts)}
+                        onOpenComments={(p) => {
+                          if (!isAuthenticated) {
+                            setIsGoogleAuthModalOpen(true);
+                            showToast('Sign in with Google to comment 💬');
+                            return;
+                          }
+                          setActiveCommentsPostId(p.id);
+                        }}
+                        onViewUser={handleViewUser}
+                        onNotInterested={handleNotInterestedPost}
+                        onShowMore={handleShowMorePost}
+                        onReportPost={handleQuickReportPost}
+                        onBlockUser={handleUserBlocked}
+                        onDeletePost={handleDeletePost}
+                        currentLanguage={currentLanguage}
+                      />
+                    ))
                   )}
                 </div>
               </div>
@@ -2060,6 +2158,7 @@ export default function App() {
               <RightSuggestionsSidebar
                 currentUser={currentUser}
                 onViewUser={handleViewUser}
+                creators={suggestedCreators}
                 currentLanguage={currentLanguage}
               />
             </div>
@@ -2095,6 +2194,10 @@ export default function App() {
                   onBlockUser={(u) => handleUserBlocked(u)}
                   onDeleteReel={handleDeletePost}
                   onUploadReel={handleOpenCreateModal}
+                  onRequireAuth={(action) => {
+                    setIsGoogleAuthModalOpen(true);
+                    showToast(`Sign in with Google to ${action === 'like' ? 'like reels ❤️' : action === 'comment' ? 'comment on reels 💬' : 'upload reels 📸'}`);
+                  }}
                   currentLanguage={currentLanguage}
                 />
               </ErrorBoundary>
@@ -2119,30 +2222,28 @@ export default function App() {
               onOpenEditProfile={() => setIsEditProfileOpen(true)}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
               onSelectPost={(p) => handleOpenFullScreen(p, [...userPosts, ...savedPosts])}
+              onDeletePost={handleDeletePost}
               onOpenStoryModal={() => setActiveStoryIndex(0)}
               onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
+              onOpenLegalPolicies={() => {
+                setLegalModalTab('privacy');
+                setIsLegalModalOpen(true);
+              }}
+              onOpenAdminPanel={() => {
+                if (isSuperAdmin(currentUser)) {
+                  setIsAdminModDashboardOpen(true);
+                }
+              }}
               onLogout={handleLogout}
               currentLanguage={currentLanguage}
             />
           )}
         </main>
 
-        {/* Google AdMob Standard Bottom Banner Container (Fixed cleanly above bottom navigation) */}
-        {currentTab !== 'reels' && (
-          <div
-            id="admob-bottom-banner-fixed-container"
-            className="fixed bottom-[54px] md:bottom-2 inset-x-0 z-30 flex justify-center pointer-events-none px-3"
-          >
-            <div className="pointer-events-auto w-full max-w-md">
-              <AdMobBannerAd />
-            </div>
-          </div>
-        )}
-
         {/* Mobile Bottom Navigation Bar (only on mobile) */}
         <MobileBottomNav
           currentTab={currentTab}
-          onTabChange={setCurrentTab}
+          onTabChange={handleTabChange}
           currentUser={currentUser}
           unreadMessagesCount={totalUnreadMessages}
           darkMode={darkMode}
@@ -2298,29 +2399,25 @@ export default function App() {
       />
 
       {/* MODAL 8: Instagram Modern Mobile Bottom-Sheet Comments */}
-      {(() => {
-        const activePost = posts.find((p) => p.id === activeCommentsPostId);
-        if (!activePost) return null;
-        return (
-          <CommentsBottomSheet
-            isOpen={!!activePost}
-            onClose={() => setActiveCommentsPostId(null)}
-            comments={activePost.comments}
-            currentUser={currentUser}
-            targetAuthorUsername={activePost.username}
-            onAddComment={(text, mediaUrl, mediaType) => {
-              handleAddComment(activePost.id, text, mediaUrl, mediaType);
-            }}
-            onToggleCommentLike={(commentId) => {
-              handleToggleCommentLike(activePost.id, commentId);
-            }}
-            onViewUser={(username) => {
-              setActiveCommentsPostId(null);
-              handleViewUser(username);
-            }}
-          />
-        );
-      })()}
+      {activeCommentsPost && (
+        <CommentsBottomSheet
+          isOpen={true}
+          onClose={() => setActiveCommentsPostId(null)}
+          comments={activeCommentsPost.comments}
+          currentUser={currentUser}
+          targetAuthorUsername={activeCommentsPost.username}
+          onAddComment={(text, mediaUrl, mediaType) => {
+            handleAddComment(activeCommentsPost.id, text, mediaUrl, mediaType);
+          }}
+          onToggleCommentLike={(commentId) => {
+            handleToggleCommentLike(activeCommentsPost.id, commentId);
+          }}
+          onViewUser={(username) => {
+            setActiveCommentsPostId(null);
+            handleViewUser(username);
+          }}
+        />
+      )}
 
       {/* MODAL 9: Safety & Moderation (Report / Block) */}
       <ReportModal

@@ -88,7 +88,7 @@ const FILTER_PRESETS: FilterPreset[] = [
   },
 ];
 
-export type AudioTrack = BhojpuriTrack;
+export type AudioTrack = any;
 
 export const ReelsCamera: React.FC<ReelsCameraProps> = ({
   onCaptureVideo,
@@ -161,8 +161,8 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
       streamRef.current.getTracks().forEach((track) => {
         try {
           track.stop();
-        } catch (e) {
-          console.warn('Track stop error:', e);
+        } catch {
+          // ignore
         }
       });
       streamRef.current = null;
@@ -172,8 +172,8 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
       try {
         videoLiveRef.current.pause();
         videoLiveRef.current.srcObject = null;
-      } catch (e) {
-        console.warn('Live video element detachment error:', e);
+      } catch {
+        // ignore
       }
     }
 
@@ -182,8 +182,8 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
         videoPreviewRef.current.pause();
         videoPreviewRef.current.removeAttribute('src');
         videoPreviewRef.current.load();
-      } catch (e) {
-        console.warn('Preview video element detachment error:', e);
+      } catch {
+        // ignore
       }
     }
   }, []);
@@ -257,8 +257,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
           },
           audio: !isMicMuted ? { echoCancellation: true, noiseSuppression: true } : false,
         });
-      } catch (t1Err) {
-        console.warn('Camera Tier 1 failed, trying Tier 2 (720p with audio):', t1Err);
+      } catch {
         // Tier 2: Standard 720p resolution with audio
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -269,8 +268,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
             },
             audio: !isMicMuted,
           });
-        } catch (t2Err) {
-          console.warn('Camera Tier 2 failed, trying Tier 3 (video-only without audio):', t2Err);
+        } catch {
           // Tier 3: Standard 720p WITHOUT audio (in case microphone is in use, phone call, or mic permission denied)
           try {
             mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -282,8 +280,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
               audio: false,
             });
             micWorking = false;
-          } catch (t3Err) {
-            console.warn('Camera Tier 3 failed, trying Tier 4 (basic video):', t3Err);
+          } catch {
             // Tier 4: Basic facingMode video-only (no resolution constraints)
             try {
               mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -293,8 +290,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
                 audio: false,
               });
               micWorking = false;
-            } catch (t4Err) {
-              console.warn('Camera Tier 4 failed, trying Tier 5 (absolute minimal):', t4Err);
+            } catch {
               // Tier 5: Absolute minimal hardware constraint (any available sensor)
               mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: true,
@@ -316,12 +312,9 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
 
       if (videoLiveRef.current) {
         videoLiveRef.current.srcObject = mediaStream;
-        videoLiveRef.current.play().catch((playErr) => {
-          console.warn('Auto play video error:', playErr);
-        });
+        videoLiveRef.current.play().catch(() => {});
       }
     } catch (err: unknown) {
-      console.warn('Reels Camera access failed across all hardware tiers:', err);
       let errorMsg = 'Unable to access camera. Check device permissions or try uploading a video.';
 
       if (err instanceof DOMException || (typeof err === 'object' && err !== null && 'name' in err)) {
@@ -435,8 +428,8 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
           return thumbData;
         }
       }
-    } catch (e) {
-      console.warn('Failed to capture stream thumbnail:', e);
+    } catch {
+      // ignore
     }
     return null;
   };
@@ -483,7 +476,6 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
 
           // Hard safety limit: cap single reel recording buffer at 40MB
           if (recordedBytesRef.current >= MAX_RECORDING_BYTES) {
-            console.warn('Reel recording reached safe memory ceiling. Stopping recording to prevent OOM.');
             stopRecording();
           }
         }
@@ -525,8 +517,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
           return prev + 1;
         });
       }, 1000);
-    } catch (err) {
-      console.error('Failed to start MediaRecorder:', err);
+    } catch {
       setCameraError('Recording failed to initialize. Try choosing a video file instead.');
     }
   };
@@ -563,8 +554,8 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
       if (videoLiveRef.current) {
         videoLiveRef.current.pause();
       }
-    } catch (e) {
-      console.warn('Error terminating microphone tracks on recording stop:', e);
+    } catch {
+      // ignore
     }
   };
 
@@ -580,8 +571,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
           .then(() => {
             setIsPreviewPlaying(true);
           })
-          .catch((err) => {
-            console.warn('Unmuted autoplay prevented by browser policy, falling back to muted autoplay:', err);
+          .catch(() => {
             vid.muted = true;
             setIsPreviewMuted(true);
             vid.play().then(() => setIsPreviewPlaying(true)).catch(() => {});
@@ -613,7 +603,9 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
         recordedBlob,
         recordedVideoUrl,
         recordedThumbnail || undefined,
-        selectedAudio ? selectedAudio.title : undefined
+        selectedAudio
+          ? (selectedAudio.artist ? `${selectedAudio.title} • ${selectedAudio.artist}` : selectedAudio.title)
+          : undefined
       );
     }
   };

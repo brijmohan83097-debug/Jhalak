@@ -114,6 +114,13 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [selectedAudio, setSelectedAudio] = useState(
     initialSelectedAudio || 'Original Audio'
   );
+  const [selectedAudioTrack, setSelectedAudioTrack] = useState<{
+    id: string;
+    title: string;
+    artist: string;
+    audioUrl?: string;
+    coverUrl?: string;
+  } | null>(null);
   const [customAudio, setCustomAudio] = useState('');
   const [isCustomAudioActive, setIsCustomAudioActive] = useState(false);
   const [shareAsReel, setShareAsReel] = useState(true);
@@ -303,8 +310,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setSelectedMediaUrl(compressed);
           setThumbnailDataUrl(compressed);
           setStep('edit');
-        } catch (err) {
-          console.warn('Canvas compression fallback on image upload, using base64:', err);
+        } catch {
           try {
             const dataUrl = await fileToDataUrl(file);
             setSelectedMediaUrl(dataUrl);
@@ -378,8 +384,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setSelectedMediaUrl(compressed);
           setThumbnailDataUrl(compressed);
           setStep('edit');
-        } catch (err) {
-          console.warn('Canvas compression fallback on drop, using base64:', err);
+        } catch {
           try {
             const dataUrl = await fileToDataUrl(file);
             setSelectedMediaUrl(dataUrl);
@@ -499,6 +504,9 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       timestamp: 'Just now',
       filter: mediaType === 'image' ? selectedFilter : undefined,
       audioTitle: mediaType === 'video' ? finalAudioTitle : undefined,
+      audioArtist: mediaType === 'video' ? (selectedAudioTrack?.artist || (finalAudioTitle.includes('•') ? finalAudioTitle.split('•')[1].trim() : currentUser.username)) : undefined,
+      audioUrl: mediaType === 'video' ? selectedAudioTrack?.audioUrl : undefined,
+      audioCover: mediaType === 'video' ? selectedAudioTrack?.coverUrl : undefined,
       viewsCount: mediaType === 'video' ? 1 : undefined,
       productTag,
       createdAt: now,
@@ -518,7 +526,9 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         caption: caption.trim() || 'New Reel',
         category: parsedCategory,
         audioTitle: finalAudioTitle,
-        audioArtist: currentUser.username,
+        audioArtist: selectedAudioTrack?.artist || (finalAudioTitle.includes('•') ? finalAudioTitle.split('•')[1].trim() : currentUser.username),
+        audioUrl: selectedAudioTrack?.audioUrl,
+        audioCover: selectedAudioTrack?.coverUrl,
         likesCount: 0,
         commentsCount: 0,
         sharesCount: 0,
@@ -551,8 +561,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
               setPostingProgress(Math.max(15, Math.min(88, Math.round(15 + pct * 0.73))));
             }
           );
-        } catch (storageErr) {
-          console.warn('Firebase Storage upload notice, falling back to cached media URL:', storageErr);
+        } catch {
+          // Handled silently
         }
       }
 
@@ -566,8 +576,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       // Save post document to Cloud Firestore
       try {
         await savePostToFirestore(newPost);
-      } catch (firestoreErr) {
-        console.warn('Firestore save notice:', firestoreErr);
+      } catch {
+        // Handled silently
       }
 
       // Increment daily upload counter in Firestore & localStorage
@@ -585,8 +595,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         onPostCreated(newPost, newReel);
         onClose();
       }, 500);
-    } catch (err) {
-      console.warn('Post share pipeline notice:', err);
+    } catch {
       setPostingProgress(100);
       setPostingCompleted(true);
       recordDailyUpload(currentUser.id, uploadType);
@@ -878,6 +887,42 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     <span>Open Camera</span>
                   </button>
                 </div>
+
+                {/* Prominent '🎵 Add Music' feature button on upload screen for video / reels */}
+                {mediaType === 'video' && (
+                  <div className="w-full max-w-sm mt-4 pt-3 border-t border-neutral-200/80 dark:border-neutral-800">
+                    <button
+                      id="upload-add-music-prominent-btn"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsAudioSelectorOpen(true);
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white font-bold text-xs shadow-md flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+                    >
+                      <Music className="w-4 h-4 text-white animate-pulse" />
+                      <span>{selectedAudio ? `🎵 Attached: ${selectedAudio}` : '🎵 Add Music (Royalty-Free & Trending)'}</span>
+                    </button>
+                    {selectedAudio && (
+                      <div className="mt-1.5 flex items-center justify-between text-[11px] text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800/80 px-2.5 py-1 rounded-lg">
+                        <span className="truncate max-w-[220px] font-semibold text-rose-500">
+                          Track: {selectedAudio}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAudio(null);
+                          }}
+                          className="text-neutral-400 hover:text-rose-500 font-semibold transition"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1298,7 +1343,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       </ErrorBoundary>
     )}
 
-    {/* Dedicated Bhojpuri ReelsAudioSelector Modal */}
+    {/* Dedicated Bhojpuri & Pixabay ReelsAudioSelector Modal */}
     {isAudioSelectorOpen && (
       <ReelsAudioSelector
         isOpen={isAudioSelectorOpen}
@@ -1306,6 +1351,13 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         currentTrackTitle={selectedAudio}
         onSelectTrack={(track) => {
           setSelectedAudio(`${track.title} • ${track.artist}`);
+          setSelectedAudioTrack({
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            audioUrl: track.audioUrl || track.previewUrl,
+            coverUrl: track.coverUrl,
+          });
           setIsCustomAudioActive(false);
           setIsAudioSelectorOpen(false);
           if (onShowToast) {

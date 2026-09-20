@@ -43,19 +43,6 @@ interface FloatingHeart {
   emoji: string;
 }
 
-const SIMULATED_AUDIENCE_COMMENTS: Omit<LiveComment, 'id'>[] = [
-  { username: 'aarav_mumbai', text: 'Namaste Jhalak fam! 🔥' },
-  { username: 'priya_singh', text: 'Looking radiant today! ✨' },
-  { username: 'rohit_delhi', text: 'Sent ₹50 Shagun! 🎁 Keep inspiring!', isTip: true, tipAmount: 50 },
-  { username: 'sneha_art', text: 'Love from Jaipur ❤️ Big fan of your reels!' },
-  { username: 'kavita_24', text: 'Bhai audio choose karna kitna easy hai ab! 🎶' },
-  { username: 'vikram.vlogs', text: 'Great lighting setup bro! 👏' },
-  { username: 'desi_traveller', text: 'Hello from Himachal! 🏔️' },
-  { username: 'ananya_dance', text: 'Please dance on Chaleya once! 💃' },
-  { username: 'kabir_music', text: 'Sent ₹100 Shagun! 🌟 Super talent!', isTip: true, tipAmount: 100 },
-  { username: 'ritu_styles', text: 'Loved your fashion reel yesterday 😍' },
-];
-
 const HEART_COLORS = ['#ec4899', '#f43f5e', '#ef4444', '#f59e0b', '#8b5cf6', '#10b981'];
 const HEART_EMOJIS = ['❤️', '💖', '🔥', '✨', '💛', '🎉'];
 
@@ -70,16 +57,17 @@ export const GoLiveStudio: React.FC<GoLiveStudioProps> = ({
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [beautyFilter, setBeautyFilter] = useState(true);
 
-  // Live broadcast stats
+  // Live broadcast stats - Real counters starting at 0
   const [durationSeconds, setDurationSeconds] = useState(0);
-  const [viewerCount, setViewerCount] = useState(84);
-  const [peakViewers, setPeakViewers] = useState(84);
-  const [heartsCount, setHeartsCount] = useState(142);
-  const [totalShagun, setTotalShagun] = useState(150);
+  const [viewerCount, setViewerCount] = useState(1);
+  const [peakViewers, setPeakViewers] = useState(1);
+  const [heartsCount, setHeartsCount] = useState(0);
+  const [totalShagun, setTotalShagun] = useState(0);
+  const [showTipModal, setShowTipModal] = useState(false);
 
-  // Comments & Floating Hearts
+  // Real user and audience comments only
   const [comments, setComments] = useState<LiveComment[]>([
-    { id: '1', username: 'jhalak_official', text: 'Welcome to Jhalak Live! Be respectful & have fun 🌟' },
+    { id: '1', username: 'jhalak_official', text: 'Welcome to Jhalak Live Studio! Chat with real followers in real time 🌟' },
   ]);
   const [myCommentInput, setMyCommentInput] = useState('');
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
@@ -123,52 +111,16 @@ export const GoLiveStudio: React.FC<GoLiveStudioProps> = ({
     };
   }, [isFrontCamera, streamStage]);
 
-  // Broadcast timer & dynamic audience simulator
+  // Broadcast duration timer
   useEffect(() => {
     if (streamStage !== 'live') return;
 
-    // Timer
     const timer = setInterval(() => {
       setDurationSeconds((s) => s + 1);
     }, 1000);
 
-    // Natural Viewer Fluctuations
-    const viewerInterval = setInterval(() => {
-      setViewerCount((curr) => {
-        const delta = Math.floor(Math.random() * 7) - 2; // mostly increasing
-        const next = Math.max(12, curr + delta);
-        setPeakViewers((p) => Math.max(p, next));
-        return next;
-      });
-    }, 2500);
-
-    // Simulated comments coming in
-    let commentIndex = 0;
-    const commentInterval = setInterval(() => {
-      if (commentIndex < SIMULATED_AUDIENCE_COMMENTS.length) {
-        const nextComment = SIMULATED_AUDIENCE_COMMENTS[commentIndex];
-        setComments((prev) => [
-          ...prev.slice(-15),
-          { ...nextComment, id: `c-${Date.now()}-${commentIndex}` },
-        ]);
-
-        if (nextComment.isTip && nextComment.tipAmount) {
-          setTotalShagun((ts) => ts + (nextComment.tipAmount || 0));
-        }
-
-        // Spawn occasional hearts
-        spawnHearts(2);
-        commentIndex++;
-      } else {
-        // Loop back
-        commentIndex = 0;
-      }
-    }, 3800);
-
     return () => {
       clearInterval(timer);
-      clearInterval(viewerInterval);
-      clearInterval(commentInterval);
     };
   }, [streamStage]);
 

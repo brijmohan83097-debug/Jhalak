@@ -266,8 +266,8 @@ class RecommendationEngine {
     this.listeners.forEach((fn) => {
       try {
         fn();
-      } catch (err) {
-        console.error('Error in recommendation listener:', err);
+      } catch {
+        // Handled silently
       }
     });
   }

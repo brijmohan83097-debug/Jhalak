@@ -23,8 +23,8 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.warn('ErrorBoundary caught an error gracefully:', error, errorInfo);
+  public componentDidCatch() {
+    // Handled gracefully without console noise
   }
 
   private handleTryAgain = () => {

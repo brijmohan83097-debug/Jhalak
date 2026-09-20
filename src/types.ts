@@ -94,6 +94,9 @@ export interface Post {
   timestamp: string;
   filter?: string;
   audioTitle?: string;
+  audioArtist?: string;
+  audioUrl?: string;
+  audioCover?: string;
   viewsCount?: number;
   language?: string;
   productTag?: ProductTag;
@@ -114,6 +117,8 @@ export interface Reel {
   category?: ContentCategory;
   audioTitle: string;
   audioArtist?: string;
+  audioUrl?: string;
+  audioCover?: string;
   likesCount: number;
   commentsCount: number;
   sharesCount: number;

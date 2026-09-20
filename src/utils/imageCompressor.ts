@@ -248,8 +248,8 @@ export async function generateVideoThumbnail(
               return resolve(dataUrl);
             }
           }
-        } catch (e) {
-          console.warn('[generateVideoThumbnail] Canvas capture error, falling back:', e);
+        } catch {
+          // Canvas capture fallback
         }
 
         cleanup();
@@ -332,8 +332,7 @@ export async function processMediaFile(
       isVideo: false,
       wasCompressed: true,
     };
-  } catch (error) {
-    console.warn('[processMediaFile] Canvas compression failed, reading as standard DataURL:', error);
+  } catch {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = () => {

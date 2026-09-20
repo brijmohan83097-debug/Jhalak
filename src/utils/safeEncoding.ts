@@ -121,7 +121,7 @@ if (typeof window !== 'undefined') {
         }
       }
     };
-  } catch (err) {
-    console.warn('[safeEncoding] Could not attach global URI safeguards:', err);
+  } catch {
+    // Handled silently
   }
 }
