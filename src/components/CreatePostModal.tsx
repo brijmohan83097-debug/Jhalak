@@ -21,6 +21,11 @@ import {
   ShieldAlert,
   AlertTriangle,
   Loader2,
+  AlertCircle,
+  RefreshCw,
+  Link2,
+  CheckCircle2,
+  Globe,
 } from 'lucide-react';
 import { Post, User, Reel } from '../types';
 import { GoLiveStudio } from './GoLiveStudio';
@@ -31,6 +36,10 @@ import { moderationService } from '../services/moderationService';
 import { inferCategory } from '../services/recommendationEngine';
 import {
   compressImage,
+  compressImageToBlob,
+  compressVideoToBlob,
+  prepareMediaForUpload,
+  dataUrlToBlob,
   generateVideoThumbnail,
   createVideoFallbackDataUrl,
   fileToDataUrl,
@@ -40,15 +49,35 @@ import {
   hasUserConsentedToUGC,
 } from './UGCCommunityGuidelinesModal';
 import {
-  checkDailyLimit,
-  recordDailyUpload,
-} from '../services/monetizationService';
-import { DailyLimitModal } from './DailyLimitModal';
-import {
   uploadMediaToStorage,
   checkAndIncrementDailyUpload,
   savePostToFirestore,
+  verifyFirebaseConfig,
+  FirebaseDiagnosticStatus,
 } from '../services/firebase';
+
+export const SAMPLE_REEL_VIDEOS = [
+  {
+    title: 'Heritage & Festivals',
+    desc: 'Festive celebration & lights',
+    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+  },
+  {
+    title: 'Dance & Beats',
+    desc: 'Rhythm and motion reel',
+    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+  },
+  {
+    title: 'Nature & Serenity',
+    desc: 'Cinematic landscape capture',
+    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4',
+  },
+  {
+    title: 'Creative Reel Clip',
+    desc: 'High-speed showcase video',
+    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+  },
+];
 
 interface CreatePostModalProps {
   currentUser: User;
@@ -159,16 +188,18 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [postingProgress, setPostingProgress] = useState(0);
   const [postingCompleted, setPostingCompleted] = useState(false);
   const [pendingUploadFile, setPendingUploadFile] = useState<File | Blob | null>(null);
-  const [dailyLimitModalType, setDailyLimitModalType] = useState<'photo' | 'reel' | null>(null);
+  const [storageWarning, setStorageWarning] = useState<{
+    title: string;
+    message: string;
+    code?: string;
+    isStorageDown?: boolean;
+  } | null>(null);
+  const [directUrlInput, setDirectUrlInput] = useState('');
+  const [showDirectUrlBox, setShowDirectUrlBox] = useState(false);
+  const [isTestingStorage, setIsTestingStorage] = useState(false);
+  const [firebaseDiagnostics, setFirebaseDiagnostics] = useState<FirebaseDiagnosticStatus | null>(null);
 
   const handleRequestCamera = () => {
-    // Check 24-hour daily limit for reels (max 3 reels per 24 hours)
-    const limitStatus = checkDailyLimit(currentUser.id, 'reel');
-    if (!limitStatus.allowed) {
-      setDailyLimitModalType('reel');
-      return;
-    }
-
     if (!hasUserConsentedToUGC()) {
       setPendingActionAfterConsent('camera');
       setIsUgcConsentModalOpen(true);
@@ -178,14 +209,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   };
 
   const handleRequestUpload = () => {
-    // Check 24-hour daily limit for selected media type (max 3 reels or max 3 photos)
-    const targetType = mediaType === 'video' ? 'reel' : 'photo';
-    const limitStatus = checkDailyLimit(currentUser.id, targetType);
-    if (!limitStatus.allowed) {
-      setDailyLimitModalType(targetType);
-      return;
-    }
-
     if (!hasUserConsentedToUGC()) {
       setPendingActionAfterConsent('upload');
       setIsUgcConsentModalOpen(true);
@@ -270,13 +293,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     if (file) {
       setPendingUploadFile(file);
       const isVideo = file.type.startsWith('video/');
-      const uploadType = isVideo ? 'reel' : 'photo';
-      const limitStatus = checkDailyLimit(currentUser.id, uploadType);
-      if (!limitStatus.allowed) {
-        setDailyLimitModalType(uploadType);
-        if (e.target) e.target.value = '';
-        return;
-      }
 
       if (isVideo) {
         const objectUrl = URL.createObjectURL(file);
@@ -292,6 +308,11 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
         }
 
+        // Background compress video for fast Firebase Storage upload
+        compressVideoToBlob(file)
+          .then((vBlob) => setPendingUploadFile(vBlob))
+          .catch(() => {});
+
         // If video file is small (<= 1.8MB), convert video to persistent base64 data URL
         if (file.size <= 1.8 * 1024 * 1024) {
           try {
@@ -305,16 +326,18 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         setMediaType('image');
         setIsCompressingPhoto(true);
         try {
-          // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
-          const compressed = await compressImage(file, 800, 800, 0.7);
+          // Aggressively compress/resize image to max 800px width/height and JPEG 0.72 quality (~40-90KB)
+          const compressed = await compressImage(file, 800, 800, 0.72);
           setSelectedMediaUrl(compressed);
           setThumbnailDataUrl(compressed);
+          setPendingUploadFile(dataUrlToBlob(compressed));
           setStep('edit');
         } catch {
           try {
             const dataUrl = await fileToDataUrl(file);
             setSelectedMediaUrl(dataUrl);
             setThumbnailDataUrl(dataUrl);
+            setPendingUploadFile(dataUrlToBlob(dataUrl));
             setStep('edit');
           } catch {
             const objectUrl = URL.createObjectURL(file);
@@ -346,12 +369,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       setPendingUploadFile(file);
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
-      const uploadType = isVideo ? 'reel' : 'photo';
-      const limitStatus = checkDailyLimit(currentUser.id, uploadType);
-      if (!limitStatus.allowed) {
-        setDailyLimitModalType(uploadType);
-        return;
-      }
       if (isVideo) {
         const objectUrl = URL.createObjectURL(file);
         setMediaType('video');
@@ -366,6 +383,11 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
         }
 
+        // Background compress video for fast Firebase Storage upload
+        compressVideoToBlob(file)
+          .then((vBlob) => setPendingUploadFile(vBlob))
+          .catch(() => {});
+
         // If video file is small (<= 1.8MB), convert video to persistent base64 data URL
         if (file.size <= 1.8 * 1024 * 1024) {
           try {
@@ -379,16 +401,18 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         setMediaType('image');
         setIsCompressingPhoto(true);
         try {
-          // Automatically compress/resize image to max 800px width/height and JPEG 0.7 quality
-          const compressed = await compressImage(file, 800, 800, 0.7);
+          // Aggressively compress/resize image to max 800px width/height and JPEG 0.72 quality (~40-90KB)
+          const compressed = await compressImage(file, 800, 800, 0.72);
           setSelectedMediaUrl(compressed);
           setThumbnailDataUrl(compressed);
+          setPendingUploadFile(dataUrlToBlob(compressed));
           setStep('edit');
         } catch {
           try {
             const dataUrl = await fileToDataUrl(file);
             setSelectedMediaUrl(dataUrl);
             setThumbnailDataUrl(dataUrl);
+            setPendingUploadFile(dataUrlToBlob(dataUrl));
             setStep('edit');
           } catch {
             const objectUrl = URL.createObjectURL(file);
@@ -423,14 +447,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
   const handleShare = async () => {
     if (!selectedMediaUrl) return;
-
-    // Daily Limit Enforcement: Max 3 reels and max 3 photo posts per 24 hours
-    const uploadType = (mediaType === 'video' || shareAsReel) ? 'reel' : 'photo';
-    const limitStatus = checkDailyLimit(currentUser.id, uploadType);
-    if (!limitStatus.allowed) {
-      setDailyLimitModalType(uploadType);
-      return;
-    }
 
     // Policy Compliance Check: Ensure creator consent has been granted
     if (!hasUserConsentedToUGC()) {
@@ -516,7 +532,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     let newReel: Reel | undefined;
     if (mediaType === 'video' && shareAsReel) {
       newReel = {
-        id: `reel-${now}`,
+        id: postId,
         userId: currentUser.id,
         username: currentUser.username,
         userAvatar: currentUser.avatar,
@@ -545,24 +561,57 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
     // Top progress bar with real Firebase Storage & Firestore sync
     setIsPosting(true);
-    setPostingProgress(15);
+    setPostingProgress(5);
     setPostingCompleted(false);
 
     try {
-      let finalMediaUrl = selectedMediaUrl;
+      let finalMediaUrl = selectedMediaUrl || '';
 
-      // Real Firebase Storage upload with live progress tracking
-      if (pendingUploadFile) {
+      // Direct Firebase Storage upload for media files
+      const requiresStorageUpload =
+        Boolean(pendingUploadFile) ||
+        (Boolean(selectedMediaUrl) && !selectedMediaUrl!.startsWith('http'));
+
+      if (requiresStorageUpload) {
+        setPostingProgress(12);
+        const uploadSource = pendingUploadFile || selectedMediaUrl!;
+        const { blob: compressedBlob } = await prepareMediaForUpload(
+          uploadSource,
+          mediaType === 'video' ? 'video' : 'image'
+        );
+
+        setPostingProgress(24);
+
         try {
           finalMediaUrl = await uploadMediaToStorage(
-            pendingUploadFile,
+            compressedBlob,
             mediaType === 'video' ? 'reels' : 'photos',
             (pct) => {
-              setPostingProgress(Math.max(15, Math.min(88, Math.round(15 + pct * 0.73))));
-            }
+              // Smoothly map upload progress across 25% -> 92%
+              const mapped = Math.round(25 + pct * 0.67);
+              setPostingProgress((prev) => Math.max(prev, Math.min(94, mapped)));
+            },
+            newPost.id
           );
-        } catch {
-          // Handled silently
+        } catch (uploadErr: any) {
+          // CRITICAL: Stop posting immediately! Do NOT cache large video blobs into IndexedDB or LocalStorage.
+          setIsPosting(false);
+          setPostingProgress(0);
+          setPostingCompleted(false);
+
+          setStorageWarning({
+            title: 'Firebase Storage Unreachable',
+            message:
+              uploadErr?.message ||
+              'Firebase Storage bucket is unreachable or not yet enabled. Large video blobs cannot be cached locally to prevent browser storage quota limits.',
+            code: uploadErr?.code || (uploadErr?.status ? String(uploadErr.status) : undefined),
+            isStorageDown: true,
+          });
+
+          if (onShowToast) {
+            onShowToast('⚠️ Firebase Storage is unreachable. Offline caching disabled.');
+          }
+          return;
         }
       }
 
@@ -571,22 +620,14 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         newReel.videoUrl = finalMediaUrl;
       }
 
-      setPostingProgress(92);
+      setPostingProgress(95);
 
       // Save post document to Cloud Firestore
       try {
         await savePostToFirestore(newPost);
-      } catch {
-        // Handled silently
+      } catch (firestoreErr: any) {
+        console.warn('[Firestore] Notice during savePostToFirestore:', firestoreErr?.message);
       }
-
-      // Increment daily upload counter in Firestore & localStorage
-      try {
-        await checkAndIncrementDailyUpload(currentUser.id, uploadType === 'reel' ? 'video' : 'photo');
-      } catch {
-        // Safe fallback
-      }
-      recordDailyUpload(currentUser.id, uploadType);
 
       setPostingProgress(100);
       setPostingCompleted(true);
@@ -594,15 +635,15 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       setTimeout(() => {
         onPostCreated(newPost, newReel);
         onClose();
-      }, 500);
-    } catch {
-      setPostingProgress(100);
-      setPostingCompleted(true);
-      recordDailyUpload(currentUser.id, uploadType);
-      setTimeout(() => {
-        onPostCreated(newPost, newReel);
-        onClose();
-      }, 500);
+      }, 400);
+    } catch (generalErr: any) {
+      setIsPosting(false);
+      setPostingProgress(0);
+      setPostingCompleted(false);
+      setStorageWarning({
+        title: 'Post Creation Notice',
+        message: generalErr?.message || 'An error occurred while preparing your post.',
+      });
     }
   };
 
@@ -649,6 +690,148 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 rounded-full">
                   <Check className="w-3 h-3 text-emerald-400 stroke-[3]" /> Done
                 </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Clear Firebase Storage Warning Dialog if Storage or Bucket is Unreachable */}
+        {storageWarning && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-lg bg-neutral-900 border border-amber-500/50 rounded-2xl p-5 shadow-2xl text-white">
+              <div className="flex items-start gap-3 mb-3.5">
+                <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-amber-400 flex items-center gap-2">
+                    {storageWarning.title}
+                  </h3>
+                  <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                    {storageWarning.message}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-neutral-950/80 border border-neutral-800 rounded-xl p-3 mb-4 text-xs text-neutral-400 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-semibold text-neutral-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Browser Storage Protected:</span>
+                </div>
+                <p className="text-neutral-400">
+                  Large video blobs are no longer cached inside browser IndexedDB or LocalStorage to avoid quota limits. All media uploads directly to Firebase Storage.
+                </p>
+                {storageWarning.code && (
+                  <p className="text-[11px] text-amber-400/90 font-mono">
+                    Status / Code: {storageWarning.code}
+                  </p>
+                )}
+              </div>
+
+              {/* Direct Media URL Alternative */}
+              <div className="mb-4 bg-neutral-800/60 border border-neutral-700/60 rounded-xl p-3">
+                <label className="block text-xs font-semibold text-neutral-200 mb-1.5 flex items-center gap-1.5">
+                  <Link2 className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Post with Direct HTTPS Media URL / Sample:</span>
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="url"
+                    placeholder="https://.../video.mp4"
+                    value={directUrlInput}
+                    onChange={(e) => setDirectUrlInput(e.target.value)}
+                    className="flex-1 bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-neutral-500 focus:outline-hidden focus:border-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (directUrlInput.trim()) {
+                        setSelectedMediaUrl(directUrlInput.trim());
+                        setPendingUploadFile(null);
+                        setStorageWarning(null);
+                        setStep('edit');
+                      }
+                    }}
+                    disabled={!directUrlInput.trim()}
+                    className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition cursor-pointer"
+                  >
+                    Use URL
+                  </button>
+                </div>
+
+                <div className="pt-2 border-t border-neutral-700/40">
+                  <span className="text-[11px] text-neutral-400 font-medium block mb-1.5">
+                    Or select verified high-speed CDN Reel:
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {SAMPLE_REEL_VIDEOS.map((sample) => (
+                      <button
+                        key={sample.title}
+                        type="button"
+                        onClick={() => {
+                          setSelectedMediaUrl(sample.url);
+                          setPendingUploadFile(null);
+                          setStorageWarning(null);
+                          setStep('edit');
+                        }}
+                        className="text-left px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/50 hover:border-sky-500/50 transition cursor-pointer"
+                      >
+                        <div className="text-[11px] font-semibold text-neutral-200 truncate">
+                          {sample.title}
+                        </div>
+                        <div className="text-[10px] text-neutral-400 truncate">{sample.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsTestingStorage(true);
+                    const diag = await verifyFirebaseConfig();
+                    setFirebaseDiagnostics(diag);
+                    setIsTestingStorage(false);
+                  }}
+                  className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>{isTestingStorage ? 'Checking...' : 'Check Firebase Status'}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStorageWarning(null)}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 hover:bg-neutral-800 transition cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleShare}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry Upload</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Diagnostic detail popup */}
+              {firebaseDiagnostics && (
+                <div className="mt-3 p-2.5 rounded-lg bg-black/60 border border-neutral-800 text-[11px] space-y-1 font-mono">
+                  <div className="text-neutral-300">Project: {firebaseDiagnostics.projectId}</div>
+                  <div className="text-neutral-300">Bucket: {firebaseDiagnostics.storageBucket}</div>
+                  <div className={firebaseDiagnostics.firestoreConnected ? 'text-emerald-400' : 'text-rose-400'}>
+                    Firestore: {firebaseDiagnostics.firestoreConnected ? 'Connected (OK)' : 'Disconnected'}
+                  </div>
+                  <div className={firebaseDiagnostics.storageReachable ? 'text-emerald-400' : 'text-amber-400'}>
+                    Storage: {firebaseDiagnostics.storageStatusMessage}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -930,6 +1113,76 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   onChange={handleFileChange}
                   className="hidden"
                 />
+              </div>
+
+              {/* Direct Media URL & High-Speed Sample Videos */}
+              <div className="w-full max-w-lg mt-3.5">
+                <button
+                  type="button"
+                  onClick={() => setShowDirectUrlBox(!showDirectUrlBox)}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-neutral-100 dark:bg-neutral-800/70 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded-xl text-xs font-semibold text-neutral-700 dark:text-neutral-300 transition"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-sky-500" />
+                    <span>Or paste Direct Media URL / Use Sample Reels</span>
+                  </span>
+                  <span className="text-[10px] text-sky-500 bg-sky-500/10 px-2 py-0.5 rounded-full">
+                    {showDirectUrlBox ? 'Hide' : 'Direct CDN'}
+                  </span>
+                </button>
+
+                {showDirectUrlBox && (
+                  <div className="mt-2 p-3 bg-neutral-50 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-800 rounded-xl text-xs space-y-2.5 animate-in fade-in">
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        placeholder="https://.../video.mp4 or photo.jpg"
+                        value={directUrlInput}
+                        onChange={(e) => setDirectUrlInput(e.target.value)}
+                        className="flex-1 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-900 dark:text-white placeholder:text-neutral-500 focus:outline-hidden focus:border-sky-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (directUrlInput.trim()) {
+                            setSelectedMediaUrl(directUrlInput.trim());
+                            setPendingUploadFile(null);
+                            setStep('edit');
+                          }
+                        }}
+                        disabled={!directUrlInput.trim()}
+                        className="px-3.5 py-1.5 bg-sky-500 hover:bg-sky-600 disabled:opacity-40 text-white font-semibold rounded-lg transition cursor-pointer"
+                      >
+                        Apply
+                      </button>
+                    </div>
+
+                    <div>
+                      <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 block mb-1.5">
+                        High-Definition Preset Reels:
+                      </span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {SAMPLE_REEL_VIDEOS.map((sample) => (
+                          <button
+                            key={sample.title}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMediaUrl(sample.url);
+                              setPendingUploadFile(null);
+                              setStep('edit');
+                            }}
+                            className="text-left p-2 rounded-lg bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-750 border border-neutral-200 dark:border-neutral-700 transition cursor-pointer"
+                          >
+                            <div className="text-[11px] font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+                              {sample.title}
+                            </div>
+                            <div className="text-[10px] text-neutral-500 truncate">{sample.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1373,14 +1626,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       onAccept={handleConsentAgreed}
       onDecline={handleConsentDeclined}
       onOpenFullPolicy={onOpenLegalPolicy}
-    />
-
-    {/* Daily Posting Limits Modal (Max 3 reels & max 3 photos / 24 hrs) */}
-    <DailyLimitModal
-      isOpen={!!dailyLimitModalType}
-      userId={currentUser.id}
-      type={dailyLimitModalType || 'photo'}
-      onClose={() => setDailyLimitModalType(null)}
     />
   </div>
 </div>

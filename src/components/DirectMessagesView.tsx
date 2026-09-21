@@ -114,7 +114,7 @@ export const DirectMessagesView: React.FC<DirectMessagesViewProps> = ({
                   className="w-12 h-12 rounded-full object-cover"
                 />
                 <span className="absolute -top-1.5 -right-2 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] px-2 py-0.5 rounded-full shadow-xs font-medium truncate max-w-[70px]">
-                  {c.id === 'conv-1' ? 'Tokyo 🏮' : c.id === 'conv-2' ? 'Alps 🏔️' : 'Coffee ☕'}
+                  {(c.user as any).bio || '👋 Active'}
                 </span>
               </div>
               <span className="text-[11px] text-neutral-600 dark:text-neutral-400 truncate max-w-[65px]">

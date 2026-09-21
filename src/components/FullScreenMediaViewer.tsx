@@ -32,6 +32,7 @@ import {
   createPhotoFallbackDataUrl,
 } from '../utils/imageCompressor';
 import { isSuperAdmin } from '../constants/admin';
+import { resolvePlayableMediaUrl } from '../utils/persistentMediaStore';
 
 interface FullScreenMediaViewerProps {
   posts: Post[];
@@ -84,6 +85,27 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const [followedUsers, setFollowedUsers] = useState<Record<string, boolean>>({});
   const [videoProgress, setVideoProgress] = useState<number>(0);
   const [mediaErrors, setMediaErrors] = useState<Record<string, boolean>>({});
+  const [resolvedMediaUrls, setResolvedMediaUrls] = useState<Record<string, string>>({});
+
+  // Asynchronously resolve persistent media stream URLs from IndexedDB for any post/reel
+  useEffect(() => {
+    let isMounted = true;
+    safePosts.forEach(async (p) => {
+      if (p.mediaUrl) {
+        try {
+          const liveUrl = await resolvePlayableMediaUrl(p.id, p.mediaUrl);
+          if (isMounted && liveUrl && liveUrl !== p.mediaUrl) {
+            setResolvedMediaUrls((prev) => ({ ...prev, [p.id]: liveUrl }));
+          }
+        } catch {
+          // safe fallback
+        }
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [safePosts]);
 
   // Refs for video elements and swipe handling
   const videoRefs = useRef<{ [index: number]: HTMLVideoElement | null }>({});
@@ -138,8 +160,9 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
       const idx = Number(idxStr);
       if (!vid) return;
       if (idx === activeIndex) {
-        vid.currentTime = 0;
+        vid.defaultMuted = false;
         vid.muted = isMuted;
+        vid.volume = 1.0;
         const playPromise = vid.play();
         if (playPromise !== undefined) {
           playPromise
@@ -156,7 +179,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         vid.currentTime = 0;
       }
     });
-  }, [activeIndex, isMuted]);
+  }, [activeIndex, isMuted, resolvedMediaUrls]);
 
   // Keep mute state synced
   useEffect(() => {
@@ -265,28 +288,19 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Single screen tap on video toggles Play / Pause directly
+    // Single screen tap on video toggles mute / unmute directly (sound active by default)
     if (currentPost?.mediaType === 'video') {
+      const nextMuted = !isMuted;
+      setIsMuted(nextMuted);
       const currentVid = videoRefs.current[activeIndex];
       if (currentVid) {
+        currentVid.muted = nextMuted;
         if (currentVid.paused) {
-          currentVid
-            .play()
-            .then(() => {
-              setIsPlaying(true);
-              setShowPlayPauseIcon('play');
-              setTimeout(() => setShowPlayPauseIcon(null), 600);
-            })
-            .catch(() => {
-              setIsPlaying(false);
-            });
-        } else {
-          currentVid.pause();
-          setIsPlaying(false);
-          setShowPlayPauseIcon('pause');
-          setTimeout(() => setShowPlayPauseIcon(null), 600);
+          currentVid.play().then(() => setIsPlaying(true)).catch(() => {});
         }
       }
+      setShowMuteBadge(true);
+      setTimeout(() => setShowMuteBadge(false), 900);
     }
   };
 
@@ -356,7 +370,15 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
               id="fullscreen-viewer-mute-toggle"
               onClick={(e) => {
                 e.stopPropagation();
-                setIsMuted((m) => !m);
+                const nextMuted = !isMuted;
+                setIsMuted(nextMuted);
+                const currentVid = videoRefs.current[activeIndex];
+                if (currentVid) {
+                  currentVid.muted = nextMuted;
+                  if (currentVid.paused) {
+                    currentVid.play().then(() => setIsPlaying(true)).catch(() => {});
+                  }
+                }
                 setShowMuteBadge(true);
                 setTimeout(() => setShowMuteBadge(false), 900);
               }}
@@ -454,24 +476,66 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                       </div>
                     </div>
                   ) : (
-                    <video
-                      ref={(el) => {
-                        videoRefs.current[index] = el;
-                        if (el && isCurrent) {
-                          el.muted = isMuted;
-                        }
-                      }}
-                      src={post.mediaUrl}
-                      poster={post.thumbnailUrl}
-                      loop
-                      playsInline
-                      preload="auto"
-                      onError={() => {
-                        setMediaErrors((prev) => ({ ...prev, [post.id]: true }));
-                      }}
-                      onTimeUpdate={() => handleTimeUpdate(index)}
-                      className={`w-full h-full object-cover ${post.filter || ''}`}
-                    />
+                    <div className="relative w-full h-full flex items-center justify-center">
+                      <video
+                        ref={(el) => {
+                          videoRefs.current[index] = el;
+                          if (el && isCurrent) {
+                            el.defaultMuted = isMuted;
+                            el.muted = isMuted;
+                            const p = el.play();
+                            if (p !== undefined) {
+                              p.then(() => setIsPlaying(true)).catch(() => {
+                                el.muted = true;
+                                setIsMuted(true);
+                                el.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                              });
+                            }
+                          }
+                        }}
+                        src={resolvedMediaUrls[post.id] || post.mediaUrl}
+                        poster={post.thumbnailUrl}
+                        autoPlay
+                        loop
+                        playsInline
+                        webkit-playsinline="true"
+                        muted={isMuted}
+                        preload="auto"
+                        onCanPlay={(e) => {
+                          if (isCurrent) {
+                            const vid = e.currentTarget;
+                            const p = vid.play();
+                            if (p !== undefined) {
+                              p.then(() => setIsPlaying(true)).catch(() => {
+                                vid.muted = true;
+                                setIsMuted(true);
+                                vid.play().catch(() => {});
+                              });
+                            }
+                          }
+                        }}
+                        onError={async () => {
+                          try {
+                            const live = await resolvePlayableMediaUrl(post.id, post.mediaUrl);
+                            if (live && live !== (resolvedMediaUrls[post.id] || post.mediaUrl)) {
+                              setResolvedMediaUrls((prev) => ({ ...prev, [post.id]: live }));
+                              return;
+                            }
+                          } catch {}
+                          setMediaErrors((prev) => ({ ...prev, [post.id]: true }));
+                        }}
+                        onTimeUpdate={() => handleTimeUpdate(index)}
+                        className={`w-full h-full object-cover ${post.filter || ''}`}
+                      />
+                      {/* Play overlay indicator when paused */}
+                      {!isPlaying && isCurrent && (
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                          <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 text-white shadow-2xl animate-pulse">
+                            <Play className="w-8 h-8 fill-white ml-1" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )
                 ) : (
                   <img

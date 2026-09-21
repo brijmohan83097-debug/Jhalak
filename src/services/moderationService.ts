@@ -267,14 +267,32 @@ class ModerationService {
   }
 
   /**
+   * Check if an item has been permanently deleted
+   */
+  public isPermanentlyDeleted(id: string): boolean {
+    if (!id) return false;
+    const rawId = id.replace(/^reel-/, '');
+    return (
+      this.permanentlyDeletedIds.has(id) ||
+      this.permanentlyDeletedIds.has(rawId) ||
+      this.permanentlyDeletedIds.has(`reel-${rawId}`)
+    );
+  }
+
+  /**
    * Admin Action b: "Delete Post Permanently"
    */
   public deletePostPermanently(id: string) {
+    if (!id) return;
+    const rawId = id.replace(/^reel-/, '');
     this.permanentlyDeletedIds.add(id);
+    this.permanentlyDeletedIds.add(rawId);
+    this.permanentlyDeletedIds.add(`reel-${rawId}`);
     this.reportedIds.add(id);
     this.hiddenByModeration.add(id);
-    this.reportsHistory = this.reportsHistory.filter((r) => r.id !== id);
+    this.reportsHistory = this.reportsHistory.filter((r) => r.id !== id && r.id !== rawId);
     this.save();
+    this.notify();
   }
 
   /**

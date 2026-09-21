@@ -25,6 +25,7 @@ import { CommentsBottomSheet } from './components/CommentsBottomSheet';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ReportModal } from './components/ReportModal';
 import { LegalPoliciesModal } from './components/LegalPoliciesModal';
+import { AccountDeletionModal } from './components/AccountDeletionModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
@@ -46,6 +47,7 @@ import {
 import {
   subscribeToAuthState,
   subscribeToFirestorePosts,
+  loadPostsFromFirestore,
   syncUserProfile,
   getUserProfile,
   savePostToFirestore,
@@ -138,19 +140,6 @@ export default function App() {
 
         if (targetId && postUserId && targetId === postUserId) return true;
         if (targetUsername && postUsername && targetUsername === postUsername) return true;
-
-        // Super Admin account match
-        if (isSuperAdmin(user)) {
-          if (
-            postUserId === 'user-me' ||
-            postUserId === 'user-brijmohan' ||
-            postUserId === 'user-brijmohan83097' ||
-            postUsername === 'brijmohan' ||
-            postUsername === 'brijmohan83097'
-          ) {
-            return true;
-          }
-        }
         return false;
       };
 
@@ -214,21 +203,33 @@ export default function App() {
     }
   });
 
+  // Strict validator that preserves all user-uploaded posts & reels while discarding old dummy fixture IDs
+  const isRealPost = (p: Post | any): boolean => {
+    if (!p || !p.id) return false;
+    const id = String(p.id);
+    if (id.startsWith('dummy-') || id.startsWith('post-bhojpuri-') || id.match(/^post-[0-9]{1,3}$/)) {
+      return false;
+    }
+    return true;
+  };
+
+  const isRealReel = (r: Reel | any): boolean => {
+    if (!r || !r.id) return false;
+    const id = String(r.id);
+    if (id.startsWith('dummy-') || id.startsWith('reel-bhojpuri-') || id.match(/^reel-[0-9]{1,3}$/)) {
+      return false;
+    }
+    return true;
+  };
+
   const [posts, setPosts] = useState<Post[]>(() => {
     try {
-      // Strictly load only real user-created posts; all mock and dummy posts are deleted
+      // Strictly load real posts; all old dummy fixture posts are pruned
       const raw = localStorage.getItem('jhalak_uploaded_posts_v1');
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          return parsed.filter(
-            (p: Post) =>
-              p &&
-              p.id &&
-              !p.id.startsWith('dummy-') &&
-              !p.id.startsWith('post-bhojpuri-') &&
-              !p.id.match(/^post-[0-9]+$/)
-          );
+          return parsed.filter(isRealPost);
         }
       }
     } catch {
@@ -239,19 +240,12 @@ export default function App() {
 
   const [reels, setReels] = useState<Reel[]>(() => {
     try {
-      // Strictly load only real user-created reels; all mock and dummy reels are deleted
+      // Strictly load real reels; all old dummy fixture reels are pruned
       const raw = localStorage.getItem('jhalak_uploaded_reels_v1');
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          return parsed.filter(
-            (r: Reel) =>
-              r &&
-              r.id &&
-              !r.id.startsWith('dummy-') &&
-              !r.id.startsWith('reel-bhojpuri-') &&
-              !r.id.match(/^reel-[0-9]+$/)
-          );
+          return parsed.filter(isRealReel);
         }
       }
     } catch {
@@ -313,7 +307,8 @@ export default function App() {
   const [blockedVersion, setBlockedVersion] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
-  const [legalModalTab, setLegalModalTab] = useState<'privacy' | 'terms' | 'ugc'>('privacy');
+  const [legalModalTab, setLegalModalTab] = useState<'privacy' | 'terms' | 'ugc' | 'data-safety'>('privacy');
+  const [isAccountDeletionModalOpen, setIsAccountDeletionModalOpen] = useState(false);
   const [isUgcConsentModalOpen, setIsUgcConsentModalOpen] = useState(false);
   const [pendingAudioForUgcConsent, setPendingAudioForUgcConsent] = useState<string | null>(null);
   const [isSearchOverlayOpen, setIsSearchOverlayOpen] = useState(false);
@@ -386,98 +381,7 @@ export default function App() {
 
     // 3. Subscribe to Real-Time Cloud Firestore Posts
     const unsubscribePosts = subscribeToFirestorePosts((livePosts) => {
-      const realLive = (livePosts || []).filter(
-        (lp) =>
-          lp &&
-          lp.id &&
-          !lp.id.startsWith('dummy-') &&
-          !lp.id.startsWith('post-bhojpuri-') &&
-          !lp.id.match(/^post-[0-9]+$/)
-      );
-
-      // Also merge any real local session uploads
-      let localUploads: Post[] = [];
-      try {
-        const raw = localStorage.getItem('jhalak_uploaded_posts_v1');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            localUploads = parsed.filter(
-              (p: Post) =>
-                p &&
-                p.id &&
-                !p.id.startsWith('dummy-') &&
-                !p.id.startsWith('post-bhojpuri-') &&
-                !p.id.match(/^post-[0-9]+$/)
-            );
-          }
-        }
-      } catch {
-        // safe
-      }
-
-      const postMap = new Map<string, Post>();
-      realLive.forEach((lp) => postMap.set(lp.id, lp));
-      localUploads.forEach((up) => {
-        if (!postMap.has(up.id)) postMap.set(up.id, up);
-      });
-
-      const finalPosts = Array.from(postMap.values());
-      setPosts(finalPosts);
-
-      // Also merge video posts into Reels
-      const videoPosts = finalPosts.filter((lp) => lp.mediaType === 'video');
-      const mappedReels: Reel[] = videoPosts.map((vp) => ({
-        id: `reel-${vp.id}`,
-        userId: vp.userId,
-        username: vp.username,
-        userAvatar: vp.userAvatar,
-        videoUrl: vp.mediaUrl,
-        thumbnailUrl: vp.thumbnailUrl,
-        caption: vp.caption,
-        category: vp.category,
-        audioTitle: vp.audioTitle || 'Original Audio',
-        audioArtist: vp.username,
-        likesCount: vp.likesCount || 0,
-        commentsCount: (vp.comments || []).length,
-        sharesCount: 0,
-        isLiked: false,
-        isSaved: false,
-        comments: vp.comments || [],
-        tags: vp.tags || [],
-        timestamp: vp.timestamp || 'Recently',
-        createdAt: vp.createdAt,
-        isUserCreated: true,
-      }));
-
-      // Also check local reel uploads
-      let localReels: Reel[] = [];
-      try {
-        const rawReels = localStorage.getItem('jhalak_uploaded_reels_v1');
-        if (rawReels) {
-          const parsed = JSON.parse(rawReels);
-          if (Array.isArray(parsed)) {
-            localReels = parsed.filter(
-              (r: Reel) =>
-                r &&
-                r.id &&
-                !r.id.startsWith('dummy-') &&
-                !r.id.startsWith('reel-bhojpuri-') &&
-                !r.id.match(/^reel-[0-9]+$/)
-            );
-          }
-        }
-      } catch {
-        // safe
-      }
-
-      const reelMap = new Map<string, Reel>();
-      mappedReels.forEach((r) => reelMap.set(r.id, r));
-      localReels.forEach((lr) => {
-        if (!reelMap.has(lr.id)) reelMap.set(lr.id, lr);
-      });
-
-      setReels(Array.from(reelMap.values()));
+      syncPostsAndReels(livePosts);
     });
 
     return () => {
@@ -522,6 +426,124 @@ export default function App() {
       showToast('⚠️ Storage quota reached. Language saved for this session.');
     }
     showToast(`Language switched to ${translations[lang].language}`);
+  };
+
+  // Helper: Synchronize posts and reels together from Firestore and local sessions
+  const syncPostsAndReels = (livePosts: Post[]) => {
+    const realLive = (livePosts || []).filter(isRealPost);
+
+    // Also merge any real local session uploads
+    let localUploads: Post[] = [];
+    try {
+      const raw = localStorage.getItem('jhalak_uploaded_posts_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          localUploads = parsed.filter(isRealPost);
+        }
+      }
+    } catch {
+      // safe
+    }
+
+    const postMap = new Map<string, Post>();
+    realLive.forEach((lp) => postMap.set(lp.id, lp));
+    localUploads.forEach((up) => {
+      if (!postMap.has(up.id)) postMap.set(up.id, up);
+    });
+
+    const finalPosts = Array.from(postMap.values());
+    setPosts(finalPosts);
+
+    // Also merge video posts into Reels
+    const videoPosts = finalPosts.filter((lp) => lp.mediaType === 'video');
+    const mappedReels: Reel[] = videoPosts.map((vp) => ({
+      id: `reel-${vp.id}`,
+      userId: vp.userId,
+      username: vp.username,
+      userAvatar: vp.userAvatar,
+      videoUrl: vp.mediaUrl,
+      thumbnailUrl: vp.thumbnailUrl,
+      caption: vp.caption,
+      category: vp.category,
+      audioTitle: vp.audioTitle || 'Original Audio',
+      audioArtist: vp.username,
+      likesCount: vp.likesCount || 0,
+      commentsCount: (vp.comments || []).length,
+      sharesCount: 0,
+      isLiked: false,
+      isSaved: false,
+      comments: vp.comments || [],
+      tags: vp.tags || [],
+      timestamp: vp.timestamp || 'Recently',
+      createdAt: vp.createdAt,
+      isUserCreated: true,
+    }));
+
+    // Also check local reel uploads
+    let localReels: Reel[] = [];
+    try {
+      const rawReels = localStorage.getItem('jhalak_uploaded_reels_v1');
+      if (rawReels) {
+        const parsed = JSON.parse(rawReels);
+        if (Array.isArray(parsed)) {
+          localReels = parsed.filter(isRealReel);
+        }
+      }
+    } catch {
+      // safe
+    }
+
+    const reelMap = new Map<string, Reel>();
+    mappedReels.forEach((r) => reelMap.set(r.id, r));
+    localReels.forEach((lr) => {
+      if (!reelMap.has(lr.id)) reelMap.set(lr.id, lr);
+    });
+
+    setReels(Array.from(reelMap.values()));
+  };
+
+  // Google Play Store Policy Deep Linking: auto-open Privacy Policy, Terms, or Account Deletion
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return;
+      const params = new URLSearchParams(window.location.search);
+      const page = params.get('page') || params.get('tab') || params.get('view');
+      if (page === 'privacy' || page === 'privacy-policy') {
+        setLegalModalTab('privacy');
+        setIsLegalModalOpen(true);
+      } else if (page === 'terms' || page === 'terms-of-service') {
+        setLegalModalTab('terms');
+        setIsLegalModalOpen(true);
+      } else if (page === 'ugc' || page === 'community-guidelines') {
+        setLegalModalTab('ugc');
+        setIsLegalModalOpen(true);
+      } else if (page === 'delete-account' || page === 'delete-data' || page === 'account-deletion') {
+        setIsAccountDeletionModalOpen(true);
+      }
+    } catch {
+      // safe fallback
+    }
+  }, []);
+
+  // Feed Pull-To-Refresh: reloads latest posts & reels directly from Firestore
+  const handleRefreshFeed = async () => {
+    setIsRefreshingFeed(true);
+    try {
+      await testConnection();
+      const freshPosts = await loadPostsFromFirestore();
+      if (freshPosts && freshPosts.length > 0) {
+        syncPostsAndReels(freshPosts);
+      }
+      showToast('Feed refreshed with latest posts! 🔄');
+    } catch {
+      showToast('Feed refreshed! 🔄');
+    } finally {
+      setTimeout(() => {
+        setIsRefreshingFeed(false);
+        setPullProgress(0);
+      }, 500);
+    }
   };
 
   // Gesture Handling: Right-to-Left Swipe from Home to Reels & Pull-To-Refresh
@@ -570,37 +592,10 @@ export default function App() {
       if (isAtTop && deltaY > 55 && Math.abs(deltaY) > Math.abs(deltaX) && !isRefreshingFeed) {
         setIsRefreshingFeed(true);
         setPullProgress(1);
-        handleRefreshHomeFeed();
+        handleRefreshFeed();
       } else {
         setPullProgress(0);
       }
-    }
-  };
-
-  const handleRefreshHomeFeed = async () => {
-    try {
-      await testConnection();
-      const unsubscribe = subscribeToFirestorePosts((livePosts) => {
-        if (livePosts && livePosts.length > 0) {
-          setPosts((prev) => {
-            const postMap = new Map<string, Post>();
-            livePosts.forEach((lp) => postMap.set(lp.id, lp));
-            prev.forEach((p) => {
-              if (!postMap.has(p.id)) postMap.set(p.id, p);
-            });
-            return Array.from(postMap.values());
-          });
-        }
-        if (unsubscribe) unsubscribe();
-      });
-      showToast('Feed refreshed with latest posts! 🔄');
-    } catch {
-      showToast('Feed refreshed! 🔄');
-    } finally {
-      setTimeout(() => {
-        setIsRefreshingFeed(false);
-        setPullProgress(0);
-      }, 600);
     }
   };
 
@@ -1297,6 +1292,11 @@ export default function App() {
       safeSetItem('ig_current_user', JSON.stringify(updatedUser));
       safeSetItem(`ig_user_profile_${currentUser.id}`, JSON.stringify(updatedUser));
       safeSetItem(profileKeyById, JSON.stringify(updatedProfilePosts));
+
+      const existingPostsStr = localStorage.getItem('jhalak_uploaded_posts_v1');
+      const existingPosts: Post[] = existingPostsStr ? JSON.parse(existingPostsStr) : [];
+      const updatedPosts = [stampedPost, ...existingPosts.filter((p) => p.id !== stampedPost.id)];
+      safeSetItem('jhalak_uploaded_posts_v1', JSON.stringify(updatedPosts));
     } catch {
       // safe
     }
@@ -1304,17 +1304,49 @@ export default function App() {
     // Update currentUser state
     setCurrentUser(updatedUser);
 
-    if (newReel) {
+    // Ensure video posts appear simultaneously in Reels Feed
+    const effectiveReel: Reel | undefined =
+      newReel ||
+      (stampedPost.mediaType === 'video'
+        ? {
+            id: stampedPost.id,
+            userId: currentUser.id,
+            username: currentUser.username,
+            userAvatar: currentUser.avatar,
+            isVerified: currentUser.isVerified,
+            videoUrl: stampedPost.mediaUrl,
+            thumbnailUrl: stampedPost.thumbnailUrl,
+            caption: stampedPost.caption,
+            category: stampedPost.category || inferredCat,
+            audioTitle: stampedPost.audioTitle || 'Original Audio',
+            audioArtist: stampedPost.audioArtist || currentUser.username,
+            audioUrl: stampedPost.audioUrl,
+            audioCover: stampedPost.audioCover,
+            likesCount: 0,
+            commentsCount: 0,
+            sharesCount: 0,
+            isLiked: false,
+            isSaved: false,
+            comments: [],
+            tags: stampedPost.tags || [],
+            timestamp: 'Just now',
+            createdAt: now,
+            isUserCreated: true,
+          }
+        : undefined);
+
+    if (effectiveReel) {
       const stampedReel: Reel = {
-        ...newReel,
+        ...effectiveReel,
+        id: stampedPost.id,
         userId: currentUser.id,
         username: currentUser.username,
         userAvatar: currentUser.avatar,
         isVerified: currentUser.isVerified,
-        createdAt: newReel.createdAt || now,
+        createdAt: effectiveReel.createdAt || now,
         timestamp: 'Just now',
         isUserCreated: true,
-        category: newReel.category || inferredCat,
+        category: effectiveReel.category || inferredCat,
       };
 
       // Always show newly created reel at the very top (unshift / reverse chronological order)
@@ -1828,19 +1860,6 @@ export default function App() {
 
       if (targetId && postUserId && targetId === postUserId) return true;
       if (targetUsername && postUsername && targetUsername === postUsername) return true;
-
-      // Super Admin account match
-      if (isSuperAdmin(currentUser)) {
-        if (
-          postUserId === 'user-me' ||
-          postUserId === 'user-brijmohan' ||
-          postUserId === 'user-brijmohan83097' ||
-          postUsername === 'brijmohan' ||
-          postUsername === 'brijmohan83097'
-        ) {
-          return true;
-        }
-      }
       return false;
     };
 
@@ -1917,6 +1936,10 @@ export default function App() {
           onContinueWithGoogle={() => setIsGoogleAuthModalOpen(true)}
           onExploreAsGuest={handleExploreAsGuest}
           onQuickLogin={handleGoogleLoginSuccess}
+          onOpenLegalPolicy={(tab) => {
+            setLegalModalTab(tab);
+            setIsLegalModalOpen(true);
+          }}
         />
         <GoogleAuthModal
           isOpen={isGoogleAuthModalOpen}
@@ -1924,6 +1947,33 @@ export default function App() {
           onLoginSuccess={handleGoogleLoginSuccess}
           onContinueAsGuest={handleExploreAsGuest}
           currentEmail={currentUser.email}
+          onOpenLegalPolicy={(tab) => {
+            setLegalModalTab(tab);
+            setIsLegalModalOpen(true);
+          }}
+        />
+        {/* In-App Legal Policies Modal accessible from welcome screen */}
+        <LegalPoliciesModal
+          isOpen={isLegalModalOpen}
+          onClose={() => setIsLegalModalOpen(false)}
+          initialTab={legalModalTab}
+          onOpenDeleteAccount={() => {
+            setIsLegalModalOpen(false);
+            setIsAccountDeletionModalOpen(true);
+          }}
+        />
+        {/* Account Deletion Modal accessible from welcome screen */}
+        <AccountDeletionModal
+          isOpen={isAccountDeletionModalOpen}
+          onClose={() => setIsAccountDeletionModalOpen(false)}
+          currentUser={currentUser}
+          postsCount={0}
+          reelsCount={0}
+          commentsCount={0}
+          onConfirmDelete={() => {
+            setIsAccountDeletionModalOpen(false);
+            handleDeleteAccount();
+          }}
         />
       </div>
     );
@@ -2160,6 +2210,11 @@ export default function App() {
                 onViewUser={handleViewUser}
                 creators={suggestedCreators}
                 currentLanguage={currentLanguage}
+                onOpenLegalPolicies={(tab) => {
+                  setLegalModalTab(tab || 'privacy');
+                  setIsLegalModalOpen(true);
+                }}
+                onDeleteAccount={() => setIsAccountDeletionModalOpen(true)}
               />
             </div>
           )}
@@ -2194,6 +2249,8 @@ export default function App() {
                   onBlockUser={(u) => handleUserBlocked(u)}
                   onDeleteReel={handleDeletePost}
                   onUploadReel={handleOpenCreateModal}
+                  onRefreshReels={handleRefreshFeed}
+                  isRefreshing={isRefreshingFeed}
                   onRequireAuth={(action) => {
                     setIsGoogleAuthModalOpen(true);
                     showToast(`Sign in with Google to ${action === 'like' ? 'like reels ❤️' : action === 'comment' ? 'comment on reels 💬' : 'upload reels 📸'}`);
@@ -2229,6 +2286,7 @@ export default function App() {
                 setLegalModalTab('privacy');
                 setIsLegalModalOpen(true);
               }}
+              onDeleteAccount={() => setIsAccountDeletionModalOpen(true)}
               onOpenAdminPanel={() => {
                 if (isSuperAdmin(currentUser)) {
                   setIsAdminModDashboardOpen(true);
@@ -2396,6 +2454,10 @@ export default function App() {
         onLoginSuccess={handleGoogleLoginSuccess}
         onContinueAsGuest={handleExploreAsGuest}
         currentEmail={currentUser.email}
+        onOpenLegalPolicy={(tab) => {
+          setLegalModalTab(tab);
+          setIsLegalModalOpen(true);
+        }}
       />
 
       {/* MODAL 8: Instagram Modern Mobile Bottom-Sheet Comments */}
@@ -2434,6 +2496,27 @@ export default function App() {
         isOpen={isLegalModalOpen}
         onClose={() => setIsLegalModalOpen(false)}
         initialTab={legalModalTab}
+        onOpenDeleteAccount={() => {
+          setIsLegalModalOpen(false);
+          setIsAccountDeletionModalOpen(true);
+        }}
+      />
+
+      {/* MODAL: Direct Google Play Compliant Account & Data Deletion Modal */}
+      <AccountDeletionModal
+        isOpen={isAccountDeletionModalOpen}
+        onClose={() => setIsAccountDeletionModalOpen(false)}
+        currentUser={currentUser}
+        postsCount={userPosts.length}
+        reelsCount={reels.filter((r) => r.username === currentUser.username || r.userId === currentUser.id).length}
+        commentsCount={
+          posts.reduce((acc, p) => acc + (p.comments?.filter((c) => c.username === currentUser.username).length || 0), 0) +
+          reels.reduce((acc, r) => acc + (r.comments?.filter((c) => c.username === currentUser.username).length || 0), 0)
+        }
+        onConfirmDelete={() => {
+          setIsAccountDeletionModalOpen(false);
+          handleDeleteAccount();
+        }}
       />
 
       {/* MODAL 11: First-Time UGC Community Guidelines & Creator Terms Consent (Play Store UGC Policy Compliance) */}

@@ -82,6 +82,56 @@ function notifyStorageIssue(key: string, error: unknown, isQuota: boolean) {
 }
 
 /**
+ * Sanitizes any storage payload to guarantee large video data/blobs are NEVER written to LocalStorage.
+ */
+function sanitizeStoragePayload(val: string): string {
+  if (!val) return val;
+
+  // Block massive single strings > 300KB
+  if (val.length > 300000 && !val.includes('data:video/')) {
+    // If not JSON, truncate or skip
+    if (!val.startsWith('[') && !val.startsWith('{')) {
+      return '';
+    }
+  }
+
+  // Strip video base64 payloads
+  if (val.includes('data:video/')) {
+    try {
+      if (val.startsWith('[') || val.startsWith('{')) {
+        const parsed = JSON.parse(val);
+        const stripVideoData = (item: any) => {
+          if (!item || typeof item !== 'object') return item;
+          if (typeof item.mediaUrl === 'string' && item.mediaUrl.startsWith('data:video/')) {
+            item.mediaUrl = '';
+          }
+          if (typeof item.videoUrl === 'string' && item.videoUrl.startsWith('data:video/')) {
+            item.videoUrl = '';
+          }
+          return item;
+        };
+
+        if (Array.isArray(parsed)) {
+          return JSON.stringify(parsed.map(stripVideoData));
+        } else {
+          if (Array.isArray(parsed.userPosts)) {
+            parsed.userPosts = parsed.userPosts.map(stripVideoData);
+          }
+          if (Array.isArray(parsed.posts)) {
+            parsed.posts = parsed.posts.map(stripVideoData);
+          }
+          return JSON.stringify(parsed);
+        }
+      }
+    } catch {
+      return '';
+    }
+  }
+
+  return val;
+}
+
+/**
  * Safely set an item in localStorage without throwing or crashing the app.
  * Returns true if the item was successfully stored, false otherwise.
  */
@@ -90,7 +140,12 @@ export function safeSetItem(key: string, value: string): boolean {
     if (typeof window === 'undefined' || !window.localStorage) {
       return false;
     }
-    window.localStorage.setItem(key, value);
+    const cleanValue = sanitizeStoragePayload(value);
+    if (!cleanValue && value) {
+      // Skipped to protect quota
+      return false;
+    }
+    window.localStorage.setItem(key, cleanValue);
     return true;
   } catch (error: unknown) {
     const quotaHit = isQuotaExceeded(error);

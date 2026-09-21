@@ -10,15 +10,7 @@ export interface GoogleAccount {
   firebaseUid?: string;
 }
 
-export const presetGoogleAccounts: GoogleAccount[] = [
-  {
-    name: 'Brijmohan',
-    email: 'brijmohan83097@gmail.com',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=brijmohan83097',
-    username: 'brijmohan83097',
-    firebaseUid: 'user_brijmohan83097',
-  },
-];
+export const presetGoogleAccounts: GoogleAccount[] = [];
 
 interface GoogleAuthModalProps {
   isOpen: boolean;
@@ -26,6 +18,7 @@ interface GoogleAuthModalProps {
   onLoginSuccess: (account: GoogleAccount) => void;
   onContinueAsGuest?: (name?: string) => void;
   currentEmail?: string;
+  onOpenLegalPolicy?: (tab: 'privacy' | 'terms' | 'ugc' | 'data-safety') => void;
 }
 
 export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
@@ -34,27 +27,35 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   onLoginSuccess,
   onContinueAsGuest,
   currentEmail,
+  onOpenLegalPolicy,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [customNameInput, setCustomNameInput] = useState('');
   const [customEmailInput, setCustomEmailInput] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
 
-  // Load saved Google accounts (Email IDs) from localStorage, defaulting to preset
+  // Load genuine saved Google accounts from localStorage
   const [savedAccounts, setSavedAccounts] = useState<GoogleAccount[]>(() => {
     try {
       const raw = localStorage.getItem('ig_saved_accounts');
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const list = parsed.filter((a: any) => a && a.email);
+          const list = parsed.filter(
+            (a: any) =>
+              a &&
+              a.email &&
+              a.email !== 'brijmohan83097@gmail.com' &&
+              a.username !== 'mohank659'
+          );
           if (list.length > 0) return list;
         }
       }
     } catch {
       // safe fallback
     }
-    return presetGoogleAccounts;
+    return [];
   });
 
   if (!isOpen) return null;
@@ -80,50 +81,80 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     }
   };
 
-  // Fast Instant Preview Login Bypass
-  const executeBypassLogin = (targetEmail: string, targetName?: string) => {
-    const email = (targetEmail || 'brijmohan83097@gmail.com').trim();
-    const cleanUsername = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '') || 'brijmohan83097';
-    const name = targetName || (cleanUsername === 'brijmohan83097' ? 'Brijmohan' : cleanUsername.charAt(0).toUpperCase() + cleanUsername.slice(1));
+  // Sign in using entered custom Google email and name
+  const handleManualLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!customEmailInput.trim() || !customEmailInput.includes('@')) {
+      setErrorMessage('Please enter a valid Google email address.');
+      return;
+    }
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    const email = customEmailInput.trim().toLowerCase();
+    const cleanUsername = email.split('@')[0].replace(/[^a-z0-9_]/g, '') || `user_${Date.now().toString().slice(-4)}`;
+    const name = customNameInput.trim() || (cleanUsername.charAt(0).toUpperCase() + cleanUsername.slice(1));
     const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+    const uid = `user_${cleanUsername}`;
 
     const account: GoogleAccount = {
       name,
       email,
       avatar,
       username: cleanUsername,
-      firebaseUid: `user_${cleanUsername}`,
+      firebaseUid: uid,
     };
+
+    try {
+      await syncUserProfile({
+        id: uid,
+        name,
+        username: cleanUsername,
+        email,
+        avatar,
+        bio: 'Creator on Jhalak Reels 🇮🇳',
+        followersCount: 0,
+        followingCount: 0,
+        postsCount: 0,
+        watchHours: 0,
+        dailyReelsCount: 0,
+        dailyPhotosCount: 0,
+        lastUploadDate: new Date().toISOString().split('T')[0],
+      });
+    } catch {
+      // safe
+    }
 
     saveAccountToList(account);
     onLoginSuccess(account);
+    setIsLoading(false);
   };
 
-  // Primary 1-Click "Continue with Google"
+  // Primary "Continue with Google"
   const handleContinueWithGoogle = async () => {
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const firebaseUser = await signInWithGoogle('brijmohan83097@gmail.com');
-      const email = firebaseUser.email || 'brijmohan83097@gmail.com';
-      const name = firebaseUser.displayName || email.split('@')[0] || 'Brijmohan';
-      const cleanUsername = (email.split('@')[0] || name).toLowerCase().replace(/[^a-z0-9_]/g, '') || 'brijmohan83097';
+      const firebaseUser = await signInWithGoogle();
+      const email = firebaseUser.email || '';
+      const rawName = firebaseUser.displayName || (email ? email.split('@')[0] : 'User');
+      const cleanUsername = (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${firebaseUser.uid.slice(0, 6)}`;
       const avatar = firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
 
       const account: GoogleAccount = {
-        name,
+        name: rawName,
         email,
         avatar,
         username: cleanUsername,
         firebaseUid: firebaseUser.uid || `user_${cleanUsername}`,
       };
 
-      // Sync user profile to Firestore safely
+      // Sync user profile to Firestore
       try {
         await syncUserProfile({
           id: account.firebaseUid || cleanUsername,
-          name,
+          name: rawName,
           username: cleanUsername,
           email,
           avatar,
@@ -142,9 +173,12 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
       saveAccountToList(account);
       onLoginSuccess(account);
-    } catch {
-      // Seamlessly fall back to preview bypass so user is never blocked
-      executeBypassLogin('brijmohan83097@gmail.com', 'Brijmohan');
+    } catch (err: any) {
+      // Browser popup was blocked or denied in sandbox
+      setShowCustomInput(true);
+      setErrorMessage(
+        'Google popup blocked by browser. Please enter your Google account details below to sign in.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -323,52 +357,44 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             )}
           </button>
 
-          {/* Quick 1-Click Preview Login Bypass for brijmohan83097@gmail.com */}
-          <button
-            id="quick-bypass-login-btn"
-            type="button"
-            onClick={() => executeBypassLogin('brijmohan83097@gmail.com', 'Brijmohan')}
-            disabled={isLoading}
-            className="w-full py-2.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <span>⚡ 1-Click Login: brijmohan83097@gmail.com (Super Admin)</span>
-          </button>
-
-          {/* Custom Google Email Option */}
+          {/* Enter Your Google Account Details */}
           <div className="pt-1">
             {!showCustomInput ? (
               <button
                 type="button"
                 onClick={() => setShowCustomInput(true)}
-                className="w-full text-[11px] font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-white transition text-center"
+                className="w-full text-xs font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-white transition text-center py-1"
               >
-                + Enter a different Google Email ID
+                + Enter your Google Account details
               </button>
             ) : (
-              <div className="space-y-2 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
-                <p className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">
-                  Enter your Google Email:
+              <form onSubmit={handleManualLogin} className="space-y-2.5 p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+                <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                  Your Account Details:
                 </p>
+                <input
+                  type="text"
+                  value={customNameInput}
+                  onChange={(e) => setCustomNameInput(e.target.value)}
+                  placeholder="Your Name (e.g. Rahul Sharma)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-rose-500"
+                />
                 <input
                   type="email"
                   value={customEmailInput}
                   onChange={(e) => setCustomEmailInput(e.target.value)}
-                  placeholder="yourname@gmail.com"
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-rose-500"
+                  placeholder="Your Google Email (e.g. name@gmail.com)"
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-rose-500"
                 />
                 <button
-                  type="button"
-                  onClick={() => {
-                    if (customEmailInput.trim()) {
-                      executeBypassLogin(customEmailInput.trim());
-                    }
-                  }}
-                  disabled={!customEmailInput.trim()}
-                  className="w-full py-1.5 px-3 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-lg text-xs font-bold hover:opacity-90 disabled:opacity-40 transition"
+                  type="submit"
+                  disabled={!customEmailInput.trim() || isLoading}
+                  className="w-full py-2.5 px-3 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-xl text-xs font-bold hover:opacity-90 disabled:opacity-40 transition cursor-pointer"
                 >
-                  Log in with this Google ID
+                  Create & Sign In to Profile
                 </button>
-              </div>
+              </form>
             )}
           </div>
 
@@ -387,6 +413,28 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               className="text-xs font-semibold text-neutral-500 hover:text-neutral-900 dark:hover:text-white transition cursor-pointer"
             >
               Continue watching as Guest →
+            </button>
+          </div>
+
+          {/* Legal Consent Notice (Google Play Requirement) */}
+          <div className="pt-2 text-center text-[10px] text-neutral-400 leading-tight">
+            <span>By signing in, you agree to our </span>
+            <button
+              type="button"
+              id="auth-modal-terms-link"
+              onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('terms')}
+              className="text-amber-500 hover:underline font-medium cursor-pointer"
+            >
+              Terms
+            </button>
+            <span> & </span>
+            <button
+              type="button"
+              id="auth-modal-privacy-link"
+              onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('privacy')}
+              className="text-amber-500 hover:underline font-medium cursor-pointer"
+            >
+              Privacy Policy
             </button>
           </div>
         </div>

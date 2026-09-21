@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Heart,
   MessageCircle,
@@ -26,6 +27,7 @@ import {
   ShoppingBag,
   Clapperboard,
   Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { Reel, User } from '../types';
 import { SupportedLanguage, translations } from '../translations';
@@ -56,6 +58,8 @@ interface ReelsViewProps {
   onDeleteReel?: (reelId: string) => void;
   onUploadReel?: () => void;
   onRequireAuth?: (action: 'like' | 'comment' | 'upload' | 'profile') => void;
+  onRefreshReels?: () => Promise<void> | void;
+  isRefreshing?: boolean;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -73,6 +77,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   onDeleteReel,
   onUploadReel,
   onRequireAuth,
+  onRefreshReels,
+  isRefreshing = false,
   currentLanguage = 'en',
 }) => {
   const [queue, setQueue] = useState<(Reel | AdMobNativeAd)[]>(() => {
@@ -83,9 +89,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     return recQueue;
   });
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+  const [pullProgress, setPullProgress] = useState(0);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
   const [showHeartBurst, setShowHeartBurst] = useState(false);
   const [showCommentsDrawer, setShowCommentsDrawer] = useState(false);
   const [showAudioDetailSheet, setShowAudioDetailSheet] = useState(false);
@@ -111,6 +118,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapTimeRef = useRef(0);
+  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const watchedReelsRef = useRef<Record<string, boolean>>({});
   const lastWatchTickRef = useRef<number>(Date.now());
 
@@ -186,20 +194,21 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     setTimeout(() => setToastMessage(null), 3200);
   };
 
-  // Pause non-active videos and play the active one with reliable muted autoplay
+  // Pause non-active videos and play the active one with unmuted sound by default
   useEffect(() => {
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
       if (index === activeIndex) {
         video.currentTime = 0;
-        video.defaultMuted = true;
+        video.defaultMuted = false;
         video.muted = isMuted;
+        video.volume = 1.0;
         const playPromise = video.play();
         if (playPromise !== undefined) {
           playPromise
             .then(() => setIsPlaying(true))
             .catch(() => {
-              // Autoplay browser policy fallback: strictly enforce muted and retry
+              // If unmuted autoplay without prior interaction is restricted by browser, fallback to muted autoplay
               video.muted = true;
               setIsMuted(true);
               video
@@ -217,11 +226,14 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     setExpandedCaption(false);
   }, [activeIndex, queue]);
 
-  // Sync mute across videos
+  // Sync mute across videos without restarting playback
   useEffect(() => {
     const currentVideo = videoRefs.current[activeIndex];
     if (currentVideo) {
       currentVideo.muted = isMuted;
+      if (currentVideo.paused) {
+        currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
     }
   }, [isMuted, activeIndex]);
 
@@ -263,45 +275,50 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     reorderUpcomingQueue();
   };
 
-  const handleVideoClick = () => {
+  const handleVideoClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     const now = Date.now();
-    const DOUBLE_TAP_GAP = 280;
+    const DOUBLE_TAP_GAP = 300;
 
     if (now - lastTapTimeRef.current < DOUBLE_TAP_GAP) {
-      // Double tap triggered -> heart like reel
-      if (currentReel && !currentReel.isLiked) {
-        handleLikeReel();
+      // Double tap triggered -> cancel pending single tap & heart like reel
+      if (tapTimeoutRef.current) {
+        clearTimeout(tapTimeoutRef.current);
+        tapTimeoutRef.current = null;
+      }
+      lastTapTimeRef.current = 0;
+
+      if (currentReel) {
+        if (!currentReel.isLiked) {
+          handleLikeReel();
+        }
       }
       setShowHeartBurst(true);
-      setTimeout(() => setShowHeartBurst(false), 800);
-      lastTapTimeRef.current = 0;
+      setTimeout(() => setShowHeartBurst(false), 900);
       return;
     }
 
     lastTapTimeRef.current = now;
 
-    const currentVideo = videoRefs.current[activeIndex];
-
-    // Single screen tap toggles Play / Pause directly
-    if (currentVideo) {
-      if (currentVideo.paused) {
-        currentVideo
-          .play()
-          .then(() => {
-            setIsPlaying(true);
-            setShowPlayPauseIcon('play');
-            setTimeout(() => setShowPlayPauseIcon(null), 600);
-          })
-          .catch(() => {
-            setIsPlaying(false);
-          });
-      } else {
-        currentVideo.pause();
-        setIsPlaying(false);
-        setShowPlayPauseIcon('pause');
-        setTimeout(() => setShowPlayPauseIcon(null), 600);
-      }
+    if (tapTimeoutRef.current) {
+      clearTimeout(tapTimeoutRef.current);
     }
+
+    // Single screen tap cleanly toggles mute/unmute directly while video keeps playing
+    tapTimeoutRef.current = setTimeout(() => {
+      setIsMuted((prevMuted) => {
+        const nextMuted = !prevMuted;
+        const currentVideo = videoRefs.current[activeIndex];
+        if (currentVideo) {
+          currentVideo.muted = nextMuted;
+          if (currentVideo.paused) {
+            currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
+          }
+        }
+        return nextMuted;
+      });
+      tapTimeoutRef.current = null;
+    }, DOUBLE_TAP_GAP);
   };
 
   const toggleFollow = (username: string) => {
@@ -423,21 +440,65 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeIndex, queue.length]);
 
-  // Continuous smooth touch swipe and mouse wheel handling
+  // Continuous smooth touch swipe, mouse wheel, and pull-to-refresh handling
   const touchStartY = useRef(0);
+  const touchStartX = useRef(0);
   const isWheelScrolling = useRef(false);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
+    if (e.touches.length === 1) {
+      touchStartY.current = e.touches[0].clientY;
+      touchStartX.current = e.touches[0].clientX;
+    }
   };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-    if (Math.abs(deltaY) > 40) {
-      if (deltaY < 0) {
-        goToNext();
-      } else {
-        goToPrev();
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      const currentY = e.touches[0].clientY;
+      const currentX = e.touches[0].clientX;
+      const deltaY = currentY - touchStartY.current;
+      const deltaX = currentX - touchStartX.current;
+
+      // When at the very first reel (activeIndex === 0) and swiping downward, track pull progress
+      if (activeIndex === 0 && deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX) && !isPullRefreshing && !isRefreshing) {
+        setPullProgress(Math.min(deltaY / 80, 1));
+      } else if (pullProgress > 0) {
+        setPullProgress(0);
+      }
+    }
+  };
+
+  const handleTouchEnd = async (e: React.TouchEvent) => {
+    if (e.changedTouches.length === 1) {
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+      const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+
+      // 1. Pull down to refresh on the first reel
+      if (activeIndex === 0 && deltaY > 55 && Math.abs(deltaY) > Math.abs(deltaX) && !isPullRefreshing && !isRefreshing) {
+        setPullProgress(1);
+        setIsPullRefreshing(true);
+        try {
+          if (onRefreshReels) {
+            await onRefreshReels();
+          }
+        } finally {
+          setTimeout(() => {
+            setIsPullRefreshing(false);
+            setPullProgress(0);
+          }, 600);
+        }
+        return;
+      }
+
+      setPullProgress(0);
+
+      // 2. Vertical swipe navigation between reels
+      if (Math.abs(deltaY) > 40 && Math.abs(deltaY) > Math.abs(deltaX)) {
+        if (deltaY < 0) {
+          goToNext();
+        } else {
+          goToPrev();
+        }
       }
     }
   };
@@ -500,10 +561,39 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         </div>
       )}
 
+      {/* Pull-To-Refresh Indicator for Reels */}
+      {(pullProgress > 0 || isPullRefreshing || isRefreshing) && (
+        <div
+          id="reels-pull-to-refresh-indicator"
+          className="absolute top-16 inset-x-0 flex items-center justify-center pointer-events-none z-50 transition-all duration-200"
+          style={{
+            opacity: Math.max(pullProgress, isPullRefreshing || isRefreshing ? 1 : 0),
+            transform: `translateY(${Math.min(pullProgress * 24, 30)}px)`,
+          }}
+        >
+          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/85 backdrop-blur-md border border-white/20 shadow-2xl text-xs font-semibold text-white">
+            <RefreshCw
+              className={`w-4 h-4 text-rose-400 ${isPullRefreshing || isRefreshing ? 'animate-spin' : ''}`}
+              style={{
+                transform: !isPullRefreshing && !isRefreshing ? `rotate(${pullProgress * 360}deg)` : undefined,
+              }}
+            />
+            <span>
+              {isPullRefreshing || isRefreshing
+                ? 'Refreshing Firestore Reels...'
+                : pullProgress >= 1
+                ? 'Release to refresh'
+                : 'Pull down to refresh'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Reel Card Stage - Full screen vertical without black boxes */}
       <div
         className="relative w-full h-full overflow-hidden bg-black flex flex-col justify-end"
         onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onWheel={handleWheel}
       >
@@ -605,25 +695,23 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/30 to-transparent pointer-events-none z-20" />
               <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none z-20" />
 
-          {/* Heart burst on double tap */}
-          {showHeartBurst && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 animate-ping duration-500">
-              <Heart className="w-24 h-24 text-rose-500 fill-rose-500 drop-shadow-2xl opacity-90 scale-125" />
-            </div>
-          )}
-
-          {/* Temporary Play/Pause Flash Icon */}
-          {showPlayPauseIcon && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
-              <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white">
-                {showPlayPauseIcon === 'play' ? (
-                  <Play className="w-8 h-8 fill-white ml-1" />
-                ) : (
-                  <Pause className="w-8 h-8 fill-white" />
-                )}
-              </div>
-            </div>
-          )}
+          {/* Animated Heart Overlay on Double Tap */}
+          <AnimatePresence>
+            {showHeartBurst && (
+              <motion.div
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: [0, 1.35, 1.05], opacity: [0, 1, 0.95], rotate: [0, -8, 4, 0] }}
+                exit={{ scale: 1.4, opacity: 0 }}
+                transition={{ duration: 0.7, ease: 'easeOut' }}
+                className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+              >
+                <div className="relative flex items-center justify-center">
+                  <Heart className="w-32 h-32 text-rose-500 fill-rose-500 drop-shadow-[0_12px_36px_rgba(244,63,94,0.75)]" />
+                  <div className="absolute inset-0 rounded-full bg-rose-500/25 blur-2xl pointer-events-none" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Top Bar on Reel: Title, Category pill, Audio status & 3-dot menu */}
           <div className="absolute top-4 inset-x-4 flex items-center justify-between z-30 text-white">
@@ -647,7 +735,33 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Speaker Corner Icon Button */}
+              {/* Manual Reels Refresh Button */}
+              {onRefreshReels && (
+                <button
+                  id="reel-refresh-btn"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setIsPullRefreshing(true);
+                    try {
+                      await onRefreshReels();
+                    } finally {
+                      setIsPullRefreshing(false);
+                    }
+                  }}
+                  disabled={isPullRefreshing || isRefreshing}
+                  className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
+                  aria-label="Refresh reels feed"
+                  title="Refresh reels"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${
+                      isPullRefreshing || isRefreshing ? 'animate-spin text-rose-400' : 'text-white'
+                    }`}
+                  />
+                </button>
+              )}
+
+              {/* Speaker Corner Icon Button - Clean toggle without blocking overlay */}
               <button
                 id="reel-mute-btn"
                 onClick={(e) => {
@@ -661,7 +775,6 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
                     }
                   }
-                  showToast(nextMuted ? '🔇 Audio muted' : '🔊 Audio unmuted');
                 }}
                 className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
                 aria-label={isMuted ? 'Unmute' : 'Mute'}
@@ -670,7 +783,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 {isMuted ? (
                   <VolumeX className="w-4 h-4 text-rose-400" />
                 ) : (
-                  <Volume2 className="w-4 h-4 text-emerald-400" />
+                  <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
                 )}
               </button>
 

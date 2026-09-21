@@ -50,11 +50,11 @@ export function getDailyUploads(userId: string): DailyUploadsRecord {
 }
 
 /**
- * Check if the user is allowed to upload a photo or reel based on the 24-hour limit
+ * Check upload quota (Unlimited uploads allowed - no daily restrictions)
  */
 export function checkDailyLimit(
-  userId: string,
-  type: 'photo' | 'reel'
+  _userId: string,
+  _type: 'photo' | 'reel'
 ): {
   allowed: boolean;
   currentCount: number;
@@ -62,27 +62,12 @@ export function checkDailyLimit(
   remaining: number;
   resetInMs: number;
 } {
-  const uploads = getDailyUploads(userId);
-  const now = Date.now();
-  const max = type === 'photo' ? MONETIZATION_POLICY.MAX_DAILY_PHOTOS : MONETIZATION_POLICY.MAX_DAILY_REELS;
-  const list = type === 'photo' ? uploads.photos : uploads.reels;
-  const currentCount = list.length;
-  const remaining = Math.max(0, max - currentCount);
-  const allowed = currentCount < max;
-
-  let resetInMs = 0;
-  if (!allowed && list.length > 0) {
-    // Oldest timestamp will expire earliest
-    const oldest = Math.min(...list);
-    resetInMs = Math.max(0, oldest + MONETIZATION_POLICY.WINDOW_MS - now);
-  }
-
   return {
-    allowed,
-    currentCount,
-    max,
-    remaining,
-    resetInMs,
+    allowed: true,
+    currentCount: 0,
+    max: Infinity,
+    remaining: Infinity,
+    resetInMs: 0,
   };
 }
 

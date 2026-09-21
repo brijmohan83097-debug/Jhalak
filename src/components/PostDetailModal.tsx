@@ -27,6 +27,7 @@ import {
 } from '../utils/imageCompressor';
 import { safeEncodeURIComponent } from '../utils/safeEncoding';
 import { isSuperAdmin } from '../constants/admin';
+import { resolvePlayableMediaUrl } from '../utils/persistentMediaStore';
 
 interface PostDetailModalProps {
   post: Post;
@@ -75,6 +76,22 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [resolvedUrl, setResolvedUrl] = useState<string>(post.mediaUrl);
+  const [isPlaying, setIsPlaying] = useState(true);
+
+  React.useEffect(() => {
+    let active = true;
+    if (post.mediaType === 'video' && post.mediaUrl) {
+      resolvePlayableMediaUrl(post.id, post.mediaUrl).then((url) => {
+        if (active && url) {
+          setResolvedUrl(url);
+        }
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [post.id, post.mediaUrl, post.mediaType]);
   const [likedComments, setLikedComments] = useState<Record<string, boolean>>({});
   const [showProductModal, setShowProductModal] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
@@ -172,24 +189,86 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             ) : (
               <div className="relative w-full h-full flex items-center justify-center bg-black">
                 <video
-                  ref={videoRef}
-                  src={post.mediaUrl}
+                  ref={(el) => {
+                    (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
+                    if (el) {
+                      el.defaultMuted = isMuted;
+                      el.muted = isMuted;
+                      const p = el.play();
+                      if (p !== undefined) {
+                        p.then(() => setIsPlaying(true)).catch(() => {
+                          el.muted = true;
+                          setIsMuted(true);
+                          el.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                        });
+                      }
+                    }
+                  }}
+                  src={resolvedUrl || post.mediaUrl}
                   poster={post.thumbnailUrl}
                   autoPlay
                   loop
                   playsInline
+                  webkit-playsinline="true"
                   muted={isMuted}
-                  onError={() => setVideoError(true)}
+                  preload="auto"
+                  onCanPlay={(e) => {
+                    const vid = e.currentTarget;
+                    const p = vid.play();
+                    if (p !== undefined) {
+                      p.then(() => setIsPlaying(true)).catch(() => {});
+                    }
+                  }}
+                  onError={async () => {
+                    try {
+                      const restored = await resolvePlayableMediaUrl(post.id, post.mediaUrl);
+                      if (restored && restored !== resolvedUrl) {
+                        setResolvedUrl(restored);
+                        return;
+                      }
+                    } catch {}
+                    setVideoError(true);
+                  }}
                   className="w-full h-full object-contain cursor-pointer"
-                  onClick={() => onOpenFullScreen && onOpenFullScreen(post)}
+                  onClick={() => {
+                    const vid = videoRef.current;
+                    const nextMuted = !isMuted;
+                    setIsMuted(nextMuted);
+                    if (vid) {
+                      vid.muted = nextMuted;
+                      if (vid.paused) {
+                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                      }
+                    }
+                  }}
                 />
+                {!isPlaying && !videoError && (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 cursor-pointer"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 text-white shadow-2xl">
+                      <Volume2 className="w-8 h-8 fill-white ml-0.5" />
+                    </div>
+                  </div>
+                )}
                 <button
                   id="detail-mute-btn"
-                  onClick={() => setIsMuted((prev) => !prev)}
-                  className="absolute bottom-4 right-4 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition z-10"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const nextMuted = !isMuted;
+                    setIsMuted(nextMuted);
+                    const vid = videoRef.current;
+                    if (vid) {
+                      vid.muted = nextMuted;
+                      if (vid.paused) {
+                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                      }
+                    }
+                  }}
+                  className="absolute bottom-4 right-4 p-2.5 rounded-full bg-black/70 hover:bg-black/90 text-white backdrop-blur-md transition z-20 shadow-xl border border-white/20 cursor-pointer active:scale-95"
                   aria-label={isMuted ? 'Unmute video' : 'Mute video'}
                 >
-                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
+                  {isMuted ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5 text-emerald-400 animate-pulse" />}
                 </button>
               </div>
             )

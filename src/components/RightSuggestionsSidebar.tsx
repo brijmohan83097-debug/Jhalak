@@ -15,6 +15,8 @@ interface RightSuggestionsSidebarProps {
   onViewUser: (username: string) => void;
   creators?: SuggestedCreator[];
   currentLanguage?: SupportedLanguage;
+  onOpenLegalPolicies?: (tab?: 'privacy' | 'terms' | 'ugc' | 'data-safety') => void;
+  onDeleteAccount?: () => void;
 }
 
 export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = ({
@@ -22,6 +24,8 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
   onViewUser,
   creators = [],
   currentLanguage = 'en',
+  onOpenLegalPolicies,
+  onDeleteAccount,
 }) => {
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
   const t = translations[currentLanguage];
@@ -132,12 +136,54 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
       )}
 
       {/* Mini Footer */}
-      <div className="text-[11px] text-neutral-400 dark:text-neutral-500 space-y-3">
-        <p className="leading-relaxed">
-          About • Help • Press • API • Jobs • Privacy • Terms • Locations • Language • Jhalak Verified
-        </p>
+      <div className="text-[11px] text-neutral-400 dark:text-neutral-500 space-y-2">
+        <div className="flex flex-wrap items-center gap-1.5 leading-relaxed">
+          <span>About</span>
+          <span>•</span>
+          <span>Help</span>
+          <span>•</span>
+          <button
+            type="button"
+            id="sidebar-privacy-link"
+            onClick={() => onOpenLegalPolicies && onOpenLegalPolicies('privacy')}
+            className="hover:text-neutral-700 dark:hover:text-neutral-200 transition underline cursor-pointer"
+          >
+            Privacy
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            id="sidebar-terms-link"
+            onClick={() => onOpenLegalPolicies && onOpenLegalPolicies('terms')}
+            className="hover:text-neutral-700 dark:hover:text-neutral-200 transition underline cursor-pointer"
+          >
+            Terms
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            id="sidebar-data-safety-link"
+            onClick={() => onOpenLegalPolicies && onOpenLegalPolicies('data-safety')}
+            className="hover:text-neutral-700 dark:hover:text-neutral-200 transition underline cursor-pointer"
+          >
+            Data Safety
+          </button>
+          {onDeleteAccount && (
+            <>
+              <span>•</span>
+              <button
+                type="button"
+                id="sidebar-delete-account-link"
+                onClick={onDeleteAccount}
+                className="text-rose-500 hover:text-rose-600 transition underline cursor-pointer font-medium"
+              >
+                Delete Account
+              </button>
+            </>
+          )}
+        </div>
         <p className="uppercase tracking-wider text-[10px] text-neutral-400">
-          © 2026 JHALAK INDIA
+          © 2026 JHALAK INDIA • GOOGLE PLAY COMPLIANT
         </p>
       </div>
     </aside>

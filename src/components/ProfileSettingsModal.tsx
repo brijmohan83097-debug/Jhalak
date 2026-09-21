@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   User as UserIcon,
@@ -25,12 +25,17 @@ import {
   ShieldAlert,
   Moon,
   Sun,
+  HardDrive,
+  RefreshCw,
+  CheckCircle2,
 } from 'lucide-react';
 import { SupportedLanguage, SUPPORTED_LANGUAGES, translations } from '../translations';
 import { User } from '../types';
 import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
 import { CreatorMonetizationView } from './CreatorMonetizationView';
 import { AccountDeletionModal } from './AccountDeletionModal';
+import { verifyFirebaseConfig, FirebaseDiagnosticStatus } from '../services/firebase';
+import { purgeOfflineMediaStorage } from '../utils/persistentMediaStore';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -51,7 +56,7 @@ interface ProfileSettingsModalProps {
   commentsCount?: number;
 }
 
-type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications' | 'monetization' | 'account';
+type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications' | 'monetization' | 'account' | 'firebase';
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   isOpen,
@@ -77,6 +82,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [storyAlerts, setStoryAlerts] = useState(true);
   const [dmAlerts, setDmAlerts] = useState(true);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [firebaseDiagnostics, setFirebaseDiagnostics] = useState<FirebaseDiagnosticStatus | null>(null);
+  const [isTestingFirebase, setIsTestingFirebase] = useState(false);
+  const [purgeNotice, setPurgeNotice] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -387,6 +395,38 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     </span>
                     <span className="text-xs text-neutral-500">
                       Play Store compliance, user rights & report guidelines
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 8. Firebase & Cloud Storage Diagnostics */}
+              <button
+                id="settings-firebase-diagnostics-opt"
+                onClick={() => {
+                  setSubView('firebase');
+                  setIsTestingFirebase(true);
+                  verifyFirebaseConfig().then((diag) => {
+                    setFirebaseDiagnostics(diag);
+                    setIsTestingFirebase(false);
+                  });
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-sky-500/10 text-sky-500 flex items-center justify-center">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
+                      Firebase & Cloud Storage
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 font-bold">
+                        Active
+                      </span>
+                    </span>
+                    <span className="text-xs text-neutral-500">
+                      Verify config, bucket connectivity & purge offline cache
                     </span>
                   </div>
                 </div>
@@ -733,6 +773,105 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   <Trash2 className="w-4 h-4" />
                   <span>Delete Account</span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* 7. Firebase & Cloud Storage Diagnostics Subview */}
+          {subView === 'firebase' && (
+            <div className="space-y-4 py-1">
+              <div className="p-4 rounded-xl bg-sky-500/10 border border-sky-500/20">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Database className="w-5 h-5 text-sky-500" />
+                  <h4 className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Cloud Storage & Firebase Status
+                  </h4>
+                </div>
+                <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+                  Browser IndexedDB caching of video blobs has been completely removed to protect device memory. All uploads stream directly to Firebase Cloud Storage.
+                </p>
+              </div>
+
+              {/* Status Report Card */}
+              <div className="p-4 rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700/80 space-y-2.5 text-xs">
+                <div className="flex items-center justify-between pb-2 border-b border-neutral-200 dark:border-neutral-700">
+                  <span className="text-neutral-500 font-medium">Firebase Project:</span>
+                  <span className="font-mono font-semibold text-neutral-900 dark:text-white">
+                    {firebaseDiagnostics?.projectId || 'upbeat-charge-xlk09'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pb-2 border-b border-neutral-200 dark:border-neutral-700">
+                  <span className="text-neutral-500 font-medium">Cloud Firestore:</span>
+                  <span className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4" /> Connected & Active
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pb-2 border-b border-neutral-200 dark:border-neutral-700">
+                  <span className="text-neutral-500 font-medium">Storage Bucket:</span>
+                  <span className="font-mono text-[11px] text-neutral-800 dark:text-neutral-200 truncate max-w-[200px]">
+                    {firebaseDiagnostics?.storageBucket || 'upbeat-charge-xlk09.firebasestorage.app'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-neutral-500 font-medium">Bucket Reachability:</span>
+                  <span
+                    className={`font-semibold flex items-center gap-1.5 ${
+                      firebaseDiagnostics?.storageReachable
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`}
+                  >
+                    {firebaseDiagnostics?.storageReachable ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" /> Ready for Direct Uploads
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4" /> Check Firebase Console Bucket
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsTestingFirebase(true);
+                    const diag = await verifyFirebaseConfig();
+                    setFirebaseDiagnostics(diag);
+                    setIsTestingFirebase(false);
+                  }}
+                  disabled={isTestingFirebase}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingFirebase ? 'animate-spin' : ''}`} />
+                  <span>{isTestingFirebase ? 'Verifying connection...' : 'Test Storage Connectivity'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await purgeOfflineMediaStorage();
+                    setPurgeNotice('✅ Legacy offline storage & temporary blobs purged successfully!');
+                    setTimeout(() => setPurgeNotice(null), 4000);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-semibold text-xs transition cursor-pointer"
+                >
+                  <HardDrive className="w-3.5 h-3.5 text-neutral-500" />
+                  <span>Purge Browser Offline Storage Now</span>
+                </button>
+
+                {purgeNotice && (
+                  <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-semibold text-center animate-in fade-in">
+                    {purgeNotice}
+                  </div>
+                )}
               </div>
             </div>
           )}

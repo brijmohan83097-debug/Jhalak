@@ -24,6 +24,7 @@ import { CreatorDashboardCard } from './CreatorDashboardCard';
 import { CreatorMonetizationView } from './CreatorMonetizationView';
 import { safeSetItem } from '../utils/safeStorage';
 import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
+import { moderationService } from '../services/moderationService';
 import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
@@ -42,6 +43,7 @@ interface ProfileViewProps {
   onOpenLegalPolicies?: () => void;
   onOpenAdminPanel?: () => void;
   onOpenMonetizationView?: () => void;
+  onDeleteAccount?: () => void;
   onLogout?: () => void;
   currentLanguage?: SupportedLanguage;
 }
@@ -59,6 +61,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenLegalPolicies,
   onOpenAdminPanel,
   onOpenMonetizationView,
+  onDeleteAccount,
   onLogout,
   currentLanguage = 'en',
 }) => {
@@ -106,14 +109,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const t = translations[currentLanguage] || translations.en;
   const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLanguage);
 
+  const [postToDeleteConfirm, setPostToDeleteConfirm] = useState<Post | null>(null);
+
   // Helper to determine if a post belongs exclusively to the current profile user
   const isMatchingUser = (p: any): boolean => {
     if (!p || typeof p !== 'object' || !p.id) return false;
+    if (isSuperAdmin(user)) return true;
     const targetId = (user?.id || '').trim().toLowerCase();
-    const targetUsername = (user?.username || '').trim().toLowerCase();
+    const targetUsername = (user?.username || '').replace(/^@/, '').trim().toLowerCase();
 
     const postUserId = (p.userId || '').trim().toLowerCase();
-    const postUsername = (p.username || '').trim().toLowerCase();
+    const postUsername = (p.username || '').replace(/^@/, '').trim().toLowerCase();
 
     // 1. Direct match by user ID
     if (targetId && postUserId && targetId === postUserId) return true;
@@ -121,18 +127,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     // 2. Direct match by username
     if (targetUsername && postUsername && targetUsername === postUsername) return true;
 
-    // 3. Super Admin account match
-    if (isSuperAdmin(user)) {
-      if (
-        postUserId === 'user-me' ||
-        postUserId === 'user-brijmohan' ||
-        postUserId === 'user-brijmohan83097' ||
-        postUsername === 'brijmohan' ||
-        postUsername === 'brijmohan83097'
-      ) {
-        return true;
-      }
-    }
+    // 3. Match by user created flag or email
+    if (p.isUserCreated) return true;
+    if (user?.email && p.userEmail && user.email.toLowerCase() === p.userEmail.toLowerCase()) return true;
 
     return false;
   };
@@ -143,7 +140,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const postMap = new Map<string, Post>();
 
     const addIfMatching = (p: any) => {
-      if (p && p.id && isMatchingUser(p)) {
+      if (p && p.id && isMatchingUser(p) && !moderationService.isPermanentlyDeleted(p.id)) {
         if (!postMap.has(p.id)) {
           postMap.set(p.id, p);
         }
@@ -192,11 +189,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   // Direct instant delete from Profile
   const handleDeleteDirect = (postId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const rawId = postId.replace(/^reel-/, '');
 
     // 1. Immediately hide from profile UI state with 0 latency
-    setDeletedPostIds((prev) => (prev.includes(postId) ? prev : [...prev, postId]));
+    setDeletedPostIds((prev) => Array.from(new Set([...prev, postId, rawId, `reel-${rawId}`])));
 
-    // 2. Clear from all potential localStorage post stores
+    // 2. Mark as permanently deleted in moderation service
+    try {
+      moderationService.deletePostPermanently(postId);
+    } catch {}
+
+    // 3. Clear from all potential localStorage post stores
     try {
       const targetUserId = user?.id || '';
       const targetUsername = user?.username || '';
@@ -217,24 +220,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           try {
             const list = JSON.parse(raw);
             if (Array.isArray(list)) {
-              localStorage.setItem(k, JSON.stringify(list.filter((x: any) => x?.id !== postId)));
+              localStorage.setItem(k, JSON.stringify(list.filter((x: any) => x && x.id !== postId && x.id !== rawId && x.id !== `reel-${rawId}`)));
             }
           } catch {}
         }
       });
     } catch {}
 
-    // 3. Trigger parent delete handler
+    // 4. Trigger parent delete handler
     if (onDeletePost) {
       onDeletePost(postId);
     }
   };
 
   const safeResolvedPosts = (Array.isArray(resolvedUserPosts) ? resolvedUserPosts : []).filter(
-    (p) => !deletedPostIds.includes(p.id)
+    (p) => !deletedPostIds.includes(p.id) && !moderationService.isPermanentlyDeleted(p.id)
   );
   const safeSavedPosts = (Array.isArray(savedPosts) ? savedPosts : []).filter(
-    (p) => !deletedPostIds.includes(p.id)
+    (p) => !deletedPostIds.includes(p.id) && !moderationService.isPermanentlyDeleted(p.id)
   );
 
   const effectivePostsCount = safeResolvedPosts.length;
@@ -428,11 +431,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <button
                   id="profile-legal-btn"
                   onClick={onOpenLegalPolicies}
-                  className="p-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-800 dark:text-neutral-200 transition flex items-center"
+                  className="p-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-800 dark:text-neutral-200 transition flex items-center cursor-pointer"
                   title="Legal, Terms & Privacy Policies"
                   aria-label="Legal & Privacy Policy"
                 >
                   <Scale className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Direct Delete Account & Data Button (Play Store Requirement) */}
+              {onDeleteAccount && (
+                <button
+                  id="profile-delete-account-header-btn"
+                  onClick={onDeleteAccount}
+                  className="p-2 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 rounded-lg text-rose-600 dark:text-rose-400 transition flex items-center cursor-pointer"
+                  title="Delete Account & Data (Google Play Policy)"
+                  aria-label="Delete Account & Data"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
 
@@ -756,9 +772,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   title="Delete post permanently"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (window.confirm('Are you sure you want to permanently delete this post?')) {
-                      handleDeleteDirect(post.id, e);
-                    }
+                    setPostToDeleteConfirm(post);
                   }}
                   className="absolute top-2 left-2 z-20 p-1.5 rounded-full bg-rose-600/90 hover:bg-rose-700 text-white shadow-lg transition opacity-90 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
                 >
@@ -767,6 +781,52 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* In-App Permanent Deletion Confirmation Modal */}
+      {postToDeleteConfirm && (
+        <div
+          id="profile-delete-confirm-modal"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setPostToDeleteConfirm(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-neutral-900 border border-white/10 p-6 text-white shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-14 h-14 rounded-full bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-4 shadow-inner">
+              <Trash2 className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">
+              Delete Post Permanently?
+            </h3>
+            <p className="text-xs text-neutral-400 mb-6 leading-relaxed">
+              This video or post will be immediately and permanently removed from Cloud Firestore, Home Feed, Reels, and your profile.
+            </p>
+            <div className="w-full flex flex-col gap-2.5">
+              <button
+                id="confirm-delete-permanent-btn"
+                type="button"
+                onClick={(e) => {
+                  const idToDelete = postToDeleteConfirm.id;
+                  setPostToDeleteConfirm(null);
+                  handleDeleteDirect(idToDelete, e);
+                }}
+                className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-sm font-semibold shadow-lg shadow-rose-600/30 transition cursor-pointer"
+              >
+                Delete Permanently
+              </button>
+              <button
+                id="cancel-delete-permanent-btn"
+                type="button"
+                onClick={() => setPostToDeleteConfirm(null)}
+                className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-sm font-medium transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -810,6 +870,56 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <span>{toastMsg}</span>
         </div>
       )}
+
+      {/* Google Play Policy & Data Deletion Profile Footer */}
+      <footer className="pt-8 pb-14 text-center text-xs text-neutral-400 dark:text-neutral-500 border-t border-neutral-200 dark:border-neutral-800/80 mt-10 space-y-2">
+        <div className="flex flex-wrap items-center justify-center gap-3 text-[11px]">
+          {onOpenLegalPolicies && (
+            <>
+              <button
+                type="button"
+                id="profile-footer-privacy-btn"
+                onClick={onOpenLegalPolicies}
+                className="hover:text-neutral-900 dark:hover:text-white transition underline cursor-pointer"
+              >
+                Privacy Policy
+              </button>
+              <span>•</span>
+              <button
+                type="button"
+                id="profile-footer-terms-btn"
+                onClick={onOpenLegalPolicies}
+                className="hover:text-neutral-900 dark:hover:text-white transition underline cursor-pointer"
+              >
+                Terms of Service
+              </button>
+              <span>•</span>
+              <button
+                type="button"
+                id="profile-footer-ugc-btn"
+                onClick={onOpenLegalPolicies}
+                className="hover:text-neutral-900 dark:hover:text-white transition underline cursor-pointer"
+              >
+                UGC Guidelines
+              </button>
+              <span>•</span>
+            </>
+          )}
+          {onDeleteAccount && (
+            <button
+              type="button"
+              id="profile-footer-delete-account-btn"
+              onClick={onDeleteAccount}
+              className="text-rose-500 hover:text-rose-700 transition underline font-semibold cursor-pointer"
+            >
+              Delete Account & Data
+            </button>
+          )}
+        </div>
+        <p className="text-[10px] text-neutral-400">
+          Jhalak Reels: Made in India • Google Play Store Verified App
+        </p>
+      </footer>
     </div>
   );
 };

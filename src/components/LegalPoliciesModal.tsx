@@ -13,20 +13,31 @@ import {
   Ban,
   Clock,
   ChevronRight,
+  Trash2,
+  ShieldCheck,
+  Database,
 } from 'lucide-react';
 
 interface LegalPoliciesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'privacy' | 'terms' | 'ugc';
+  initialTab?: 'privacy' | 'terms' | 'ugc' | 'data-safety';
+  onOpenDeleteAccount?: () => void;
 }
 
 export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
   isOpen,
   onClose,
   initialTab = 'privacy',
+  onOpenDeleteAccount,
 }) => {
-  const [activeTab, setActiveTab] = useState<'privacy' | 'terms' | 'ugc'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'privacy' | 'terms' | 'ugc' | 'data-safety'>(initialTab);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -106,6 +117,22 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
               Mandatory
             </span>
           </button>
+
+          <button
+            id="tab-data-safety"
+            onClick={() => setActiveTab('data-safety')}
+            className={`pb-3 px-3 border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'data-safety'
+                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold'
+                : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+            }`}
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span>Data Safety & Deletion</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
+              Play Store
+            </span>
+          </button>
         </div>
 
         {/* Content Body */}
@@ -157,10 +184,32 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
 
               <div>
                 <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5 flex items-center gap-1.5">
-                  3. Your Rights & Permanent Account Deletion
+                  3. Permanent Account & Data Deletion (Google Play Mandate)
                 </h3>
-                <p className="text-neutral-600 dark:text-neutral-400">
-                  In compliance with Google Play Store data safety mandates, you have the absolute right to request full account and data deletion at any time. You can access the <strong>"Delete Account / Request Data Deletion"</strong> option directly within the Profile Settings menu. Once confirmed, all your posts, profile details, comments, and stored messages will be permanently deleted.
+                <p className="text-neutral-600 dark:text-neutral-400 mb-2">
+                  In strict compliance with Google Play Developer Policies and data privacy regulations, all users have the unconditional right to delete their account and associated data. You can trigger immediate account deletion directly from the Profile Settings menu, or right here:
+                </p>
+                {onOpenDeleteAccount && (
+                  <div className="p-3 my-2 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between gap-3">
+                    <div className="text-[11px] text-rose-700 dark:text-rose-300">
+                      <strong>Delete Account:</strong> Permanently purges your profile, reels, photos, comments, and data.
+                    </div>
+                    <button
+                      type="button"
+                      id="privacy-policy-delete-account-btn"
+                      onClick={() => {
+                        onClose();
+                        onOpenDeleteAccount();
+                      }}
+                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer flex-shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Account</span>
+                    </button>
+                  </div>
+                )}
+                <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">
+                  External web deletion portal URL: <code className="px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-amber-600 dark:text-amber-400 font-mono text-[10px]">{typeof window !== 'undefined' ? window.location.origin : 'https://jhalak.app'}/?page=delete-account</code>
                 </p>
               </div>
 
@@ -170,6 +219,24 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
                 </h3>
                 <p className="text-neutral-600 dark:text-neutral-400">
                   We employ industry-standard encryption protocols (TLS/HTTPS in transit and secure AES storage) to protect personal identifiers. We do not sell your personal data to third-party data brokers.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5 flex items-center gap-1.5">
+                  5. Children's Privacy (Google Play Families Policy)
+                </h3>
+                <p className="text-neutral-600 dark:text-neutral-400">
+                  Jhalak Reels is not directed to children under the age of 13. We do not knowingly collect personal data from children under 13. If you believe a child under 13 has provided us with personal information, please contact <a href="mailto:privacy@jhalak.app" className="underline text-amber-500">privacy@jhalak.app</a> and we will immediately purge the record.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5 flex items-center gap-1.5">
+                  6. Third-Party SDKs & Advertising Disclosures
+                </h3>
+                <p className="text-neutral-600 dark:text-neutral-400">
+                  We use trusted Google cloud infrastructure (Firebase Authentication, Cloud Firestore, Cloud Storage) to authenticate users and serve user media securely. We may display non-personalized, non-intrusive creator sponsored banners or cultural announcements that comply with Google Play Developer Policy.
                 </p>
               </div>
 
@@ -340,6 +407,95 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
                   <p className="text-[10px] text-neutral-400 mt-1">
                     Grievance complaints will be acknowledged within 24 hours and addressed within 15 days in compliance with statutory requirements.
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: DATA SAFETY & ACCOUNT DELETION (Google Play Console Compliance) */}
+          {activeTab === 'data-safety' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-emerald-900 dark:text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                  <h4 className="font-bold text-xs">
+                    Google Play Store Data Safety Section Declaration
+                  </h4>
+                </div>
+                <p className="text-[11px] mt-1.5 text-emerald-800 dark:text-emerald-400/90 leading-relaxed">
+                  Below is the exact data safety disclosure for Jhalak Reels: Made in India as filed in the Google Play Developer Console, verifying data collection, encryption, and our complete account deletion mechanism.
+                </p>
+              </div>
+
+              {/* Data Collected Table */}
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-2 flex items-center gap-1.5">
+                  <Database className="w-4 h-4 text-emerald-500" />
+                  Data Collected by Jhalak
+                </h3>
+                <div className="space-y-2 text-[11px]">
+                  <div className="p-2.5 rounded-lg bg-neutral-100 dark:bg-neutral-800/70 border border-neutral-200 dark:border-neutral-700/60">
+                    <strong className="block text-neutral-900 dark:text-white">Personal Information</strong>
+                    <span className="text-neutral-500">Name, Google email address, username, profile photo, and bio. Collected for app functionality and account creation.</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-neutral-100 dark:bg-neutral-800/70 border border-neutral-200 dark:border-neutral-700/60">
+                    <strong className="block text-neutral-900 dark:text-white">Photos & Videos (User Generated Content)</strong>
+                    <span className="text-neutral-500">Reels, videos, photos, audio tracks, and captions uploaded by users for sharing.</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-neutral-100 dark:bg-neutral-800/70 border border-neutral-200 dark:border-neutral-700/60">
+                    <strong className="block text-neutral-900 dark:text-white">Messages & In-App Interactions</strong>
+                    <span className="text-neutral-500">Likes, comments, shares, followed creators, watch duration, and direct messages.</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-neutral-100 dark:bg-neutral-800/70 border border-neutral-200 dark:border-neutral-700/60">
+                    <strong className="block text-neutral-900 dark:text-white">App Info & Performance</strong>
+                    <span className="text-neutral-500">Crash logs, diagnostic events, and performance diagnostics to improve reliability.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Security Practices */}
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5 flex items-center gap-1.5">
+                  <Lock className="w-4 h-4 text-emerald-500" />
+                  Security Practices
+                </h3>
+                <ul className="list-disc pl-5 space-y-1 text-neutral-600 dark:text-neutral-400 text-xs">
+                  <li><strong>Data encrypted in transit:</strong> All data transfers are encrypted using TLS 1.3/HTTPS.</li>
+                  <li><strong>No Data Sold:</strong> Your data is never sold to third-party data brokers or advertisers.</li>
+                  <li><strong>User Deletion Guarantee:</strong> You can request that your data be deleted at any time.</li>
+                </ul>
+              </div>
+
+              {/* Account Deletion & Data Erasure */}
+              <div className="p-4 rounded-xl bg-rose-500/10 border-2 border-rose-500/30 text-rose-800 dark:text-rose-200 space-y-2">
+                <h4 className="font-bold text-xs text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  Account & Data Deletion Portal (Google Play Policy)
+                </h4>
+                <p className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                  You can permanently delete your account and all associated data either directly in the app or via our external web resource URL. Once requested, your profile, posts, reels, comments, and messages are permanently purged from all databases.
+                </p>
+                <div className="pt-1 flex flex-wrap items-center gap-2">
+                  {onOpenDeleteAccount && (
+                    <button
+                      type="button"
+                      id="data-safety-delete-account-btn"
+                      onClick={() => {
+                        onClose();
+                        onOpenDeleteAccount();
+                      }}
+                      className="py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete My Account & Data Now</span>
+                    </button>
+                  )}
+                  <a
+                    href="/?page=delete-account"
+                    className="py-2 px-3.5 rounded-xl border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 font-semibold text-xs transition"
+                  >
+                    Direct Web Deletion Link: /?page=delete-account
+                  </a>
                 </div>
               </div>
             </div>

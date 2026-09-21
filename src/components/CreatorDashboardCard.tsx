@@ -241,18 +241,11 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-neutral-100/80 dark:bg-neutral-800/40 border border-neutral-200 dark:border-neutral-800 text-xs">
         <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 flex items-center gap-1">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-          Daily Upload Limit (24h Quota):
+          Daily Uploads (दैनिक अपलोड):
         </span>
-        <div className="flex items-center gap-3 text-[11px]">
-          <span className="flex items-center gap-1">
-            <Film className="w-3 h-3 text-rose-500" />
-            <span>Reels: <strong>{reelsUsed}/3</strong></span>
-          </span>
-          <span>•</span>
-          <span className="flex items-center gap-1">
-            <ImageIcon className="w-3 h-3 text-sky-500" />
-            <span>Photos: <strong>{photosUsed}/3</strong></span>
-          </span>
+        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+          <Sparkles className="w-3 h-3 text-amber-500" />
+          <span>Unlimited (असीमित)</span>
         </div>
       </div>
 

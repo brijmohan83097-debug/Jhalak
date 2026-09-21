@@ -7,21 +7,29 @@ interface GoogleWelcomeScreenProps {
   onContinueWithGoogle: () => void;
   onExploreAsGuest: () => void;
   onQuickLogin: (account: GoogleAccount) => void;
+  onOpenLegalPolicy?: (tab: 'privacy' | 'terms' | 'ugc' | 'data-safety') => void;
 }
 
 export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
   onContinueWithGoogle,
   onExploreAsGuest,
   onQuickLogin,
+  onOpenLegalPolicy,
 }) => {
-  // Check if saved accounts from previous logins exist
+  // Check if saved accounts from previous genuine logins exist
   const savedAccounts = useMemo<GoogleAccount[]>(() => {
     try {
       const raw = localStorage.getItem('ig_saved_accounts');
       if (raw) {
         const list = JSON.parse(raw);
         if (Array.isArray(list) && list.length > 0) {
-          return list.filter((a: any) => a && a.email);
+          return list.filter(
+            (a: any) =>
+              a &&
+              a.email &&
+              a.email !== 'brijmohan83097@gmail.com' &&
+              a.username !== 'mohank659'
+          );
         }
       }
     } catch {
@@ -149,23 +157,6 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
             <span>Continue with Google</span>
           </button>
 
-          {/* Quick 1-Click Login for Super Admin (Brijmohan) */}
-          <button
-            id="welcome-quick-brijmohan-btn"
-            onClick={() =>
-              onQuickLogin({
-                name: 'Brijmohan',
-                email: 'brijmohan83097@gmail.com',
-                avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=brijmohan83097',
-                username: 'brijmohan83097',
-                firebaseUid: 'user_brijmohan83097',
-              })
-            }
-            className="w-full py-2.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-2xl font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer mb-3"
-          >
-            <span>⚡ 1-Click Login: brijmohan83097@gmail.com</span>
-          </button>
-
           {/* Fast Guest Mode Button */}
           <button
             id="welcome-guest-btn"
@@ -174,13 +165,75 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
           >
             Watch Reels immediately without login →
           </button>
+
+          {/* Legal Policy Consent Notice (Google Play Policy Compliance) */}
+          <div className="mt-4 text-center text-[11px] text-neutral-400 max-w-xs leading-relaxed">
+            <span>By signing in or continuing, you agree to our </span>
+            <button
+              type="button"
+              id="welcome-terms-link"
+              onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('terms')}
+              className="text-amber-400 hover:underline font-medium cursor-pointer"
+            >
+              Terms
+            </button>
+            <span>, </span>
+            <button
+              type="button"
+              id="welcome-privacy-link"
+              onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('privacy')}
+              className="text-amber-400 hover:underline font-medium cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <span> & </span>
+            <button
+              type="button"
+              id="welcome-ugc-link"
+              onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('ugc')}
+              className="text-amber-400 hover:underline font-medium cursor-pointer"
+            >
+              UGC Rules
+            </button>
+            <span>.</span>
+          </div>
         </div>
       </main>
 
-      {/* Footer Note */}
-      <footer className="py-4 text-center text-xs text-neutral-500 relative z-10 flex items-center justify-center gap-1.5">
-        <Shield className="w-3.5 h-3.5 text-emerald-500" />
-        <span>Made with ❤️ for Indian Creators • Jhalak Reels</span>
+      {/* Footer Note with Direct Legal Links */}
+      <footer className="py-4 px-4 text-center text-xs text-neutral-500 relative z-10 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-1.5">
+          <Shield className="w-3.5 h-3.5 text-emerald-500" />
+          <span>Made with ❤️ for Indian Creators • Jhalak Reels</span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-neutral-400">
+          <button
+            type="button"
+            id="footer-privacy-btn"
+            onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('privacy')}
+            className="hover:text-white transition underline cursor-pointer"
+          >
+            Privacy Policy
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            id="footer-terms-btn"
+            onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('terms')}
+            className="hover:text-white transition underline cursor-pointer"
+          >
+            Terms of Service
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            id="footer-data-safety-btn"
+            onClick={() => onOpenLegalPolicy && onOpenLegalPolicy('data-safety')}
+            className="hover:text-white transition underline cursor-pointer"
+          >
+            Data Safety & Deletion
+          </button>
+        </div>
       </footer>
     </div>
   );
