@@ -32,15 +32,15 @@ export async function purgeOfflineMediaStorage(): Promise<void> {
     // safe fallback
   }
 
-  // 2. Clean out giant base64 video payloads from LocalStorage
+  // 2. Clean out giant base64 video payloads from LocalStorage across all storage keys
   try {
     if (window.localStorage) {
       const keysToClean: string[] = [];
       for (let i = 0; i < window.localStorage.length; i++) {
         const key = window.localStorage.key(i);
-        if (key && (key.startsWith('ig_user_posts_') || key.startsWith('jhalak_') || key === 'ig_current_user')) {
+        if (key) {
           const val = window.localStorage.getItem(key);
-          if (val && (val.includes('data:video/') || val.length > 250000)) {
+          if (val && (val.includes('data:video/') || val.includes('data:application/octet-stream') || val.length > 200000)) {
             keysToClean.push(key);
           }
         }
@@ -52,13 +52,20 @@ export async function purgeOfflineMediaStorage(): Promise<void> {
           if (!raw) continue;
           if (raw.startsWith('[') || raw.startsWith('{')) {
             const parsed = JSON.parse(raw);
-            const sanitizeItem = (item: any) => {
+            const sanitizeItem = (item: any): any => {
               if (!item || typeof item !== 'object') return item;
-              if (typeof item.mediaUrl === 'string' && item.mediaUrl.startsWith('data:video/')) {
+              if (typeof item.mediaUrl === 'string' && (item.mediaUrl.startsWith('data:video/') || item.mediaUrl.startsWith('blob:'))) {
                 item.mediaUrl = '';
               }
-              if (typeof item.videoUrl === 'string' && item.videoUrl.startsWith('data:video/')) {
+              if (typeof item.videoUrl === 'string' && (item.videoUrl.startsWith('data:video/') || item.videoUrl.startsWith('blob:'))) {
                 item.videoUrl = '';
+              }
+              // Clean nested slides (stories)
+              if (Array.isArray(item.stories)) {
+                item.stories = item.stories.map(sanitizeItem);
+              }
+              if (Array.isArray(item.slides)) {
+                item.slides = item.slides.map(sanitizeItem);
               }
               return item;
             };
@@ -73,8 +80,14 @@ export async function purgeOfflineMediaStorage(): Promise<void> {
               if (parsed.posts && Array.isArray(parsed.posts)) {
                 parsed.posts = parsed.posts.map(sanitizeItem);
               }
+              if (parsed.stories && Array.isArray(parsed.stories)) {
+                parsed.stories = parsed.stories.map(sanitizeItem);
+              }
               window.localStorage.setItem(k, JSON.stringify(parsed));
             }
+          } else {
+            // Raw large string, delete to protect quota
+            window.localStorage.removeItem(k);
           }
         } catch {
           // If unparseable giant string, delete key safely
@@ -91,16 +104,16 @@ export async function purgeOfflineMediaStorage(): Promise<void> {
 if (typeof window !== 'undefined') {
   setTimeout(() => {
     purgeOfflineMediaStorage().catch(() => {});
-  }, 100);
+  }, 50);
 }
 
 /**
- * Converts a small Blob (e.g. thumbnail photo) into a base64 Data URL if <= 300KB
+ * Converts a small Blob (e.g. thumbnail photo) into a base64 Data URL if <= 200KB
  */
 export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Guard: Never convert large video blobs to base64
-    if (blob.size > 500 * 1024) {
+    // Guard: Never convert video blobs or large blobs to base64
+    if (blob.type.includes('video') || blob.size > 200 * 1024) {
       return resolve(URL.createObjectURL(blob));
     }
     const reader = new FileReader();

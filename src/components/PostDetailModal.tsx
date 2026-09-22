@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   X,
   Heart,
@@ -10,6 +10,7 @@ import {
   BadgeCheck,
   Volume2,
   VolumeX,
+  Play,
   Clapperboard,
   Phone,
   ShoppingBag,
@@ -99,6 +100,55 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Stop media on unmount or when app:pause-all-media event is received
+  useEffect(() => {
+    const handlePause = () => {
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause();
+        } catch {}
+      }
+      setIsPlaying(false);
+    };
+
+    window.addEventListener('app:pause-all-media', handlePause);
+    const handleVisibility = () => {
+      if (document.hidden) handlePause();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('app:pause-all-media', handlePause);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause();
+          videoRef.current.muted = true;
+        } catch {}
+      }
+    };
+  }, []);
+
+  const toggleSoundAndPlay = () => {
+    const vid = videoRef.current;
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    if (vid) {
+      vid.defaultMuted = false;
+      vid.muted = nextMuted;
+      vid.volume = 1.0;
+      const p = vid.play();
+      if (p !== undefined) {
+        p.then(() => setIsPlaying(true)).catch(() => {
+          if (!nextMuted) {
+            vid.muted = true;
+            vid.play().then(() => setIsPlaying(true)).catch(() => {});
+          }
+        });
+      }
+    }
+  };
+
   const handleCommentSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!commentText.trim() && !selectedMedia) return;
@@ -177,9 +227,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     target.src = createVideoFallbackDataUrl(post.caption);
                   }}
                 />
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
-                  <div className="w-16 h-16 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center mb-2 shadow-2xl">
-                    <Volume2 className="w-8 h-8 text-white" />
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center p-4 cursor-pointer"
+                  onClick={toggleSoundAndPlay}
+                >
+                  <div className="w-16 h-16 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center mb-2 shadow-2xl hover:scale-105 transition">
+                    <Play className="w-8 h-8 text-white fill-white ml-1" />
                   </div>
                   <span className="text-xs font-semibold px-3 py-1 rounded-full bg-black/70 border border-white/20 text-white">
                     🎬 Video Reel
@@ -192,7 +245,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   ref={(el) => {
                     (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
                     if (el) {
-                      el.defaultMuted = isMuted;
+                      el.defaultMuted = false;
                       el.muted = isMuted;
                       const p = el.play();
                       if (p !== undefined) {
@@ -212,6 +265,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   webkit-playsinline="true"
                   muted={isMuted}
                   preload="auto"
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
                   onCanPlay={(e) => {
                     const vid = e.currentTarget;
                     const p = vid.play();
@@ -230,24 +285,15 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     setVideoError(true);
                   }}
                   className="w-full h-full object-contain cursor-pointer"
-                  onClick={() => {
-                    const vid = videoRef.current;
-                    const nextMuted = !isMuted;
-                    setIsMuted(nextMuted);
-                    if (vid) {
-                      vid.muted = nextMuted;
-                      if (vid.paused) {
-                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                      }
-                    }
-                  }}
+                  onClick={toggleSoundAndPlay}
                 />
                 {!isPlaying && !videoError && (
                   <div
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 cursor-pointer"
+                    className="absolute inset-0 flex items-center justify-center z-10 cursor-pointer"
+                    onClick={toggleSoundAndPlay}
                   >
-                    <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 text-white shadow-2xl">
-                      <Volume2 className="w-8 h-8 fill-white ml-0.5" />
+                    <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 text-white shadow-2xl hover:scale-105 active:scale-95 transition">
+                      <Play className="w-8 h-8 fill-white text-white ml-1" />
                     </div>
                   </div>
                 )}
@@ -255,15 +301,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   id="detail-mute-btn"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const nextMuted = !isMuted;
-                    setIsMuted(nextMuted);
-                    const vid = videoRef.current;
-                    if (vid) {
-                      vid.muted = nextMuted;
-                      if (vid.paused) {
-                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                      }
-                    }
+                    toggleSoundAndPlay();
                   }}
                   className="absolute bottom-4 right-4 p-2.5 rounded-full bg-black/70 hover:bg-black/90 text-white backdrop-blur-md transition z-20 shadow-xl border border-white/20 cursor-pointer active:scale-95"
                   aria-label={isMuted ? 'Unmute video' : 'Mute video'}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, Play, Pause, Heart, Send, Volume2, VolumeX } from 'lucide-react';
 import { StoryGroup } from '../types';
+import { pauseAllMedia } from '../utils/mediaCoordinator';
 
 interface StoryViewerModalProps {
   stories: StoryGroup[];
@@ -27,6 +28,14 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
   const currentGroup = stories[currentGroupIdx];
   const slides = currentGroup?.slides || [];
   const currentSlide = slides[currentSlideIdx];
+
+  // Pause background media when viewer opens and unmounts
+  useEffect(() => {
+    pauseAllMedia();
+    return () => {
+      pauseAllMedia();
+    };
+  }, []);
 
   // Mark current story as seen
   useEffect(() => {

@@ -50,7 +50,7 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
             className="w-12 h-12 rounded-full overflow-hidden hover:opacity-90 transition"
           >
             <img
-              src={currentUser.avatar}
+              src={currentUser.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
               alt={currentUser.username}
               className="w-full h-full object-cover"
             />
@@ -102,7 +102,7 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
               <div key={u.id} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <img
-                    src={u.avatar}
+                    src={u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
                     alt={u.username}
                     className="w-9 h-9 rounded-full object-cover"
                   />

@@ -23,7 +23,7 @@ import { UpiShagunSheet } from './UpiShagunSheet';
 import { CreatorDashboardCard } from './CreatorDashboardCard';
 import { CreatorMonetizationView } from './CreatorMonetizationView';
 import { safeSetItem } from '../utils/safeStorage';
-import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
+import { isSuperAdmin } from '../constants/admin';
 import { moderationService } from '../services/moderationService';
 import {
   createVideoFallbackDataUrl,
@@ -422,7 +422,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
                     />
                   </svg>
-                  <span className="hidden sm:inline">{user?.email ? 'Google' : 'Sign in'}</span>
+                  <span className="hidden sm:inline">{user?.isGoogleAuth ? 'Google Account' : 'Sign in'}</span>
                 </button>
               )}
 
@@ -458,7 +458,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   id="profile-admin-dashboard-btn"
                   onClick={onOpenAdminPanel}
                   className="px-2.5 py-1.5 bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                  title={`Super Admin Moderation & Creator Payouts (${ADMIN_EMAIL})`}
+                  title="Super Admin Moderation & Creator Payouts"
                 >
                   <ShieldAlert className="w-4 h-4" />
                   <span className="hidden sm:inline">Admin</span>
@@ -546,7 +546,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold text-neutral-800 dark:text-neutral-200 flex items-center gap-1 truncate">
-                    {user?.email || t.googleAccount}
+                    {t.googleAccount || 'Google Account'}
                     <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
                   </p>
                   <p className="text-[10px] text-neutral-500">{t.googleVerifiedCreator}</p>

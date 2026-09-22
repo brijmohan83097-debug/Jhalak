@@ -33,6 +33,7 @@ import {
 } from '../utils/imageCompressor';
 import { isSuperAdmin } from '../constants/admin';
 import { resolvePlayableMediaUrl } from '../utils/persistentMediaStore';
+import { pauseAllMedia } from '../utils/mediaCoordinator';
 
 interface FullScreenMediaViewerProps {
   posts: Post[];
@@ -114,7 +115,69 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const isTransitioningRef = useRef<boolean>(false);
   const lastWheelTimeRef = useRef<number>(0);
   const lastTapTimeRef = useRef<number>(0);
+  const muteBadgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Stop all media when unmounting or when external pause event is received
+  useEffect(() => {
+    const handlePauseAll = () => {
+      Object.values(videoRefs.current).forEach((vid) => {
+        if (vid) {
+          try {
+            vid.pause();
+          } catch {}
+        }
+      });
+      setIsPlaying(false);
+    };
+
+    window.addEventListener('app:pause-all-media', handlePauseAll);
+    const handleVisibility = () => {
+      if (document.hidden) handlePauseAll();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('app:pause-all-media', handlePauseAll);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      handlePauseAll();
+    };
+  }, []);
+
+  // Toggle sound and immediately ensure video playback without getting stuck
+  const toggleSoundAndPlay = useCallback(() => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+
+    const currentVid = videoRefs.current[activeIndex];
+    if (currentVid) {
+      currentVid.defaultMuted = false;
+      currentVid.muted = nextMuted;
+      currentVid.volume = 1.0;
+
+      const playPromise = currentVid.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setIsPlaying(true))
+          .catch((err) => {
+            console.warn('Playback error on sound toggle, falling back to muted play:', err);
+            if (!nextMuted) {
+              currentVid.muted = true;
+              currentVid.play().then(() => setIsPlaying(true)).catch(() => {});
+            }
+          });
+      }
+    }
+
+    if (muteBadgeTimeoutRef.current) {
+      clearTimeout(muteBadgeTimeoutRef.current);
+    }
+    setShowMuteBadge(true);
+    muteBadgeTimeoutRef.current = setTimeout(() => {
+      setShowMuteBadge(false);
+      muteBadgeTimeoutRef.current = null;
+    }, 500);
+  }, [activeIndex, isMuted]);
 
   const currentPost: Post | undefined = safePosts[activeIndex] || safePosts[0];
 
@@ -205,9 +268,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         goToPrev();
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
-        setIsMuted((prev) => !prev);
-        setShowMuteBadge(true);
-        setTimeout(() => setShowMuteBadge(false), 900);
+        toggleSoundAndPlay();
       } else if (e.key === ' ' && currentPost?.mediaType === 'video') {
         e.preventDefault();
         const vid = videoRefs.current[activeIndex];
@@ -288,19 +349,9 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Single screen tap on video toggles mute / unmute directly (sound active by default)
+    // Single screen tap on video toggles mute / unmute directly and ensures playback
     if (currentPost?.mediaType === 'video') {
-      const nextMuted = !isMuted;
-      setIsMuted(nextMuted);
-      const currentVid = videoRefs.current[activeIndex];
-      if (currentVid) {
-        currentVid.muted = nextMuted;
-        if (currentVid.paused) {
-          currentVid.play().then(() => setIsPlaying(true)).catch(() => {});
-        }
-      }
-      setShowMuteBadge(true);
-      setTimeout(() => setShowMuteBadge(false), 900);
+      toggleSoundAndPlay();
     }
   };
 
@@ -338,7 +389,10 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         <div className="flex items-center gap-3">
           <button
             id="fullscreen-viewer-close-btn"
-            onClick={onClose}
+            onClick={() => {
+              pauseAllMedia();
+              onClose();
+            }}
             aria-label="Close full-screen viewer"
             className="w-10 h-10 rounded-full bg-black/60 hover:bg-black/90 active:scale-95 border border-white/20 text-white flex items-center justify-center backdrop-blur-md transition shadow-lg cursor-pointer"
           >
@@ -370,17 +424,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
               id="fullscreen-viewer-mute-toggle"
               onClick={(e) => {
                 e.stopPropagation();
-                const nextMuted = !isMuted;
-                setIsMuted(nextMuted);
-                const currentVid = videoRefs.current[activeIndex];
-                if (currentVid) {
-                  currentVid.muted = nextMuted;
-                  if (currentVid.paused) {
-                    currentVid.play().then(() => setIsPlaying(true)).catch(() => {});
-                  }
-                }
-                setShowMuteBadge(true);
-                setTimeout(() => setShowMuteBadge(false), 900);
+                toggleSoundAndPlay();
               }}
               aria-label={isMuted ? 'Unmute video' : 'Mute video'}
               className="px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/90 active:scale-95 border border-white/20 text-white flex items-center gap-1.5 backdrop-blur-md transition text-xs font-semibold"
@@ -626,6 +670,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
           <button
             id={`fullscreen-author-avatar-${currentPost.id}`}
             onClick={() => {
+              pauseAllMedia();
               onClose();
               onViewUser(currentPost.username);
             }}
@@ -740,6 +785,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
         <div className="flex items-center gap-2 mb-2">
           <button
             onClick={() => {
+              pauseAllMedia();
               onClose();
               onViewUser(currentPost.username);
             }}

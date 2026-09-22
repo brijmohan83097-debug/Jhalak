@@ -103,7 +103,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <div className="flex items-center gap-4">
               <div className="relative group">
                 <img
-                  src={avatar}
+                  src={avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
                   alt="Current avatar"
                   className="w-18 h-18 rounded-full object-cover border-2 border-sky-500 shadow-sm"
                 />

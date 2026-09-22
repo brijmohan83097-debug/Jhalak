@@ -43,10 +43,12 @@ import { adMobService, AdMobNativeAd } from '../services/adMobService';
 import { isSuperAdmin } from '../constants/admin';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
 import { safeEncodeURIComponent } from '../utils/safeEncoding';
+import { pauseAllMedia } from '../utils/mediaCoordinator';
 
 interface ReelsViewProps {
   reels: Reel[];
   currentUser: User;
+  isActive?: boolean;
   onToggleLike: (reelId: string) => void;
   onToggleSave: (reelId: string) => void;
   onAddComment: (reelId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
@@ -66,6 +68,7 @@ interface ReelsViewProps {
 export const ReelsView: React.FC<ReelsViewProps> = ({
   reels: initialReels,
   currentUser,
+  isActive = true,
   onToggleLike,
   onToggleSave,
   onAddComment,
@@ -194,8 +197,73 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     setTimeout(() => setToastMessage(null), 3200);
   };
 
+  // Stop all media when unmounting or when external pause event is received
+  useEffect(() => {
+    const handlePauseAll = () => {
+      videoRefs.current.forEach((video) => {
+        if (video) {
+          try {
+            video.pause();
+          } catch {}
+        }
+      });
+      setIsPlaying(false);
+    };
+
+    window.addEventListener('app:pause-all-media', handlePauseAll);
+    const handleVisibility = () => {
+      if (document.hidden) handlePauseAll();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('app:pause-all-media', handlePauseAll);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      handlePauseAll();
+    };
+  }, []);
+
+  // Toggle sound and immediately ensure video playback without getting stuck
+  const toggleSoundAndPlay = useCallback(() => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+
+    const currentVideo = videoRefs.current[activeIndex];
+    if (currentVideo) {
+      currentVideo.defaultMuted = false;
+      currentVideo.muted = nextMuted;
+      currentVideo.volume = 1.0;
+
+      const playPromise = currentVideo.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setIsPlaying(true))
+          .catch((err) => {
+            console.warn('Playback error on sound toggle, falling back to muted play:', err);
+            // If browser blocks unmuted playback, fallback to muted play so video plays immediately
+            if (!nextMuted) {
+              currentVideo.muted = true;
+              currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
+            }
+          });
+      }
+    }
+  }, [activeIndex, isMuted]);
+
   // Pause non-active videos and play the active one with unmuted sound by default
   useEffect(() => {
+    if (!isActive) {
+      videoRefs.current.forEach((video) => {
+        if (video) {
+          try {
+            video.pause();
+          } catch {}
+        }
+      });
+      setIsPlaying(false);
+      return;
+    }
+
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
       if (index === activeIndex) {
@@ -224,18 +292,18 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     });
     setProgress(0);
     setExpandedCaption(false);
-  }, [activeIndex, queue]);
+  }, [activeIndex, queue, isActive]);
 
   // Sync mute across videos without restarting playback
   useEffect(() => {
     const currentVideo = videoRefs.current[activeIndex];
     if (currentVideo) {
       currentVideo.muted = isMuted;
-      if (currentVideo.paused) {
+      if (currentVideo.paused && isActive) {
         currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
       }
     }
-  }, [isMuted, activeIndex]);
+  }, [isMuted, activeIndex, isActive]);
 
   // Handle Video Time Update for progress bar & continuous watch tracking
   const handleTimeUpdate = (index: number) => {
@@ -278,7 +346,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const handleVideoClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     const now = Date.now();
-    const DOUBLE_TAP_GAP = 300;
+    const DOUBLE_TAP_GAP = 220;
 
     if (now - lastTapTimeRef.current < DOUBLE_TAP_GAP) {
       // Double tap triggered -> cancel pending single tap & heart like reel
@@ -294,7 +362,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         }
       }
       setShowHeartBurst(true);
-      setTimeout(() => setShowHeartBurst(false), 900);
+      setTimeout(() => setShowHeartBurst(false), 800);
       return;
     }
 
@@ -304,19 +372,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       clearTimeout(tapTimeoutRef.current);
     }
 
-    // Single screen tap cleanly toggles mute/unmute directly while video keeps playing
+    // Single screen tap cleanly toggles mute/unmute and immediately ensures video playback
     tapTimeoutRef.current = setTimeout(() => {
-      setIsMuted((prevMuted) => {
-        const nextMuted = !prevMuted;
-        const currentVideo = videoRefs.current[activeIndex];
-        if (currentVideo) {
-          currentVideo.muted = nextMuted;
-          if (currentVideo.paused) {
-            currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
-          }
-        }
-        return nextMuted;
-      });
+      toggleSoundAndPlay();
       tapTimeoutRef.current = null;
     }, DOUBLE_TAP_GAP);
   };
@@ -537,7 +595,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           {onUploadReel && (
             <button
               id="reels-empty-upload-btn"
-              onClick={onUploadReel}
+              onClick={() => {
+                pauseAllMedia();
+                onUploadReel();
+              }}
               className="px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-bold text-sm shadow-lg shadow-rose-500/20 active:scale-95 transition cursor-pointer"
             >
               Upload Reel
@@ -655,7 +716,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     ref={(el) => {
                       videoRefs.current[index] = el;
                       if (el) {
-                        el.defaultMuted = true;
+                        el.defaultMuted = false;
                         el.muted = isMuted;
                       }
                     }}
@@ -667,6 +728,12 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     webkit-playsinline="true"
                     muted={isMuted}
                     preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'metadata'}
+                    onPlay={() => {
+                      if (index === activeIndex) setIsPlaying(true);
+                    }}
+                    onPause={() => {
+                      if (index === activeIndex) setIsPlaying(false);
+                    }}
                     onTimeUpdate={() => handleTimeUpdate(index)}
                     onEnded={(e) => {
                       const vid = e.currentTarget;
@@ -766,15 +833,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 id="reel-mute-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  const nextMuted = !isMuted;
-                  setIsMuted(nextMuted);
-                  const currentVideo = videoRefs.current[activeIndex];
-                  if (currentVideo) {
-                    currentVideo.muted = nextMuted;
-                    if (!nextMuted && currentVideo.paused) {
-                      currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
-                    }
-                  }
+                  toggleSoundAndPlay();
                 }}
                 className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
                 aria-label={isMuted ? 'Unmute' : 'Mute'}
@@ -831,6 +890,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  pauseAllMedia();
                   onViewUser(currentReel.username);
                 }}
                 className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/80 hover:scale-105 transition flex-shrink-0"
@@ -845,6 +905,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  pauseAllMedia();
                   onViewUser(currentReel.username);
                 }}
                 className="font-bold text-sm hover:underline drop-shadow-md flex items-center gap-1 truncate"

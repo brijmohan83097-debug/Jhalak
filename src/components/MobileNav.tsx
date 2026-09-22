@@ -187,7 +187,7 @@ export const MobileBottomNav: React.FC<MobileNavProps> = ({
           }`}
         >
           <img
-            src={currentUser.avatar}
+            src={currentUser.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
             alt={currentUser.username}
             className="w-6 h-6 rounded-full object-cover"
           />

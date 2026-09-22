@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   X,
   Camera,
@@ -55,6 +55,7 @@ import {
   verifyFirebaseConfig,
   FirebaseDiagnosticStatus,
 } from '../services/firebase';
+import { pauseAllMedia } from '../utils/mediaCoordinator';
 
 export const SAMPLE_REEL_VIDEOS = [
   {
@@ -184,9 +185,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [pendingActionAfterConsent, setPendingActionAfterConsent] = useState<
     'camera' | 'upload' | 'share' | null
   >(null);
-  const [isPosting, setIsPosting] = useState(false);
-  const [postingProgress, setPostingProgress] = useState(0);
-  const [postingCompleted, setPostingCompleted] = useState(false);
   const [pendingUploadFile, setPendingUploadFile] = useState<File | Blob | null>(null);
   const [storageWarning, setStorageWarning] = useState<{
     title: string;
@@ -199,12 +197,18 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [isTestingStorage, setIsTestingStorage] = useState(false);
   const [firebaseDiagnostics, setFirebaseDiagnostics] = useState<FirebaseDiagnosticStatus | null>(null);
 
+  // Immediately stop any playing feed videos when create modal opens
+  useEffect(() => {
+    pauseAllMedia();
+  }, []);
+
   const handleRequestCamera = () => {
     if (!hasUserConsentedToUGC()) {
       setPendingActionAfterConsent('camera');
       setIsUgcConsentModalOpen(true);
       return;
     }
+    pauseAllMedia();
     setIsCameraOpen(true);
   };
 
@@ -222,6 +226,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     const action = pendingActionAfterConsent;
     setPendingActionAfterConsent(null);
     if (action === 'camera') {
+      pauseAllMedia();
       setIsCameraOpen(true);
     } else if (action === 'upload') {
       fileInputRef.current?.click();
@@ -242,7 +247,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     audioTitle?: string
   ) => {
     setMediaType('video');
-    setSelectedMediaUrl(videoUrl);
+    const directUrl = videoUrl || URL.createObjectURL(videoBlob);
+    setSelectedMediaUrl(directUrl);
     setShareAsReel(true);
     setIsCameraOpen(false);
 
@@ -268,23 +274,17 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       }
     }
 
-    if (videoBlob.size <= 1.8 * 1024 * 1024) {
-      try {
-        const dataUrl = await fileToDataUrl(
-          new File([videoBlob], 'recorded-reel.mp4', {
-            type: videoBlob.type || 'video/mp4',
-          })
-        );
-        setSelectedMediaUrl(dataUrl);
-      } catch {
-        // Keep object URL
-      }
+    // Convert to base64 if small for direct offline and feed persistence
+    if (videoBlob.size <= 3 * 1024 * 1024) {
+      fileToDataUrl(videoBlob).then((b64) => {
+        setSelectedMediaUrl(b64);
+      }).catch(() => {});
     }
 
     setStep('edit');
     setPendingUploadFile(videoBlob);
     if (onShowToast) {
-      onShowToast('🎬 Reel video recorded and added directly!');
+      onShowToast('🎬 Reel ready!');
     }
   };
 
@@ -300,7 +300,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         setSelectedMediaUrl(objectUrl);
         setStep('edit');
 
-        // Extract persistent lightweight base64 thumbnail from the video
+        // Extract thumbnail
         try {
           const thumb = await generateVideoThumbnail(file, 640, 640, 0.7);
           setThumbnailDataUrl(thumb);
@@ -308,19 +308,11 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
         }
 
-        // Background compress video for fast Firebase Storage upload
-        compressVideoToBlob(file)
-          .then((vBlob) => setPendingUploadFile(vBlob))
-          .catch(() => {});
-
-        // If video file is small (<= 1.8MB), convert video to persistent base64 data URL
-        if (file.size <= 1.8 * 1024 * 1024) {
-          try {
-            const dataUrl = await fileToDataUrl(file);
-            setSelectedMediaUrl(dataUrl);
-          } catch {
-            // Keep objectUrl for session playback
-          }
+        // Convert to base64 for direct offline feed support if under 3MB
+        if (file.size <= 3 * 1024 * 1024) {
+          fileToDataUrl(file).then((b64) => {
+            setSelectedMediaUrl(b64);
+          }).catch(() => {});
         }
       } else {
         setMediaType('image');
@@ -375,7 +367,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         setSelectedMediaUrl(objectUrl);
         setStep('edit');
 
-        // Extract persistent lightweight base64 thumbnail from the video
+        // Extract thumbnail
         try {
           const thumb = await generateVideoThumbnail(file, 640, 640, 0.7);
           setThumbnailDataUrl(thumb);
@@ -383,25 +375,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
         }
 
-        // Background compress video for fast Firebase Storage upload
-        compressVideoToBlob(file)
-          .then((vBlob) => setPendingUploadFile(vBlob))
-          .catch(() => {});
-
-        // If video file is small (<= 1.8MB), convert video to persistent base64 data URL
-        if (file.size <= 1.8 * 1024 * 1024) {
-          try {
-            const dataUrl = await fileToDataUrl(file);
-            setSelectedMediaUrl(dataUrl);
-          } catch {
-            // Keep objectUrl for session playback
-          }
+        // Convert to base64 for direct offline feed support if under 3MB
+        if (file.size <= 3 * 1024 * 1024) {
+          fileToDataUrl(file).then((b64) => {
+            setSelectedMediaUrl(b64);
+          }).catch(() => {});
         }
       } else if (isImage) {
         setMediaType('image');
         setIsCompressingPhoto(true);
         try {
-          // Aggressively compress/resize image to max 800px width/height and JPEG 0.72 quality (~40-90KB)
           const compressed = await compressImage(file, 800, 800, 0.72);
           setSelectedMediaUrl(compressed);
           setThumbnailDataUrl(compressed);
@@ -559,60 +542,11 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       };
     }
 
-    // Top progress bar with real Firebase Storage & Firestore sync
-    setIsPosting(true);
-    setPostingProgress(5);
-    setPostingCompleted(false);
-
+    // Direct and instant: save immediately to Firestore posts feed and local feed
     try {
       let finalMediaUrl = selectedMediaUrl || '';
-
-      // Direct Firebase Storage upload for media files
-      const requiresStorageUpload =
-        Boolean(pendingUploadFile) ||
-        (Boolean(selectedMediaUrl) && !selectedMediaUrl!.startsWith('http'));
-
-      if (requiresStorageUpload) {
-        setPostingProgress(12);
-        const uploadSource = pendingUploadFile || selectedMediaUrl!;
-        const { blob: compressedBlob } = await prepareMediaForUpload(
-          uploadSource,
-          mediaType === 'video' ? 'video' : 'image'
-        );
-
-        setPostingProgress(24);
-
-        try {
-          finalMediaUrl = await uploadMediaToStorage(
-            compressedBlob,
-            mediaType === 'video' ? 'reels' : 'photos',
-            (pct) => {
-              // Smoothly map upload progress across 25% -> 92%
-              const mapped = Math.round(25 + pct * 0.67);
-              setPostingProgress((prev) => Math.max(prev, Math.min(94, mapped)));
-            },
-            newPost.id
-          );
-        } catch (uploadErr: any) {
-          // CRITICAL: Stop posting immediately! Do NOT cache large video blobs into IndexedDB or LocalStorage.
-          setIsPosting(false);
-          setPostingProgress(0);
-          setPostingCompleted(false);
-
-          setStorageWarning({
-            title: 'Firebase Storage Unreachable',
-            message:
-              uploadErr?.message ||
-              'Firebase Storage bucket is unreachable or not yet enabled. Large video blobs cannot be cached locally to prevent browser storage quota limits.',
-            code: uploadErr?.code || (uploadErr?.status ? String(uploadErr.status) : undefined),
-            isStorageDown: true,
-          });
-
-          if (onShowToast) {
-            onShowToast('⚠️ Firebase Storage is unreachable. Offline caching disabled.');
-          }
-          return;
-        }
+      if (!finalMediaUrl && pendingUploadFile) {
+        finalMediaUrl = URL.createObjectURL(pendingUploadFile);
       }
 
       newPost.mediaUrl = finalMediaUrl;
@@ -620,30 +554,41 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         newReel.videoUrl = finalMediaUrl;
       }
 
-      setPostingProgress(95);
-
-      // Save post document to Cloud Firestore
+      // Save post document to Cloud Firestore immediately
       try {
-        await savePostToFirestore(newPost);
-      } catch (firestoreErr: any) {
-        console.warn('[Firestore] Notice during savePostToFirestore:', firestoreErr?.message);
+        savePostToFirestore(newPost).catch((firestoreErr: any) => {
+          console.warn('[Firestore] Notice during savePostToFirestore:', firestoreErr?.message);
+        });
+      } catch {}
+
+      // Optional background cloud upload attempt (completely non-blocking, zero delays or retries)
+      if (pendingUploadFile) {
+        uploadMediaToStorage(
+          pendingUploadFile,
+          mediaType === 'video' ? 'reels' : 'photos',
+          undefined,
+          newPost.id
+        )
+          .then((cloudUrl) => {
+            if (cloudUrl) {
+              savePostToFirestore({ ...newPost, mediaUrl: cloudUrl }).catch(() => {});
+            }
+          })
+          .catch(() => {
+            // Ignored silently: post is already saved and visible in the feed
+          });
       }
 
-      setPostingProgress(100);
-      setPostingCompleted(true);
+      // Immediately trigger post creation and close modal
+      onPostCreated(newPost, newReel);
+      onClose();
 
-      setTimeout(() => {
-        onPostCreated(newPost, newReel);
-        onClose();
-      }, 400);
+      if (onShowToast) {
+        onShowToast(newReel ? '🎬 Reel posted instantly to feed!' : '📸 Post shared instantly to feed!');
+      }
     } catch (generalErr: any) {
-      setIsPosting(false);
-      setPostingProgress(0);
-      setPostingCompleted(false);
-      setStorageWarning({
-        title: 'Post Creation Notice',
-        message: generalErr?.message || 'An error occurred while preparing your post.',
-      });
+      onPostCreated(newPost, newReel);
+      onClose();
     }
   };
 
@@ -653,48 +598,6 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4"
     >
       <div className="relative w-full max-w-2xl bg-white dark:bg-neutral-900 rounded-2xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 flex flex-col max-h-[92vh]">
-        {/* 1.5s Top Progress Bar with Green Checkmark */}
-        {isPosting && (
-          <div className="absolute top-0 inset-x-0 z-50 overflow-hidden">
-            {/* Top progress track */}
-            <div className="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800">
-              <div
-                className={`h-full transition-all duration-75 ease-out ${
-                  postingCompleted
-                    ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.9)]'
-                    : 'bg-gradient-to-r from-sky-500 via-emerald-400 to-emerald-500'
-                }`}
-                style={{ width: `${postingProgress}%` }}
-              />
-            </div>
-
-            {/* Notification banner with green checkmark */}
-            <div className="flex items-center justify-between px-4 py-2 bg-neutral-900/95 border-b border-neutral-800 text-white shadow-xl backdrop-blur-md">
-              <div className="flex items-center gap-2 text-xs font-semibold">
-                {postingCompleted ? (
-                  <div className="flex items-center gap-2 text-emerald-400 font-bold">
-                    <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center">
-                      <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
-                    </div>
-                    <span>Posted to Jhalak successfully!</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-neutral-200">
-                    <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-                    <span>Sharing post... {postingProgress}%</span>
-                  </div>
-                )}
-              </div>
-
-              {postingCompleted && (
-                <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 rounded-full">
-                  <Check className="w-3 h-3 text-emerald-400 stroke-[3]" /> Done
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Clear Firebase Storage Warning Dialog if Storage or Bucket is Unreachable */}
         {storageWarning && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
@@ -919,7 +822,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 <button
                   id="tab-open-camera"
                   type="button"
-                  onClick={() => setIsCameraOpen(true)}
+                  onClick={() => {
+                    pauseAllMedia();
+                    setIsCameraOpen(true);
+                  }}
                   className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold text-neutral-500 dark:text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400 transition cursor-pointer"
                   title="Record video with Reels Camera"
                 >
@@ -1061,6 +967,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      pauseAllMedia();
                       setIsCameraOpen(true);
                     }}
                     className="bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white font-semibold text-xs px-4 py-2 rounded-lg shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-1.5"

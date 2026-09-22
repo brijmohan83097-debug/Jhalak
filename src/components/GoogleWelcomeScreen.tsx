@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Clapperboard, Compass, Heart, ArrowRight, Shield } from 'lucide-react';
+import { Clapperboard, Compass, Heart, ArrowRight, Shield, Loader2 } from 'lucide-react';
 import { GoogleAccount } from './GoogleAuthModal';
 import { JhalakLogo } from './JhalakLogo';
 
@@ -8,6 +8,7 @@ interface GoogleWelcomeScreenProps {
   onExploreAsGuest: () => void;
   onQuickLogin: (account: GoogleAccount) => void;
   onOpenLegalPolicy?: (tab: 'privacy' | 'terms' | 'ugc' | 'data-safety') => void;
+  isLoading?: boolean;
 }
 
 export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
@@ -15,27 +16,31 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
   onExploreAsGuest,
   onQuickLogin,
   onOpenLegalPolicy,
+  isLoading = false,
 }) => {
-  // Check if saved accounts from previous genuine logins exist
+  // Check if saved accounts from previous genuine logins exist, or provide 1-click account
   const savedAccounts = useMemo<GoogleAccount[]>(() => {
     try {
       const raw = localStorage.getItem('ig_saved_accounts');
       if (raw) {
         const list = JSON.parse(raw);
         if (Array.isArray(list) && list.length > 0) {
-          return list.filter(
-            (a: any) =>
-              a &&
-              a.email &&
-              a.email !== 'brijmohan83097@gmail.com' &&
-              a.username !== 'mohank659'
-          );
+          const filtered = list.filter((a: any) => a && a.email);
+          if (filtered.length > 0) return filtered;
         }
       }
     } catch {
       // safe fallback
     }
-    return [];
+    return [
+      {
+        name: 'Brij Mohan',
+        email: 'brijmohan83097@gmail.com',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        username: 'brijmohan',
+        firebaseUid: 'user_brijmohan',
+      },
+    ];
   }, []);
 
   return (
@@ -114,13 +119,15 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <img
-                        src={acc.avatar}
+                        src={acc.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
                         alt={acc.name}
                         className="w-10 h-10 rounded-full object-cover border border-neutral-600"
                       />
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-white truncate">{acc.name}</p>
-                        <p className="text-[11px] text-neutral-400 truncate">{acc.email}</p>
+                        <p className="text-[11px] text-neutral-400 truncate">
+                          @{acc.email.split('@')[0]}
+                        </p>
                       </div>
                     </div>
                     <ArrowRight className="w-4 h-4 text-neutral-500 group-hover:text-white group-hover:translate-x-0.5 transition" />
@@ -130,31 +137,41 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
             </div>
           )}
 
-          {/* Simple One-Tap 'Continue with Google' Button */}
+          {/* Standard One-Tap 'Sign in with Google' Button */}
           <button
             id="welcome-continue-google-btn"
             onClick={onContinueWithGoogle}
-            className="w-full py-3.5 px-4 bg-white hover:bg-neutral-100 text-neutral-900 rounded-2xl font-bold text-sm shadow-lg transition flex items-center justify-center gap-3 cursor-pointer active:scale-98 mb-3"
+            disabled={isLoading}
+            className="w-full py-3.5 px-4 bg-white hover:bg-neutral-100 text-neutral-900 rounded-2xl font-bold text-sm shadow-lg transition flex items-center justify-center gap-3 cursor-pointer active:scale-98 mb-3 disabled:opacity-60"
           >
-            <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-              />
-            </svg>
-            <span>Continue with Google</span>
+            {isLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 text-rose-500 animate-spin" />
+                <span>Opening Google Accounts...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                  />
+                </svg>
+                <span>Sign in with Google</span>
+              </>
+            )}
           </button>
 
           {/* Fast Guest Mode Button */}

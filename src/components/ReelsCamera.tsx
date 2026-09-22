@@ -28,6 +28,7 @@ import {
   playSyntheticTrackPreview,
 } from '../data/bhojpuriMusic';
 import { ReelsAudioSelector } from './ReelsAudioSelector';
+import { pauseAllMedia } from '../utils/mediaCoordinator';
 
 interface ReelsCameraProps {
   onCaptureVideo: (
@@ -342,6 +343,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
   }, [isFrontCamera, isMicMuted, cleanupHardwareResources]);
 
   useEffect(() => {
+    pauseAllMedia();
     startCamera();
     return () => {
       stopTrackPreview();
@@ -436,6 +438,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
 
   // Start Recording
   const startRecording = () => {
+    pauseAllMedia();
     if (!stream) return;
     recordedChunksRef.current = [];
     recordedBytesRef.current = 0;

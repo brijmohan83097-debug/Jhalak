@@ -196,25 +196,16 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Video posts: screen tap toggles Play / Pause directly, double-tap triggers heart like!
-    if (post.mediaType === 'video' && videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current
-          .play()
-          .then(() => {
-            setIsPlaying(true);
-            setShowPlayPauseIcon('play');
-            setTimeout(() => setShowPlayPauseIcon(null), 600);
-          })
-          .catch(() => {
-            setIsPlaying(false);
-          });
-      } else {
-        videoRef.current.pause();
-        setIsPlaying(false);
-        setShowPlayPauseIcon('pause');
-        setTimeout(() => setShowPlayPauseIcon(null), 600);
+    // Video posts: When any video is clicked on the Home Feed, immediately open it in the full-screen Reels viewer starting at that exact video.
+    if (post.mediaType === 'video') {
+      if (onOpenFullScreen) {
+        onOpenFullScreen({
+          ...post,
+          mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
+        });
+        return;
       }
+      onOpenDetail(post);
       return;
     }
 

@@ -142,7 +142,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               {/* User overview strip */}
               <div className="px-3 py-3 mb-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-800 flex items-center gap-3">
                 <img
-                  src={currentUser.avatar}
+                  src={currentUser.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
                   alt={currentUser.name}
                   className="w-11 h-11 rounded-full object-cover border border-neutral-300 dark:border-neutral-700"
                 />
@@ -676,7 +676,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700/60 space-y-3">
                 <div className="flex items-center gap-3.5">
                   <img
-                    src={currentUser.avatar}
+                    src={currentUser.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
                     alt={currentUser.name}
                     className="w-12 h-12 rounded-full object-cover border border-neutral-300 dark:border-neutral-700"
                   />
@@ -696,9 +696,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
                 <div className="pt-2 border-t border-neutral-200 dark:border-neutral-700/80 grid grid-cols-1 gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-neutral-400">Google Email:</span>
-                    <span className="font-semibold text-neutral-900 dark:text-white truncate max-w-[200px]">
-                      {currentUser.email || 'Not linked'}
+                    <span className="text-neutral-400">Account Privacy:</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <Shield className="w-3.5 h-3.5" /> 100% Private & Protected
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-1">
@@ -835,6 +835,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     )}
                   </span>
                 </div>
+
+                {!firebaseDiagnostics?.storageReachable && firebaseDiagnostics?.storageStatusMessage && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400/90 leading-tight pt-1 border-t border-neutral-200 dark:border-neutral-700/60 font-mono">
+                    {firebaseDiagnostics.storageStatusMessage}
+                  </p>
+                )}
               </div>
 
               {/* Action Buttons */}

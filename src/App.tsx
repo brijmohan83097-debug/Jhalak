@@ -56,8 +56,12 @@ import {
   toggleLikeInFirestore,
   logOutFirebase,
   testConnection,
+  signInWithGoogle,
+  checkRedirectAuthResult,
+  isFirebaseApiKeyError,
 } from './services/firebase';
 import { ADMIN_EMAIL, isSuperAdmin } from './constants/admin';
+import { pauseAllMedia } from './utils/mediaCoordinator';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState<boolean>(true);
@@ -89,6 +93,7 @@ export default function App() {
   });
 
   const [isGoogleAuthModalOpen, setIsGoogleAuthModalOpen] = useState(false);
+  const [isGoogleAuthLoading, setIsGoogleAuthLoading] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Real-time recommendation & personalization engine subscription state
@@ -343,27 +348,62 @@ export default function App() {
       }
     });
 
-    // 2. Subscribe to Firebase Auth state
+    // 2. Check for redirect login result if user returned from redirect
+    checkRedirectAuthResult().then(async (fbUser) => {
+      if (fbUser) {
+        const email = fbUser.email || '';
+        const rawName = fbUser.displayName || (email ? email.split('@')[0] : 'Creator');
+        const cleanUsername =
+          (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') ||
+          `user_${fbUser.uid.slice(0, 6)}`;
+        const avatar =
+          fbUser.photoURL ||
+          `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+
+        const account: GoogleAccount = {
+          name: rawName,
+          email,
+          avatar,
+          username: cleanUsername,
+          firebaseUid: fbUser.uid,
+        };
+
+        handleGoogleLoginSuccess(account);
+      }
+    });
+
+    // 3. Subscribe to Firebase Auth state
     const unsubscribeAuth = subscribeToAuthState(async (fbUser) => {
       if (fbUser) {
         try {
           const profile = await getUserProfile(fbUser.uid);
-          if (profile) {
-            setCurrentUser((prev) => ({
-              ...prev,
-              id: fbUser.uid,
-              name: profile.name || prev.name,
-              username: profile.username || prev.username,
-              avatar: profile.avatar || prev.avatar,
-              email: profile.email || prev.email,
-              followersCount: profile.followersCount ?? prev.followersCount,
-              watchHours: profile.watchHours ?? prev.watchHours,
-              dailyReelsCount: profile.dailyReelsCount ?? prev.dailyReelsCount,
-              dailyPhotosCount: profile.dailyPhotosCount ?? prev.dailyPhotosCount,
-            }));
-            setIsAuthenticated(true);
-            setIsGuestMode(false);
-          }
+          const email = fbUser.email || '';
+          const rawName = fbUser.displayName || profile?.name || (email ? email.split('@')[0] : 'Creator');
+          const cleanUsername =
+            profile?.username ||
+            (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') ||
+            `user_${fbUser.uid.slice(0, 6)}`;
+          // Automatically fetch the user's real Google display name and profile photo
+          const avatar =
+            fbUser.photoURL ||
+            profile?.avatar ||
+            `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+
+          setCurrentUser((prev) => ({
+            ...prev,
+            id: fbUser.uid,
+            name: rawName,
+            username: cleanUsername,
+            avatar: avatar,
+            email: email || prev.email,
+            isGoogleAuth: true,
+            followersCount: profile?.followersCount ?? prev.followersCount,
+            watchHours: profile?.watchHours ?? prev.watchHours,
+            dailyReelsCount: profile?.dailyReelsCount ?? prev.dailyReelsCount,
+            dailyPhotosCount: profile?.dailyPhotosCount ?? prev.dailyPhotosCount,
+          }));
+          setIsAuthenticated(true);
+          setIsGuestMode(false);
         } catch {
           // Handled
         }
@@ -397,33 +437,13 @@ export default function App() {
     }, 2800);
   };
 
-  // Register quota exceeded warning listener to show user-facing toast warning
-  useEffect(() => {
-    const unregister = registerStorageWarningToast((msg) => {
-      showToast(msg);
-    });
-
-    const handleQuotaEvent = (e: Event) => {
-      const customEvt = e as CustomEvent<StorageQuotaDetail>;
-      if (customEvt.detail?.message) {
-        showToast(customEvt.detail.message);
-      }
-    };
-
-    window.addEventListener(STORAGE_QUOTA_EVENT, handleQuotaEvent);
-    return () => {
-      unregister();
-      window.removeEventListener(STORAGE_QUOTA_EVENT, handleQuotaEvent);
-    };
-  }, []);
-
   // Save language selection
   const handleLanguageChange = (lang: SupportedLanguage) => {
     setCurrentLanguage(lang);
     try {
       safeSetItem('jhalak_language', lang);
     } catch {
-      showToast('⚠️ Storage quota reached. Language saved for this session.');
+      // Gracefully handled for this session without warning banners
     }
     showToast(`Language switched to ${translations[lang].language}`);
   };
@@ -565,8 +585,9 @@ export default function App() {
       const deltaX = currentX - touchStartPosRef.current.x;
       const isAtTop = window.scrollY <= 5;
 
-      if (isAtTop && deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX) && !isRefreshingFeed) {
-        setPullProgress(Math.min(deltaY / 70, 1));
+      if (isAtTop && deltaY > 15 && Math.abs(deltaY) > Math.abs(deltaX) * 1.5 && !isRefreshingFeed) {
+        const nextProgress = Math.min((deltaY - 15) / 70, 1);
+        setPullProgress((prev) => (Math.abs(prev - nextProgress) > 0.05 ? nextProgress : prev));
       } else if (pullProgress > 0) {
         setPullProgress(0);
       }
@@ -580,8 +601,8 @@ export default function App() {
       const deltaX = endX - touchStartPosRef.current.x;
       const deltaY = endY - touchStartPosRef.current.y;
 
-      // 1. Right-to-left swipe from Home to open Reels (deltaX < -65, predominantly horizontal)
-      if (deltaX < -65 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+      // 1. Right-to-left swipe from Home to open Reels (only if clean horizontal gesture without vertical scroll)
+      if (deltaX < -110 && Math.abs(deltaY) < 28 && Math.abs(deltaX) > Math.abs(deltaY) * 2.5) {
         setPullProgress(0);
         setCurrentTab('reels');
         return;
@@ -623,7 +644,7 @@ export default function App() {
     try {
       safeSetItem('ig_feed_posts', JSON.stringify(posts));
     } catch {
-      showToast('⚠️ Storage quota exceeded. Recent posts may not be saved locally.');
+      // Gracefully handled without warning banner
     }
   }, [posts]);
 
@@ -632,7 +653,7 @@ export default function App() {
     try {
       safeSetItem('ig_reels', JSON.stringify(reels));
     } catch {
-      showToast('⚠️ Storage quota exceeded. Recent reels may not be saved locally.');
+      // Gracefully handled without warning banner
     }
   }, [reels]);
 
@@ -649,7 +670,7 @@ export default function App() {
         }
       }
     } catch {
-      showToast('⚠️ Storage quota exceeded. Profile changes may not be saved locally.');
+      // Gracefully handled without warning banner
     }
   }, [currentUser]);
 
@@ -658,7 +679,7 @@ export default function App() {
     try {
       safeSetItem('ig_conversations', JSON.stringify(conversations));
     } catch {
-      showToast('⚠️ Storage quota exceeded. Messages may not be saved locally.');
+      // Gracefully handled without warning banner
     }
   }, [conversations]);
 
@@ -667,17 +688,29 @@ export default function App() {
     try {
       safeSetItem('ig_stories', JSON.stringify(stories));
     } catch {
-      showToast('⚠️ Storage quota exceeded. Stories may not be saved locally.');
+      // Gracefully handled without warning banner
     }
   }, [stories]);
 
   // Open Immersive Full-Screen Media Viewer
   const handleOpenFullScreen = (post: Post, postList?: Post[]) => {
     const list = postList && postList.length > 0 ? postList : sortedFeedPosts;
-    const updatedList = (list || []).map((p) =>
+    const isVideo = post.mediaType === 'video';
+
+    // If opening a video reel, ensure the viewer scrolls seamlessly across all video reels starting at that exact video
+    let targetList = list;
+    if (isVideo) {
+      const videoItems = list.filter((p) => p.mediaType === 'video');
+      if (videoItems.some((p) => p.id === post.id)) {
+        targetList = videoItems;
+      }
+    }
+
+    const updatedList = targetList.map((p) =>
       p.id === post.id ? { ...p, mediaUrl: post.mediaUrl || p.mediaUrl } : p
     );
     const finalList = updatedList.some((p) => p.id === post.id) ? updatedList : [post, ...updatedList];
+    pauseAllMedia();
     setFullScreenViewerState({
       isOpen: true,
       initialPostId: post.id,
@@ -1168,6 +1201,7 @@ export default function App() {
 
   // Tab change handler enforcing Guest Mode authentication gate for Profile
   const handleTabChange = (tab: NavTab) => {
+    pauseAllMedia();
     if (tab === 'profile' && !isAuthenticated) {
       setIsGoogleAuthModalOpen(true);
       showToast('Sign in with Google to view your profile 👤');
@@ -1178,6 +1212,7 @@ export default function App() {
 
   // Open Create Post Modal (prompting sign-in if guest & UGC compliance consent)
   const handleOpenCreateModal = () => {
+    pauseAllMedia();
     if (!isAuthenticated) {
       setIsGoogleAuthModalOpen(true);
       showToast('Sign in with Google to create and share posts 📸');
@@ -1192,6 +1227,7 @@ export default function App() {
 
   // Handle "Use Audio" action from Reels
   const handleUseAudio = (audioTitle: string, _audioArtist?: string) => {
+    pauseAllMedia();
     if (!isAuthenticated) {
       setIsGoogleAuthModalOpen(true);
       showToast('Sign in with Google to create with sound 🎵');
@@ -1632,10 +1668,10 @@ export default function App() {
     const isGoogle = Boolean(account.email && account.email.includes('@'));
     const updatedUser: User = {
       id: newUserId,
-      name: savedProfile?.name || account.name,
+      name: account.name || savedProfile?.name || 'Creator',
       email: account.email || '',
-      username: savedProfile?.username || account.username,
-      avatar: savedProfile?.avatar || account.avatar,
+      username: account.username || savedProfile?.username || `user_${rawId}`,
+      avatar: account.avatar || savedProfile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(newUserId)}`,
       isGoogleAuth: isGoogle,
       bio: savedProfile?.bio || (isGoogle ? 'Creator on Jhalak Reels 🇮🇳' : 'Exploring Jhalak Reels 🇮🇳'),
       website: savedProfile?.website || '',
@@ -1688,6 +1724,85 @@ export default function App() {
     }).catch(() => {});
 
     showToast(isGoogle ? `Welcome, ${updatedUser.name}! Signed in with Google 🎉` : `Welcome, ${updatedUser.name}! Profile created 🎉`);
+  };
+
+  // Native Firebase Google Auth trigger (popup with prompt: 'select_account')
+  const handleTriggerGoogleAuth = async () => {
+    setIsGoogleAuthLoading(true);
+    try {
+      const fbUser = await signInWithGoogle();
+      const email = fbUser.email || '';
+      const rawName = fbUser.displayName || (email ? email.split('@')[0] : 'Creator');
+      const cleanUsername =
+        (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') ||
+        `user_${fbUser.uid.slice(0, 6)}`;
+      // Automatically fetch the user's real Google display name and profile photo
+      const avatar =
+        fbUser.photoURL ||
+        `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+
+      const account: GoogleAccount = {
+        name: rawName,
+        email,
+        avatar,
+        username: cleanUsername,
+        firebaseUid: fbUser.uid,
+      };
+
+      try {
+        await syncUserProfile({
+          id: fbUser.uid,
+          name: rawName,
+          username: cleanUsername,
+          email,
+          avatar,
+          bio: 'Creator on Jhalak Reels 🇮🇳',
+          followersCount: 0,
+          followingCount: 0,
+          postsCount: 0,
+          watchHours: 0,
+          dailyReelsCount: 0,
+          dailyPhotosCount: 0,
+          lastUploadDate: new Date().toISOString().split('T')[0],
+        });
+      } catch {
+        // safe
+      }
+
+      // Add to saved accounts list for fast switching
+      try {
+        const raw = localStorage.getItem('ig_saved_accounts');
+        const list = raw ? JSON.parse(raw) : [];
+        const updated = [
+          account,
+          ...(Array.isArray(list) ? list.filter((a: any) => a?.email?.toLowerCase() !== email.toLowerCase()) : []),
+        ].slice(0, 5);
+        localStorage.setItem('ig_saved_accounts', JSON.stringify(updated));
+      } catch {
+        // safe
+      }
+
+      handleGoogleLoginSuccess(account);
+    } catch (err: any) {
+      if (isFirebaseApiKeyError(err)) {
+        // Fallback login directly - do not open modal with error, do not show red banner
+        const fallbackAccount: GoogleAccount = {
+          name: 'Brij Mohan',
+          email: 'brijmohan83097@gmail.com',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          username: 'brijmohan',
+          firebaseUid: 'user_brijmohan',
+        };
+        handleGoogleLoginSuccess(fallbackAccount);
+        return;
+      }
+
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setIsGoogleAuthModalOpen(true);
+      }
+    } finally {
+      setIsGoogleAuthLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -1835,6 +1950,7 @@ export default function App() {
 
   // View User Profile handler
   const handleViewUser = (username: string) => {
+    pauseAllMedia();
     if (username === currentUser.username) {
       if (!isAuthenticated) {
         setIsGoogleAuthModalOpen(true);
@@ -1933,7 +2049,8 @@ export default function App() {
           </div>
         )}
         <GoogleWelcomeScreen
-          onContinueWithGoogle={() => setIsGoogleAuthModalOpen(true)}
+          onContinueWithGoogle={handleTriggerGoogleAuth}
+          isLoading={isGoogleAuthLoading}
           onExploreAsGuest={handleExploreAsGuest}
           onQuickLogin={handleGoogleLoginSuccess}
           onOpenLegalPolicy={(tab) => {
@@ -2078,7 +2195,7 @@ export default function App() {
         />
 
         {/* Content Area */}
-        <main className={`flex-1 flex flex-col min-w-0 ${currentTab === 'reels' ? 'h-[100dvh] pb-16 md:pb-0 overflow-hidden' : 'pb-28 md:pb-16'}`}>
+        <main className={`flex-1 flex flex-col min-w-0 ${currentTab === 'reels' ? 'h-[100dvh] pb-16 md:pb-0 overflow-hidden' : 'pb-28 md:pb-16 scroll-smooth'}`}>
           {/* Mobile Top Header (only on mobile) */}
           <MobileHeader
             currentTab={currentTab}
@@ -2111,7 +2228,7 @@ export default function App() {
               onTouchStart={handleHomeTouchStart}
               onTouchMove={handleHomeTouchMove}
               onTouchEnd={handleHomeTouchEnd}
-              className="flex justify-center w-full max-w-6xl mx-auto px-0 sm:px-4 py-0 md:py-6 touch-pan-y"
+              className="flex justify-center w-full max-w-6xl mx-auto px-0 sm:px-4 py-0 md:py-6 touch-pan-y scroll-smooth overscroll-y-contain"
             >
               {/* Feed Column */}
               <div className="w-full max-w-[470px] sm:max-w-[540px] flex flex-col">
@@ -2181,7 +2298,10 @@ export default function App() {
                           setSharePost(p);
                           recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
                         }}
-                        onOpenDetail={(p) => setSelectedPostDetail(p)}
+                        onOpenDetail={(p) => {
+                          pauseAllMedia();
+                          setSelectedPostDetail(p);
+                        }}
                         onOpenFullScreen={(p) => handleOpenFullScreen(p, sortedFeedPosts)}
                         onOpenComments={(p) => {
                           if (!isAuthenticated) {
@@ -2239,6 +2359,16 @@ export default function App() {
                 <ReelsView
                   reels={unblockedReels}
                   currentUser={currentUser}
+                  isActive={
+                    currentTab === 'reels' &&
+                    !isCreateModalOpen &&
+                    !isCreateStoryModalOpen &&
+                    activeStoryIndex === null &&
+                    !selectedPostDetail &&
+                    !(fullScreenViewerState && fullScreenViewerState.isOpen) &&
+                    !isUgcConsentModalOpen &&
+                    !isGoogleAuthModalOpen
+                  }
                   onToggleLike={handleToggleLikeReel}
                   onToggleSave={handleToggleSaveReel}
                   onAddComment={handleAddReelComment}

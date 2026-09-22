@@ -209,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }`}
             >
               <img
-                src={currentUser.avatar}
+                src={currentUser.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}
                 alt={currentUser.username}
                 className="w-6 h-6 rounded-full object-cover"
               />
@@ -312,7 +312,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {currentUser.name}
               </span>
               <span className="text-[10px] text-neutral-400 dark:text-neutral-500 truncate">
-                {currentUser.email || 'Google Account'}
+                @{currentUser.username}
               </span>
             </div>
           </button>

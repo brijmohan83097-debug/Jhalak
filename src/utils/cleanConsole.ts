@@ -16,6 +16,15 @@ if (typeof window !== 'undefined') {
     'firestore',
     'firebase',
     'api-key-not-valid',
+    'auth/api-key-not-valid',
+    'invalid-api-key',
+    'api key not valid',
+    'identitytoolkit',
+    'an empty string ("")',
+    'an empty string',
+    'passed to the %s attribute',
+    'download the whole page again',
+    'pass null to %s instead',
     'could not reach cloud firestore',
     'connection failed',
     'quotaexceedederror',
@@ -23,6 +32,7 @@ if (typeof window !== 'undefined') {
     'storage quota',
     'safestorage',
     'localstorage',
+    'indexeddb',
     'websocket',
     'failed to connect to websocket',
     'vite',
@@ -72,7 +82,8 @@ if (typeof window !== 'undefined') {
   });
 
   window.addEventListener('error', (event) => {
-    if (event.message && BENIGN_PATTERNS.some((p) => event.message.toLowerCase().includes(p))) {
+    const msg = ((event.message || '') + ' ' + (event.error?.message || '') + ' ' + (event.error?.code || '')).toLowerCase();
+    if (BENIGN_PATTERNS.some((p) => msg.includes(p))) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }

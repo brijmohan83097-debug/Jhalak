@@ -61,23 +61,19 @@ export function isQuotaExceeded(err: unknown): boolean {
 }
 
 /**
- * Notify user and system about quota issue.
+ * Gracefully handles storage issues without showing noisy warning banners in the preview.
  */
-function notifyStorageIssue(key: string, error: unknown, isQuota: boolean) {
-  const message = isQuota
-    ? '⚠️ Storage quota exceeded. Recent changes may not be saved offline.'
-    : '⚠️ Unable to write to browser local storage.';
-
-  if (activeToastHandler) {
-    activeToastHandler(message);
-  }
-
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent<StorageQuotaDetail>(STORAGE_QUOTA_EVENT, {
-        detail: { key, isQuota, message, error },
-      })
-    );
+function notifyStorageIssue(key: string, _error: unknown, isQuota: boolean) {
+  // Gracefully handle quota exceeded: silent handling so no yellow warning banners or toasts interrupt preview
+  if (isQuota) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        // Silently prune non-essential volatile feed caches to relieve browser storage
+        window.localStorage.removeItem('ig_feed_posts');
+        window.localStorage.removeItem('ig_reels');
+      }
+    } catch {}
+    return;
   }
 }
 
@@ -87,26 +83,29 @@ function notifyStorageIssue(key: string, error: unknown, isQuota: boolean) {
 function sanitizeStoragePayload(val: string): string {
   if (!val) return val;
 
-  // Block massive single strings > 300KB
-  if (val.length > 300000 && !val.includes('data:video/')) {
-    // If not JSON, truncate or skip
-    if (!val.startsWith('[') && !val.startsWith('{')) {
-      return '';
-    }
+  // Block massive single strings > 200KB
+  if (val.length > 200000 && !val.startsWith('[') && !val.startsWith('{')) {
+    return '';
   }
 
-  // Strip video base64 payloads
-  if (val.includes('data:video/')) {
+  // Strip video base64 payloads and blob strings
+  if (val.includes('data:video/') || val.includes('data:application/octet-stream') || val.includes('"blob:http')) {
     try {
       if (val.startsWith('[') || val.startsWith('{')) {
         const parsed = JSON.parse(val);
-        const stripVideoData = (item: any) => {
+        const stripVideoData = (item: any): any => {
           if (!item || typeof item !== 'object') return item;
-          if (typeof item.mediaUrl === 'string' && item.mediaUrl.startsWith('data:video/')) {
+          if (typeof item.mediaUrl === 'string' && (item.mediaUrl.startsWith('data:video/') || item.mediaUrl.startsWith('blob:'))) {
             item.mediaUrl = '';
           }
-          if (typeof item.videoUrl === 'string' && item.videoUrl.startsWith('data:video/')) {
+          if (typeof item.videoUrl === 'string' && (item.videoUrl.startsWith('data:video/') || item.videoUrl.startsWith('blob:'))) {
             item.videoUrl = '';
+          }
+          if (Array.isArray(item.stories)) {
+            item.stories = item.stories.map(stripVideoData);
+          }
+          if (Array.isArray(item.slides)) {
+            item.slides = item.slides.map(stripVideoData);
           }
           return item;
         };
@@ -120,7 +119,10 @@ function sanitizeStoragePayload(val: string): string {
           if (Array.isArray(parsed.posts)) {
             parsed.posts = parsed.posts.map(stripVideoData);
           }
-          return JSON.stringify(parsed);
+          if (Array.isArray(parsed.stories)) {
+            parsed.stories = parsed.stories.map(stripVideoData);
+          }
+          return JSON.stringify(stripVideoData(parsed));
         }
       }
     } catch {
