@@ -77,19 +77,22 @@ const firebaseConfig = {
 // Initialize Firebase app singleton
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
+const customDbId =
+  firebaseConfig.firestoreDatabaseId &&
+  firebaseConfig.firestoreDatabaseId !== '(default)' &&
+  firebaseConfig.firestoreDatabaseId !== 'default'
+    ? firebaseConfig.firestoreDatabaseId
+    : undefined;
+
 // Initialize Firestore with in-memory local cache only (memoryLocalCache)
 // Disables multi-tab persistent offline IndexedDB cache to prevent 'Storage quota exceeded' errors in the browser.
 export const db = (() => {
   try {
-    return initializeFirestore(
-      app,
-      {
-        localCache: memoryLocalCache(),
-      },
-      firebaseConfig.firestoreDatabaseId
-    );
+    return customDbId
+      ? initializeFirestore(app, { localCache: memoryLocalCache() }, customDbId)
+      : initializeFirestore(app, { localCache: memoryLocalCache() });
   } catch {
-    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    return customDbId ? getFirestore(app, customDbId) : getFirestore(app);
   }
 })();
 
@@ -316,18 +319,22 @@ export function getInstantFallbackGoogleUser(customEmail?: string, customName?: 
     } catch {}
   }
 
-  if (!email) {
-    email = 'brijmohan83097@gmail.com';
-    name = 'Brij Mohan';
+  let cleanHandle = '';
+  if (email) {
+    cleanHandle = (email.split('@')[0] || '').toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${Date.now().toString().slice(-6)}`;
+  } else {
+    const randomSuffix = Math.floor(100000 + Math.random() * 900000).toString();
+    cleanHandle = `user_${randomSuffix}`;
+    name = customName || `Creator ${randomSuffix.slice(-4)}`;
   }
 
-  const cleanHandle = (email.split('@')[0] || 'brijmohan').toLowerCase().replace(/[^a-z0-9_]/g, '') || 'brijmohan';
   const photo = avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanHandle)}`;
+  const uid = `user_${cleanHandle}`;
 
   return {
-    uid: `user_${cleanHandle}`,
+    uid,
     displayName: name || cleanHandle,
-    email: email,
+    email: email || `${cleanHandle}@jhalak.app`,
     photoURL: photo,
     emailVerified: true,
     isAnonymous: false,
@@ -338,11 +345,11 @@ export function getInstantFallbackGoogleUser(customEmail?: string, customName?: 
     providerData: [
       {
         displayName: name || cleanHandle,
-        email: email,
+        email: email || `${cleanHandle}@jhalak.app`,
         phoneNumber: null,
         photoURL: photo,
         providerId: 'google.com',
-        uid: email,
+        uid,
       },
     ],
     refreshToken: 'mock-refresh-token',
@@ -565,7 +572,6 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
       username: userData.username || `user_${userData.id.slice(0, 6)}`,
       avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.id}`,
       bio: userData.bio || '',
-      email: userData.email || '',
       website: userData.website || '',
       followersCount: userData.followersCount ?? 0,
       followingCount: userData.followingCount ?? 0,
@@ -580,6 +586,10 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
       payload.dailyReelsCount = 0;
       payload.dailyPhotosCount = 0;
       payload.lastUploadDate = today;
+      payload.followersCount = 0;
+      payload.followingCount = 0;
+      payload.postsCount = 0;
+      payload.watchHours = 0;
       await setDoc(userRef, payload);
     } else {
       const data = existing.data();
@@ -742,11 +752,18 @@ export async function savePostToFirestore(post: Post): Promise<void> {
   const path = `posts/${post.id}`;
   try {
     const postRef = doc(db, 'posts', post.id);
-    await setDoc(postRef, {
+    const rawData: Record<string, any> = {
       ...post,
       createdAtIso: new Date().toISOString(),
       updatedAtIso: new Date().toISOString(),
-    });
+    };
+    const cleanData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(rawData)) {
+      if (value !== undefined) {
+        cleanData[key] = value;
+      }
+    }
+    await setDoc(postRef, cleanData);
   } catch (error) {
     try {
       handleFirestoreError(error, OperationType.WRITE, path);

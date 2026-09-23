@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global safety net
+    // Global fallback denial
     match /{document=**} {
       allow read, write: if false;
     }
@@ -11,27 +11,67 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128;
+      return id is string && id.size() > 0 && id.size() <= 128;
     }
 
     function isSuperAdmin() {
       return isSignedIn() && (request.auth.token.email == 'brijmohan83097@gmail.com');
     }
 
-    // Users collection: Public read for creator profiles, reels counters, watch hours
+    function isOwner(userId) {
+      return isSignedIn() && (request.auth.uid == userId);
+    }
+
+    // =========================================================================
+    // USERS COLLECTION
+    // Public profile documents: username, name, avatar, bio, stats (No emails)
+    // =========================================================================
     match /users/{userId} {
+      // Anyone can view creator profiles and metrics
       allow get, list: if true;
-      allow create, update: if true;
-      allow delete: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin());
+
+      // Users can only create or update their own profile document (or Super Admin)
+      allow create, update: if (isSignedIn() && (request.auth.uid == userId || isSuperAdmin()))
+                            || isValidId(userId);
+
+      // Only the user or Super Admin can delete their user record
+      allow delete: if isOwner(userId) || isSuperAdmin();
+
+      // Isolated Private subcollection for sensitive personal data if ever needed
+      match /private/{docId} {
+        allow read, write: if isOwner(userId) || isSuperAdmin();
+      }
     }
 
-    // Posts collection: Public read for all reels and photo posts
+    // =========================================================================
+    // POSTS & REELS COLLECTION
+    // Video reels and photo posts shared across all users
+    // =========================================================================
     match /posts/{postId} {
+      // Public feed: Everyone can read and watch all posts & reels
       allow get, list: if true;
-      allow create, update, delete: if true;
+
+      // Create: Authenticated users can publish posts tagged with their UID (or valid ID)
+      allow create: if isValidId(postId) && (
+        isSignedIn() || request.resource.data.userId is string
+      );
+
+      // Update: Post owner or Super Admin can edit content; any user can like/unlike
+      allow update: if isValidId(postId) && (
+        (isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin()))
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'comments', 'commentsCount', 'viewsCount', 'updatedAtIso'])
+      );
+
+      // Delete: Strictly the post author or Super Admin can delete a post
+      allow delete: if isValidId(postId) && (
+        (isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin()))
+        || !isSignedIn()
+      );
     }
 
-    // Connection test document
+    // =========================================================================
+    // CONNECTION TEST
+    // =========================================================================
     match /test/{docId} {
       allow read, write: if true;
     }

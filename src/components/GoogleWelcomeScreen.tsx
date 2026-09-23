@@ -25,22 +25,14 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
       if (raw) {
         const list = JSON.parse(raw);
         if (Array.isArray(list) && list.length > 0) {
-          const filtered = list.filter((a: any) => a && a.email);
+          const filtered = list.filter((a: any) => a && (a.username || a.name));
           if (filtered.length > 0) return filtered;
         }
       }
     } catch {
       // safe fallback
     }
-    return [
-      {
-        name: 'Brij Mohan',
-        email: 'brijmohan83097@gmail.com',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-        username: 'brijmohan',
-        firebaseUid: 'user_brijmohan',
-      },
-    ];
+    return [];
   }, []);
 
   return (
@@ -126,7 +118,7 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-white truncate">{acc.name}</p>
                         <p className="text-[11px] text-neutral-400 truncate">
-                          @{acc.email.split('@')[0]}
+                          @{acc.username || 'creator'}
                         </p>
                       </div>
                     </div>

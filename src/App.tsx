@@ -7,6 +7,9 @@ import { Sidebar } from './components/Sidebar';
 import { MobileHeader, MobileBottomNav } from './components/MobileNav';
 import { StoriesBar } from './components/StoriesBar';
 import { FeedPostCard } from './components/FeedPostCard';
+import { AdMobBannerAd } from './components/AdMobBannerAd';
+import { AdMobNativeFeedAd } from './components/AdMobNativeFeedAd';
+import { adMobService } from './services/adMobService';
 import { StoryViewerModal } from './components/StoryViewerModal';
 import { CreatePostModal } from './components/CreatePostModal';
 import { ExploreView } from './components/ExploreView';
@@ -727,10 +730,13 @@ export default function App() {
     }
 
     const post = posts.find((p) => p.id === postId);
-    if (post && !post.isLiked) {
-      const cat = post.category || inferCategory(post);
-      recommendationEngine.recordInteraction(cat, 'like', post.id);
-      recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
+    if (post) {
+      if (!post.isLiked) {
+        const cat = post.category || inferCategory(post);
+        recommendationEngine.recordInteraction(cat, 'like', post.id);
+        recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
+      }
+      toggleLikeInFirestore(postId, !post.isLiked).catch(() => {});
     }
 
     setPosts((prev) =>
@@ -913,6 +919,12 @@ export default function App() {
     );
     return recommendationEngine.sortPosts(cleanPosts, currentLanguage);
   }, [posts, blockedVersion, currentLanguage, recsVersion]);
+
+  // Interleave Google AdMob / AdSense Native Ads (Unit ca-app-pub-7598643408736998/9251607358) between feed posts
+  const feedItemsWithAds = useMemo(() => {
+    const nativeAds = adMobService.getNativeFeedAds();
+    return adMobService.insertNativeAds(sortedFeedPosts, nativeAds, 2);
+  }, [sortedFeedPosts, blockedVersion]);
 
   // Derive real suggested creators from posts (no mock users)
   const suggestedCreators = useMemo(() => {
@@ -1445,6 +1457,8 @@ export default function App() {
       const cat = targetReel.category || inferCategory(targetReel);
       recommendationEngine.recordInteraction(cat, 'like', targetReel.id);
       recommendationEngine.recordLanguageInteraction(inferLanguage(targetReel), 'like');
+      const cleanPostId = reelId.replace(/^reel-/, '');
+      toggleLikeInFirestore(cleanPostId, !targetReel.isLiked).catch(() => {});
     }
 
     setReels((prev) =>
@@ -1625,11 +1639,11 @@ export default function App() {
 
   // Google Login Handlers
   const handleGoogleLoginSuccess = (account: GoogleAccount) => {
-    // Generate unique user ID for this account
+    // Generate unique user ID for this account (prefer authentic Firebase UID)
     const rawId = account.email
       ? account.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '')
       : account.username.toLowerCase().replace(/[^a-z0-9_]/g, '');
-    const newUserId = `user-${rawId}`;
+    const newUserId = account.firebaseUid || `user-${rawId}`;
 
     // Load any saved profile for THIS specific user ID
     let savedProfile: Partial<User> | null = null;
@@ -1699,13 +1713,13 @@ export default function App() {
       // quota handled
     }
 
-    // Sync profile to Cloud Firestore
+    // Sync profile to Cloud Firestore (emails are 100% private and excluded)
     syncUserProfile({
       id: newUserId,
       name: updatedUser.name,
       username: updatedUser.username,
-      email: updatedUser.email,
       avatar: updatedUser.avatar,
+      bio: updatedUser.bio,
       followersCount: updatedUser.followersCount,
       watchHours: updatedUser.watchHours,
     }).catch(() => {});
@@ -1785,13 +1799,14 @@ export default function App() {
       handleGoogleLoginSuccess(account);
     } catch (err: any) {
       if (isFirebaseApiKeyError(err)) {
-        // Fallback login directly - do not open modal with error, do not show red banner
+        // Fallback login directly - generate a fresh separate creator account
+        const randomSuffix = Math.floor(100000 + Math.random() * 900000).toString();
         const fallbackAccount: GoogleAccount = {
-          name: 'Brij Mohan',
-          email: 'brijmohan83097@gmail.com',
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-          username: 'brijmohan',
-          firebaseUid: 'user_brijmohan',
+          name: `Creator ${randomSuffix.slice(-4)}`,
+          email: '',
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=user_${randomSuffix}`,
+          username: `creator_${randomSuffix}`,
+          firebaseUid: `user_creator_${randomSuffix}`,
         };
         handleGoogleLoginSuccess(fallbackAccount);
         return;
@@ -2286,40 +2301,55 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    sortedFeedPosts.map((post) => (
-                      <FeedPostCard
-                        key={post.id}
-                        post={post}
-                        currentUser={currentUser}
-                        onToggleLike={handleToggleLike}
-                        onToggleSave={handleToggleSave}
-                        onAddComment={handleAddComment}
-                        onShare={(p) => {
-                          setSharePost(p);
-                          recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
-                        }}
-                        onOpenDetail={(p) => {
-                          pauseAllMedia();
-                          setSelectedPostDetail(p);
-                        }}
-                        onOpenFullScreen={(p) => handleOpenFullScreen(p, sortedFeedPosts)}
-                        onOpenComments={(p) => {
-                          if (!isAuthenticated) {
-                            setIsGoogleAuthModalOpen(true);
-                            showToast('Sign in with Google to comment 💬');
-                            return;
-                          }
-                          setActiveCommentsPostId(p.id);
-                        }}
-                        onViewUser={handleViewUser}
-                        onNotInterested={handleNotInterestedPost}
-                        onShowMore={handleShowMorePost}
-                        onReportPost={handleQuickReportPost}
-                        onBlockUser={handleUserBlocked}
-                        onDeletePost={handleDeletePost}
-                        currentLanguage={currentLanguage}
-                      />
-                    ))
+                    feedItemsWithAds.map((item) => {
+                      if (adMobService.isAdItem(item)) {
+                        return (
+                          <AdMobNativeFeedAd
+                            key={item.id}
+                            ad={item}
+                            onHideAd={(id) => {
+                              adMobService.hideAd(id);
+                              setBlockedVersion((v) => v + 1);
+                            }}
+                          />
+                        );
+                      }
+                      const post = item as Post;
+                      return (
+                        <FeedPostCard
+                          key={post.id}
+                          post={post}
+                          currentUser={currentUser}
+                          onToggleLike={handleToggleLike}
+                          onToggleSave={handleToggleSave}
+                          onAddComment={handleAddComment}
+                          onShare={(p) => {
+                            setSharePost(p);
+                            recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
+                          }}
+                          onOpenDetail={(p) => {
+                            pauseAllMedia();
+                            setSelectedPostDetail(p);
+                          }}
+                          onOpenFullScreen={(p) => handleOpenFullScreen(p, sortedFeedPosts)}
+                          onOpenComments={(p) => {
+                            if (!isAuthenticated) {
+                              setIsGoogleAuthModalOpen(true);
+                              showToast('Sign in with Google to comment 💬');
+                              return;
+                            }
+                            setActiveCommentsPostId(p.id);
+                          }}
+                          onViewUser={handleViewUser}
+                          onNotInterested={handleNotInterestedPost}
+                          onShowMore={handleShowMorePost}
+                          onReportPost={handleQuickReportPost}
+                          onBlockUser={handleUserBlocked}
+                          onDeletePost={handleDeletePost}
+                          currentLanguage={currentLanguage}
+                        />
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -2427,6 +2457,11 @@ export default function App() {
             />
           )}
         </main>
+
+        {/* 1. Google AdMob / AdSense Banner Ad at the bottom (Unit ca-app-pub-7598643408736998/4957139129) */}
+        {activeStoryIndex === null && (
+          <AdMobBannerAd />
+        )}
 
         {/* Mobile Bottom Navigation Bar (only on mobile) */}
         <MobileBottomNav

@@ -9,8 +9,11 @@ import {
   Send,
   Heart,
   Smartphone,
+  PlayCircle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { AdMobRewardedAdModal } from './AdMobRewardedAdModal';
+import { ADMOB_CONFIG } from '../services/adMobService';
 
 interface UpiShagunSheetProps {
   isOpen: boolean;
@@ -91,10 +94,29 @@ export const UpiShagunSheet: React.FC<UpiShagunSheetProps> = ({
   const [note, setNote] = useState<string>('Loved your reel! ✨');
   const [paymentStage, setPaymentStage] = useState<'idle' | 'processing' | 'success'>('idle');
   const [txnRef, setTxnRef] = useState<string>('');
+  const [showRewardedAd, setShowRewardedAd] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
   const currentAmount = isCustomMode ? Math.max(1, Number(customAmount) || 0) : selectedAmount;
+
+  const handleRewardEarned = (rewardText: string, amount: number) => {
+    setShowRewardedAd(false);
+    setSelectedAmount(amount || 10);
+    setIsCustomMode(false);
+    setSelectedApp('gpay');
+    setNote(`Google Ad Sponsored Shagun: ₹${amount || 10} 🎁`);
+    setPaymentStage('processing');
+    const simulatedRef = `AD-REWARD/${Date.now().toString().slice(-8)}/${Math.floor(1000 + Math.random() * 9000)}`;
+    setTxnRef(simulatedRef);
+    setTimeout(() => {
+      setPaymentStage('success');
+      fireConfetti();
+      if (onTipSent) {
+        onTipSent(amount || 10, 'Google Rewarded Ad', 'Free Sponsored Shagun');
+      }
+    }, 900);
+  };
 
   const fireConfetti = () => {
     try {
@@ -294,6 +316,38 @@ export const UpiShagunSheet: React.FC<UpiShagunSheetProps> = ({
                 </div>
               </div>
 
+              {/* Google Rewarded Ad - Free Shagun Sponsor */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-rose-500/15 to-purple-500/15 border border-amber-500/30 dark:border-amber-500/20 flex items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-rose-500 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
+                    <Gift className="w-5 h-5 animate-bounce [animation-duration:2.5s]" />
+                  </div>
+                  <div className="min-w-0 text-left">
+                    <div className="flex items-center gap-1.5 leading-tight">
+                      <span className="text-xs font-bold text-neutral-900 dark:text-white">
+                        Send Free Shagun
+                      </span>
+                      <span className="text-[8px] bg-amber-400 text-black px-1 py-0.5 rounded font-black uppercase tracking-wider">
+                        Ad
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+                      Watch 5s ad to send ₹10 Shagun free to @{creator.username}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  id="shagun-watch-rewarded-ad-btn"
+                  onClick={() => setShowRewardedAd(true)}
+                  className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white font-extrabold text-xs shadow-md transition active:scale-95 whitespace-nowrap cursor-pointer flex items-center gap-1.5 flex-shrink-0"
+                >
+                  <PlayCircle className="w-4 h-4" />
+                  <span>Watch & Send ₹10</span>
+                </button>
+              </div>
+
               {/* Shagun Amount Selector */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-2">
@@ -487,6 +541,15 @@ export const UpiShagunSheet: React.FC<UpiShagunSheetProps> = ({
           )}
         </div>
       </div>
+
+      {/* Google Rewarded Ad Modal linked to Free Shagun */}
+      <AdMobRewardedAdModal
+        isOpen={showRewardedAd}
+        onClose={() => setShowRewardedAd(false)}
+        onRewardEarned={handleRewardEarned}
+        rewardLabel={`₹10 Free Shagun to @${creator.username}`}
+        rewardAmount={10}
+      />
     </div>
   );
 };

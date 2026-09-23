@@ -47,13 +47,20 @@ export interface AdMobNativeAd {
 }
 
 export const ADMOB_CONFIG = {
-  // Official Google AdMob App ID
+  // Official Google AdSense / AdMob Publisher & Client IDs
+  PUBLISHER_ID: 'pub-7598643408736998',
+  CLIENT_ID: 'ca-pub-7598643408736998',
   APP_ID: 'ca-app-pub-7598643408736998~3347511713',
 
   // Google AdMob Unit IDs
   NATIVE: 'ca-app-pub-7598643408736998/9251607358',
   BANNER: 'ca-app-pub-7598643408736998/4957139129',
   REWARDED: 'ca-app-pub-7598643408736998/6333724469',
+
+  // Google Ad Unit Slots
+  NATIVE_SLOT: '9251607358',
+  BANNER_SLOT: '4957139129',
+  REWARDED_SLOT: '6333724469',
 
   // Format aliases for backward-compatibility with existing component references
   BANNER_ANDROID: 'ca-app-pub-7598643408736998/4957139129',

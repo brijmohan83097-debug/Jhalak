@@ -39,22 +39,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const list = parsed.filter((a: any) => a && a.email);
+          const list = parsed.filter((a: any) => a && (a.username || a.name));
           if (list.length > 0) return list;
         }
       }
     } catch {
       // safe fallback
     }
-    return [
-      {
-        name: 'Brij Mohan',
-        email: 'brijmohan83097@gmail.com',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-        username: 'brijmohan',
-        firebaseUid: 'user_brijmohan',
-      },
-    ];
+    return [];
   });
 
   if (!isOpen) return null;
@@ -127,13 +119,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       onClose();
     } catch (err: any) {
       if (isFirebaseApiKeyError(err)) {
-        // Instant graceful 1-click fallback login - NEVER crash or display error banner
+        // Instant graceful 1-click fallback login - generates a fresh individual account
+        const randomSuffix = Math.floor(100000 + Math.random() * 900000).toString();
         const fallbackAcc: GoogleAccount = savedAccounts[0] || {
-          name: 'Brij Mohan',
-          email: 'brijmohan83097@gmail.com',
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-          username: 'brijmohan',
-          firebaseUid: 'user_brijmohan',
+          name: `Creator ${randomSuffix.slice(-4)}`,
+          email: '',
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=user_${randomSuffix}`,
+          username: `creator_${randomSuffix}`,
+          firebaseUid: `user_creator_${randomSuffix}`,
         };
         saveAccountToList(fallbackAcc);
         onLoginSuccess(fallbackAcc);
@@ -264,7 +257,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                             {acc.name}
                           </p>
                           <p className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 truncate">
-                            @{acc.email.split('@')[0]}
+                            @{acc.username || 'creator'}
                           </p>
                         </div>
                       </div>

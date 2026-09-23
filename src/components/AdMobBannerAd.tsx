@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExternalLink, Info, X, ChevronUp } from 'lucide-react';
 import { AdMobBannerData, adMobService, ADMOB_CONFIG } from '../services/adMobService';
 
@@ -15,6 +15,16 @@ export const AdMobBannerAd: React.FC<AdMobBannerAdProps> = ({
   const [isMinimized, setIsMinimized] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      }
+    } catch {
+      // safe fallback
+    }
+  }, []);
 
   if (isDismissed) {
     return null;
@@ -57,6 +67,15 @@ export const AdMobBannerAd: React.FC<AdMobBannerAdProps> = ({
         aria-label="Google AdMob Banner Advertisement"
         className={`fixed bottom-[52px] md:bottom-2 left-0 right-0 md:left-auto md:right-6 md:max-w-[480px] z-30 px-2 sm:px-3 pointer-events-auto transition-all duration-300 select-none ${className}`}
       >
+        {/* Real AdSense Ad tag */}
+        <ins
+          className="adsbygoogle"
+          style={{ display: 'none' }}
+          data-ad-client="ca-pub-7598643408736998"
+          data-ad-slot="4957139129"
+          data-ad-format="horizontal"
+          data-full-width-responsive="true"
+        />
         <div className="relative mx-auto w-full max-w-[460px] h-[52px] sm:h-[54px] bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md border border-neutral-200/90 dark:border-neutral-800/90 rounded-xl shadow-lg flex items-center justify-between px-2.5 sm:px-3 gap-2 overflow-hidden">
           {/* Subtle Google Blue Top Accent Line */}
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-blue-500 via-emerald-500 to-amber-500 opacity-80" />

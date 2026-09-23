@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Heart,
   Send,
@@ -34,6 +34,16 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
   const [showAdInfo, setShowAdInfo] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      }
+    } catch {
+      // safe fallback
+    }
+  }, []);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2800);
@@ -65,6 +75,15 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
       aria-label={`Sponsored Advertisement by ${ad.advertiser}`}
       className="relative bg-white dark:bg-black border-y md:border md:rounded-2xl border-neutral-200 dark:border-neutral-800/80 mb-4 overflow-hidden transition-colors shadow-xs"
     >
+      {/* Real Google Ad tag */}
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'none' }}
+        data-ad-client="ca-pub-7598643408736998"
+        data-ad-slot="9251607358"
+        data-ad-format="fluid"
+        data-ad-layout-key="-fb+5w+4e-db+86"
+      />
       {/* Dynamic Toast */}
       {toastMessage && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-neutral-900/95 text-white px-4 py-1.5 rounded-full text-xs font-semibold shadow-xl border border-white/10 flex items-center gap-1.5 animate-fade-in pointer-events-none">

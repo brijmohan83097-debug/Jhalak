@@ -42,6 +42,14 @@ export const AdMobRewardedAdModal: React.FC<AdMobRewardedAdModalProps> = ({
       return;
     }
 
+    try {
+      if (typeof window !== 'undefined') {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      }
+    } catch {
+      // safe fallback
+    }
+
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -85,6 +93,13 @@ export const AdMobRewardedAdModal: React.FC<AdMobRewardedAdModalProps> = ({
         className="relative w-full max-w-sm sm:max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col text-white animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Real Google Rewarded Ad tag */}
+        <ins
+          className="adsbygoogle"
+          style={{ display: 'none' }}
+          data-ad-client="ca-pub-7598643408736998"
+          data-ad-slot="6333724469"
+        />
         {/* Top Header Bar with Ad Indicator, Unit ID, Countdown & Audio */}
         <div className="flex items-center justify-between px-4 py-3 bg-neutral-950/80 border-b border-white/10 z-10">
           <div className="flex items-center gap-2">
