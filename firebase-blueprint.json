@@ -45,9 +45,28 @@
         "location": { "type": "string", "maxLength": 100 },
         "audioTitle": { "type": "string", "maxLength": 100 },
         "audioArtist": { "type": "string", "maxLength": 100 },
+        "likedBy": { "type": "array" },
+        "comments": { "type": "array" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "userId", "mediaType", "mediaUrl"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Direct message chat thread between users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "participants": { "type": "array" },
+        "participantUsernames": { "type": "array" },
+        "user": { "type": "object" },
+        "lastMessage": { "type": "string", "maxLength": 1000 },
+        "lastMessageTimestamp": { "type": "string" },
+        "unreadCount": { "type": "number" },
+        "messages": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "participants"]
     }
   },
   "firestore": {
@@ -58,6 +77,10 @@
     "/posts/{postId}": {
       "schema": "Post",
       "description": "Stores feed posts and video reels"
+    },
+    "/conversations/{convId}": {
+      "schema": "Conversation",
+      "description": "Stores direct message chat conversations between users"
     }
   }
 }

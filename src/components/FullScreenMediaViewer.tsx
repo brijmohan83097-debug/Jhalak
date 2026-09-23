@@ -77,7 +77,6 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [showHeartBurst, setShowHeartBurst] = useState<boolean>(false);
-  const [showMuteBadge, setShowMuteBadge] = useState<boolean>(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState<boolean>(false);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
   const [expandedCaption, setExpandedCaption] = useState<boolean>(false);
@@ -115,7 +114,6 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   const isTransitioningRef = useRef<boolean>(false);
   const lastWheelTimeRef = useRef<number>(0);
   const lastTapTimeRef = useRef<number>(0);
-  const muteBadgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Stop all media when unmounting or when external pause event is received
@@ -168,15 +166,6 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
           });
       }
     }
-
-    if (muteBadgeTimeoutRef.current) {
-      clearTimeout(muteBadgeTimeoutRef.current);
-    }
-    setShowMuteBadge(true);
-    muteBadgeTimeoutRef.current = setTimeout(() => {
-      setShowMuteBadge(false);
-      muteBadgeTimeoutRef.current = null;
-    }, 500);
   }, [activeIndex, isMuted]);
 
   const currentPost: Post | undefined = safePosts[activeIndex] || safePosts[0];
@@ -349,9 +338,28 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Single screen tap on video toggles mute / unmute directly and ensures playback
+    // Single screen tap on video toggles Play / Pause directly with momentary indicator
     if (currentPost?.mediaType === 'video') {
-      toggleSoundAndPlay();
+      const vid = videoRefs.current[activeIndex];
+      if (vid) {
+        if (vid.paused) {
+          vid.play().then(() => {
+            setIsPlaying(true);
+            setShowPlayPauseIcon('play');
+          }).catch(() => {
+            vid.muted = true;
+            vid.play().then(() => {
+              setIsPlaying(true);
+              setShowPlayPauseIcon('play');
+            }).catch(() => {});
+          });
+        } else {
+          vid.pause();
+          setIsPlaying(false);
+          setShowPlayPauseIcon('pause');
+        }
+        setTimeout(() => setShowPlayPauseIcon(null), 650);
+      }
     }
   };
 
@@ -605,19 +613,6 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
           </div>
         )}
 
-        {/* Momentary Sound Mute/Unmute Badge Popup */}
-        {showMuteBadge && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
-            <div className="p-5 rounded-full bg-black/75 backdrop-blur-md border border-white/20 text-white shadow-2xl flex items-center justify-center animate-scale-up">
-              {isMuted ? (
-                <VolumeX className="w-10 h-10 text-rose-400" />
-              ) : (
-                <Volume2 className="w-10 h-10 text-emerald-400" />
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Play/Pause momentary icon */}
         {showPlayPauseIcon && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
@@ -717,7 +712,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
             <Heart
               className={`w-6 h-6 transition-transform ${
                 currentPost.isLiked
-                  ? 'fill-rose-500 text-rose-500 scale-110'
+                  ? 'fill-red-600 text-red-600 scale-110'
                   : 'text-white'
               }`}
             />

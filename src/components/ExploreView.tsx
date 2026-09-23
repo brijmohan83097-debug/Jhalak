@@ -64,16 +64,12 @@ interface CreatorResult {
 }
 
 const POPULAR_HASHTAGS = [
-  { tag: 'bhojpurisong', label: '#BhojpuriSong', count: '1.4M posts' },
-  { tag: 'khesarilal', label: '#KhesariLal', count: '980K posts' },
-  { tag: 'pawansingh', label: '#PawanSingh', count: '1.2M posts' },
-  { tag: 'shilpiraj', label: '#ShilpiRaj', count: '650K posts' },
-  { tag: 'bhojpurireels', label: '#BhojpuriReels', count: '2.1M posts' },
-  { tag: 'littichokha', label: '#LittiChokha', count: '420K posts' },
-  { tag: 'arah', label: '#AraBhojpur', count: '310K posts' },
-  { tag: 'patna', label: '#PatnaBeats', count: '890K posts' },
-  { tag: 'banaras', label: '#BanarasGhats', count: '760K posts' },
-  { tag: 'desidance', label: '#DesiDance', count: '540K posts' },
+  { tag: 'bhojpurisong', label: '#BhojpuriSong', count: 'Trending' },
+  { tag: 'bhojpurireels', label: '#BhojpuriReels', count: 'Trending' },
+  { tag: 'bihar', label: '#Bihar', count: 'Popular' },
+  { tag: 'patna', label: '#Patna', count: 'Popular' },
+  { tag: 'desidance', label: '#DesiDance', count: 'Trending' },
+  { tag: 'music', label: '#Music', count: 'Trending' },
 ];
 
 export const ExploreView: React.FC<ExploreViewProps> = ({
@@ -94,9 +90,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('jhalak_recent_searches');
-      return saved ? JSON.parse(saved) : ['Pawan Singh', '#BhojpuriSong', 'Khesari Lal', 'Patna'];
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return ['Pawan Singh', '#BhojpuriSong', 'Khesari Lal', 'Patna'];
+      return [];
     }
   });
   const [followedCreators, setFollowedCreators] = useState<Record<string, boolean>>({});
@@ -174,6 +170,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     posts.forEach((p) => {
       const uname = (p.username || '').toLowerCase().trim();
       if (!uname || map.has(uname)) return;
+      if (uname.includes('fanclub') || uname.includes('dummy') || uname.includes('mock') || uname.includes('fake')) return;
 
       map.set(uname, {
         id: p.userId || uname,
@@ -181,8 +178,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
         name: p.username.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
         avatar: p.userAvatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
         isVerified: p.isVerified || false,
-        followersCount: Math.floor(12000 + (p.likesCount || 500) * 1.8),
-        bio: p.caption ? p.caption.slice(0, 60) + '...' : 'Reels Creator 🎬✨',
+        followersCount: 0,
+        bio: p.caption ? p.caption.slice(0, 60) : '',
       });
     });
 
@@ -335,7 +332,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                 handleSaveRecentSearch(searchQuery);
               }
             }}
-            placeholder="Search reels, creators (@khesari), or hashtags (#bhojpuri)..."
+            placeholder="Search reels, creators, or hashtags..."
             className="w-full bg-transparent text-sm text-neutral-900 dark:text-white placeholder-neutral-500 focus:outline-none font-medium"
           />
           {searchQuery && (
@@ -503,7 +500,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           </h3>
           {filteredCreators.length === 0 ? (
             <div className="py-12 text-center text-neutral-400 text-sm">
-              No creators found for "{searchQuery}". Try searching Pawan Singh, Khesari, or Priya.
+              No creators found for "{searchQuery}".
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

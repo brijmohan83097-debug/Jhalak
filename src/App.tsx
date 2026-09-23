@@ -57,11 +57,15 @@ import {
   deletePostFromFirestore,
   decrementUserPostsCount,
   toggleLikeInFirestore,
+  addCommentToFirestore,
+  toggleFollowUserInFirestore,
+  loadFollowedUsersFromFirestore,
   logOutFirebase,
   testConnection,
   signInWithGoogle,
   checkRedirectAuthResult,
-  isFirebaseApiKeyError,
+  subscribeToFirestoreConversations,
+  sendFirestoreMessage,
 } from './services/firebase';
 import { ADMIN_EMAIL, isSuperAdmin } from './constants/admin';
 import { pauseAllMedia } from './utils/mediaCoordinator';
@@ -333,6 +337,71 @@ export default function App() {
     title: string;
   } | null>(null);
 
+  // Follow / Unfollow State with local cache and Firestore persistence
+  const [followedUsers, setFollowedUsers] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem('ig_followed_users');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Sync followed users from Firestore for current user
+  useEffect(() => {
+    if (currentUser?.id) {
+      loadFollowedUsersFromFirestore(currentUser.id).then((list) => {
+        if (Array.isArray(list) && list.length > 0) {
+          setFollowedUsers((prev) => {
+            const next = { ...prev };
+            list.forEach((u) => {
+              next[u] = true;
+            });
+            try {
+              localStorage.setItem('ig_followed_users', JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }
+      }).catch(() => {});
+    }
+  }, [currentUser?.id]);
+
+  const handleToggleFollow = (targetUsername: string, targetUserId?: string) => {
+    if (!isAuthenticated) {
+      setIsGoogleAuthModalOpen(true);
+      showToast('Sign in with Google to follow creators ✨');
+      return;
+    }
+    const cleanTarget = targetUsername.trim();
+    if (!cleanTarget) return;
+
+    const currentlyFollowing = Boolean(followedUsers[cleanTarget]);
+    const nextFollowing = !currentlyFollowing;
+
+    setFollowedUsers((prev) => {
+      const updated = { ...prev, [cleanTarget]: nextFollowing };
+      if (targetUserId) {
+        updated[targetUserId] = nextFollowing;
+      }
+      try {
+        localStorage.setItem('ig_followed_users', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // Save follow state directly to Firestore
+    toggleFollowUserInFirestore(
+      currentUser.id,
+      currentUser.username,
+      cleanTarget,
+      targetUserId,
+      nextFollowing
+    ).catch(() => {});
+
+    showToast(nextFollowing ? `Following ${cleanTarget} ✨` : `Unfollowed ${cleanTarget}`);
+  };
+
   const t = translations[currentLanguage];
 
   // Subscribe to moderation changes
@@ -354,14 +423,15 @@ export default function App() {
     // 2. Check for redirect login result if user returned from redirect
     checkRedirectAuthResult().then(async (fbUser) => {
       if (fbUser) {
-        const email = fbUser.email || '';
-        const rawName = fbUser.displayName || (email ? email.split('@')[0] : 'Creator');
-        const cleanUsername =
-          (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') ||
-          `user_${fbUser.uid.slice(0, 6)}`;
+        const realDisplayName = (fbUser.displayName || '').trim();
+        const email = (fbUser.email || '').trim();
+        const rawName = realDisplayName || (email ? email.split('@')[0] : 'User');
+        // Automatically set profile username to the user's real Google displayName
+        const cleanUsername = realDisplayName || (email ? email.split('@')[0] : 'User');
+        // Display their real Google photoURL instead of "user_xxxx"
         const avatar =
           fbUser.photoURL ||
-          `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
 
         const account: GoogleAccount = {
           name: rawName,
@@ -380,17 +450,27 @@ export default function App() {
       if (fbUser) {
         try {
           const profile = await getUserProfile(fbUser.uid);
-          const email = fbUser.email || '';
-          const rawName = fbUser.displayName || profile?.name || (email ? email.split('@')[0] : 'Creator');
-          const cleanUsername =
-            profile?.username ||
-            (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') ||
-            `user_${fbUser.uid.slice(0, 6)}`;
-          // Automatically fetch the user's real Google display name and profile photo
+          const realDisplayName = (fbUser.displayName || '').trim();
+          const email = (fbUser.email || '').trim();
+          const emailPrefix = email ? email.split('@')[0] : '';
+          const rawName = realDisplayName || profile?.name || emailPrefix || 'User';
+
+          // Automatically set profile username to the user's real Google displayName
+          // Replace any old placeholder "user_xxxx" or "creator_xxxx" with real Google displayName
+          let cleanUsername = realDisplayName;
+          if (!cleanUsername) {
+            if (profile?.username && !profile.username.startsWith('user_') && !profile.username.startsWith('creator_')) {
+              cleanUsername = profile.username;
+            } else {
+              cleanUsername = emailPrefix || 'User';
+            }
+          }
+
+          // Display their real Google photoURL instead of "user_xxxx"
           const avatar =
             fbUser.photoURL ||
-            profile?.avatar ||
-            `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+            (profile?.avatar && !profile.avatar.includes('user_') && !profile.avatar.includes('dicebear') ? profile.avatar : '') ||
+            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
 
           setCurrentUser((prev) => ({
             ...prev,
@@ -407,6 +487,17 @@ export default function App() {
           }));
           setIsAuthenticated(true);
           setIsGuestMode(false);
+
+          // If stored Firestore profile has legacy user_xxxx or lacks real Google avatar, sync with real data
+          if (realDisplayName && (profile?.username?.startsWith('user_') || profile?.username?.startsWith('creator_') || !profile?.avatar || fbUser.photoURL)) {
+            syncUserProfile({
+              id: fbUser.uid,
+              name: rawName,
+              username: cleanUsername,
+              avatar: avatar,
+              email: email,
+            }).catch(() => {});
+          }
         } catch {
           // Handled
         }
@@ -455,6 +546,21 @@ export default function App() {
   const syncPostsAndReels = (livePosts: Post[]) => {
     const realLive = (livePosts || []).filter(isRealPost);
 
+    // Read user likes cache to keep like state solid across refreshes
+    let userLikedSet = new Set<string>();
+    try {
+      const activeId = currentUser?.id || localStorage.getItem('ig_current_user_id') || 'me';
+      const storedLikes = localStorage.getItem(`ig_user_likes_${activeId}`);
+      if (storedLikes) {
+        const parsed = JSON.parse(storedLikes);
+        if (Array.isArray(parsed)) {
+          userLikedSet = new Set(parsed);
+        }
+      }
+    } catch {
+      // safe
+    }
+
     // Also merge any real local session uploads
     let localUploads: Post[] = [];
     try {
@@ -470,9 +576,54 @@ export default function App() {
     }
 
     const postMap = new Map<string, Post>();
-    realLive.forEach((lp) => postMap.set(lp.id, lp));
+    realLive.forEach((lp) => {
+      const cleanId = lp.id.replace(/^reel-/, '');
+      const isLiked = Boolean(
+        (currentUser?.id && lp.likedBy?.includes(currentUser.id)) ||
+        (currentUser?.username && lp.likedBy?.includes(currentUser.username)) ||
+        userLikedSet.has(lp.id) ||
+        userLikedSet.has(cleanId) ||
+        lp.isLiked
+      );
+
+      // Merge cached comments if available so comments never disappear
+      let postComments = Array.isArray(lp.comments) ? [...lp.comments] : [];
+      try {
+        const cached = localStorage.getItem(`ig_comments_${lp.id}`) || localStorage.getItem(`ig_comments_${cleanId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            const seen = new Set(postComments.map((c) => c.id));
+            parsed.forEach((c) => {
+              if (!seen.has(c.id)) {
+                postComments.push(c);
+                seen.add(c.id);
+              }
+            });
+          }
+        }
+      } catch {
+        // safe
+      }
+
+      postMap.set(lp.id, {
+        ...lp,
+        isLiked,
+        comments: postComments,
+        commentsCount: Math.max(postComments.length, lp.commentsCount || 0),
+      });
+    });
+
     localUploads.forEach((up) => {
-      if (!postMap.has(up.id)) postMap.set(up.id, up);
+      if (!postMap.has(up.id)) {
+        const cleanId = up.id.replace(/^reel-/, '');
+        const isLiked = userLikedSet.has(up.id) || userLikedSet.has(cleanId) || Boolean(up.isLiked);
+        postMap.set(up.id, {
+          ...up,
+          isLiked,
+          comments: Array.isArray(up.comments) ? up.comments : [],
+        });
+      }
     });
 
     const finalPosts = Array.from(postMap.values());
@@ -480,28 +631,40 @@ export default function App() {
 
     // Also merge video posts into Reels
     const videoPosts = finalPosts.filter((lp) => lp.mediaType === 'video');
-    const mappedReels: Reel[] = videoPosts.map((vp) => ({
-      id: `reel-${vp.id}`,
-      userId: vp.userId,
-      username: vp.username,
-      userAvatar: vp.userAvatar,
-      videoUrl: vp.mediaUrl,
-      thumbnailUrl: vp.thumbnailUrl,
-      caption: vp.caption,
-      category: vp.category,
-      audioTitle: vp.audioTitle || 'Original Audio',
-      audioArtist: vp.username,
-      likesCount: vp.likesCount || 0,
-      commentsCount: (vp.comments || []).length,
-      sharesCount: 0,
-      isLiked: false,
-      isSaved: false,
-      comments: vp.comments || [],
-      tags: vp.tags || [],
-      timestamp: vp.timestamp || 'Recently',
-      createdAt: vp.createdAt,
-      isUserCreated: true,
-    }));
+    const mappedReels: Reel[] = videoPosts.map((vp) => {
+      const cleanId = vp.id.replace(/^reel-/, '');
+      const isLiked = Boolean(
+        (currentUser?.id && vp.likedBy?.includes(currentUser.id)) ||
+        (currentUser?.username && vp.likedBy?.includes(currentUser.username)) ||
+        userLikedSet.has(vp.id) ||
+        userLikedSet.has(cleanId) ||
+        vp.isLiked
+      );
+
+      return {
+        id: `reel-${vp.id}`,
+        userId: vp.userId,
+        username: vp.username,
+        userAvatar: vp.userAvatar,
+        videoUrl: vp.mediaUrl,
+        thumbnailUrl: vp.thumbnailUrl,
+        caption: vp.caption,
+        category: vp.category,
+        audioTitle: vp.audioTitle || 'Original Audio',
+        audioArtist: vp.username,
+        likesCount: vp.likesCount || 0,
+        commentsCount: (vp.comments || []).length,
+        sharesCount: 0,
+        isLiked,
+        likedBy: vp.likedBy || [],
+        isSaved: false,
+        comments: vp.comments || [],
+        tags: vp.tags || [],
+        timestamp: vp.timestamp || 'Recently',
+        createdAt: vp.createdAt,
+        isUserCreated: true,
+      };
+    });
 
     // Also check local reel uploads
     let localReels: Reel[] = [];
@@ -549,7 +712,7 @@ export default function App() {
     }
   }, []);
 
-  // Feed Pull-To-Refresh: reloads latest posts & reels directly from Firestore
+  // Feed Pull-To-Refresh: reloads latest posts & reels directly from Firestore silently
   const handleRefreshFeed = async () => {
     setIsRefreshingFeed(true);
     try {
@@ -558,9 +721,8 @@ export default function App() {
       if (freshPosts && freshPosts.length > 0) {
         syncPostsAndReels(freshPosts);
       }
-      showToast('Feed refreshed with latest posts! 🔄');
     } catch {
-      showToast('Feed refreshed! 🔄');
+      // Quiet reload without intrusive toast popups
     } finally {
       setTimeout(() => {
         setIsRefreshingFeed(false);
@@ -686,6 +848,21 @@ export default function App() {
     }
   }, [conversations]);
 
+  // Subscribe to real-time Firestore conversations for currentUser
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const unsub = subscribeToFirestoreConversations(
+      currentUser.id,
+      currentUser.username,
+      (firestoreConvs) => {
+        if (firestoreConvs) {
+          setConversations(firestoreConvs);
+        }
+      }
+    );
+    return () => unsub();
+  }, [currentUser?.id, currentUser?.username]);
+
   // Persist stories safely with try-catch
   useEffect(() => {
     try {
@@ -731,12 +908,34 @@ export default function App() {
 
     const post = posts.find((p) => p.id === postId);
     if (post) {
-      if (!post.isLiked) {
+      const isLiked = !post.isLiked;
+      const cleanId = postId.replace(/^reel-/, '');
+
+      // Persist in local user liked cache
+      try {
+        const activeId = currentUser.id || localStorage.getItem('ig_current_user_id') || 'me';
+        const cacheKey = `ig_user_likes_${activeId}`;
+        const raw = localStorage.getItem(cacheKey);
+        const list = raw ? JSON.parse(raw) : [];
+        let updated = Array.isArray(list) ? list : [];
+        if (isLiked) {
+          updated = Array.from(new Set([...updated, postId, cleanId]));
+        } else {
+          updated = updated.filter((id: string) => id !== postId && id !== cleanId);
+        }
+        localStorage.setItem(cacheKey, JSON.stringify(updated));
+      } catch {
+        // safe
+      }
+
+      if (isLiked) {
         const cat = post.category || inferCategory(post);
         recommendationEngine.recordInteraction(cat, 'like', post.id);
         recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
       }
-      toggleLikeInFirestore(postId, !post.isLiked).catch(() => {});
+
+      // Save user like state directly into Firestore
+      toggleLikeInFirestore(postId, isLiked, currentUser.id, currentUser.username).catch(() => {});
     }
 
     setPosts((prev) =>
@@ -864,11 +1063,28 @@ export default function App() {
           return {
             ...post,
             comments: [...post.comments, newComment],
+            commentsCount: post.comments.length + 1,
           };
         }
         return post;
       })
     );
+
+    // Save comment directly to Firestore post document
+    addCommentToFirestore(postId, newComment).catch(() => {});
+
+    // Save comment to local storage cache so it persists even on offline or reload
+    try {
+      const cleanId = postId.replace(/^reel-/, '');
+      const cacheKey = `ig_comments_${cleanId}`;
+      const raw = localStorage.getItem(cacheKey);
+      const list = raw ? JSON.parse(raw) : [];
+      const updated = Array.isArray(list) ? [...list, newComment] : [newComment];
+      localStorage.setItem(cacheKey, JSON.stringify(updated));
+      localStorage.setItem(`ig_comments_${postId}`, JSON.stringify(updated));
+    } catch {
+      // safe
+    }
 
     if (selectedPostDetail && selectedPostDetail.id === postId) {
       setSelectedPostDetail((prev) => {
@@ -1454,11 +1670,32 @@ export default function App() {
 
     const targetReel = reels.find((r) => r.id === reelId);
     if (targetReel) {
-      const cat = targetReel.category || inferCategory(targetReel);
-      recommendationEngine.recordInteraction(cat, 'like', targetReel.id);
-      recommendationEngine.recordLanguageInteraction(inferLanguage(targetReel), 'like');
+      const isLiked = !targetReel.isLiked;
       const cleanPostId = reelId.replace(/^reel-/, '');
-      toggleLikeInFirestore(cleanPostId, !targetReel.isLiked).catch(() => {});
+
+      // Persist in local user liked cache
+      try {
+        const activeId = currentUser.id || localStorage.getItem('ig_current_user_id') || 'me';
+        const cacheKey = `ig_user_likes_${activeId}`;
+        const raw = localStorage.getItem(cacheKey);
+        const list = raw ? JSON.parse(raw) : [];
+        let updated = Array.isArray(list) ? list : [];
+        if (isLiked) {
+          updated = Array.from(new Set([...updated, reelId, cleanPostId]));
+        } else {
+          updated = updated.filter((id: string) => id !== reelId && id !== cleanPostId);
+        }
+        localStorage.setItem(cacheKey, JSON.stringify(updated));
+      } catch {
+        // safe
+      }
+
+      if (isLiked) {
+        const cat = targetReel.category || inferCategory(targetReel);
+        recommendationEngine.recordInteraction(cat, 'like', targetReel.id);
+        recommendationEngine.recordLanguageInteraction(inferLanguage(targetReel), 'like');
+      }
+      toggleLikeInFirestore(cleanPostId, isLiked, currentUser.id, currentUser.username).catch(() => {});
     }
 
     setReels((prev) =>
@@ -1550,6 +1787,22 @@ export default function App() {
         return reel;
       })
     );
+
+    // Save comment directly to Firestore
+    addCommentToFirestore(reelId, newComment).catch(() => {});
+
+    // Save comment to local storage cache so it persists even on reload
+    try {
+      const cleanId = reelId.replace(/^reel-/, '');
+      const cacheKey = `ig_comments_${cleanId}`;
+      const raw = localStorage.getItem(cacheKey);
+      const list = raw ? JSON.parse(raw) : [];
+      const updated = Array.isArray(list) ? [...list, newComment] : [newComment];
+      localStorage.setItem(cacheKey, JSON.stringify(updated));
+      localStorage.setItem(`ig_comments_${reelId}`, JSON.stringify(updated));
+    } catch {
+      // safe
+    }
     showToast(t.commentPosted || 'Comment posted successfully');
   };
 
@@ -1577,7 +1830,7 @@ export default function App() {
     setSharePost(asPost);
   };
 
-  // Send Direct Message
+  // Send Direct Message directly to Firestore collection
   const handleSendMessage = (conversationId: string, text: string) => {
     const newMessage: Message = {
       id: `msg-${Date.now()}`,
@@ -1602,39 +1855,15 @@ export default function App() {
       })
     );
 
-    // Simulate auto-reply after 1.2 seconds for realistic interaction
-    setTimeout(() => {
-      const replies = [
-        'Awesome, love this! ✨',
-        'Bilkul sahi bola! Check kar raha hu 🔥',
-        'Super cool picture! 📸',
-        'Shukriya dost! Talk soon! 🙌',
-      ];
-      const randomReply = replies[Math.floor(Math.random() * replies.length)];
-      const incomingMessage: Message = {
-        id: `msg-reply-${Date.now()}`,
-        senderId: 'contact',
-        text: randomReply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isMine: false,
-        isRead: false,
-      };
-
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id === conversationId) {
-            return {
-              ...c,
-              lastMessage: randomReply,
-              lastMessageTimestamp: 'Just now',
-              unreadCount: c.unreadCount + 1,
-              messages: [...c.messages, incomingMessage],
-            };
-          }
-          return c;
-        })
-      );
-    }, 1200);
+    const convTarget = conversations.find((c) => c.id === conversationId);
+    sendFirestoreMessage(
+      conversationId,
+      newMessage,
+      [currentUser.id, convTarget?.user?.id || 'contact'],
+      convTarget?.user
+    ).catch((err) => {
+      console.warn('Could not sync message to Firestore:', err);
+    });
   };
 
   // Google Login Handlers
@@ -1680,12 +1909,32 @@ export default function App() {
     }
 
     const isGoogle = Boolean(account.email && account.email.includes('@'));
+    const realDisplayName = (account.name || '').trim();
+    // Prioritize real Google display name for username instead of user_xxxx
+    let resolvedUsername = (account.username || realDisplayName).trim();
+    if (!resolvedUsername || resolvedUsername.startsWith('user_') || resolvedUsername.startsWith('creator_')) {
+      if (realDisplayName) {
+        resolvedUsername = realDisplayName;
+      } else if (savedProfile?.username && !savedProfile.username.startsWith('user_') && !savedProfile.username.startsWith('creator_')) {
+        resolvedUsername = savedProfile.username;
+      } else if (account.email) {
+        resolvedUsername = account.email.split('@')[0];
+      } else {
+        resolvedUsername = 'User';
+      }
+    }
+
+    const resolvedAvatar =
+      account.avatar ||
+      (savedProfile?.avatar && !savedProfile.avatar.includes('user_') && !savedProfile.avatar.includes('dicebear') ? savedProfile.avatar : '') ||
+      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
+
     const updatedUser: User = {
       id: newUserId,
-      name: account.name || savedProfile?.name || 'Creator',
+      name: realDisplayName || savedProfile?.name || resolvedUsername,
       email: account.email || '',
-      username: account.username || savedProfile?.username || `user_${rawId}`,
-      avatar: account.avatar || savedProfile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(newUserId)}`,
+      username: resolvedUsername,
+      avatar: resolvedAvatar,
       isGoogleAuth: isGoogle,
       bio: savedProfile?.bio || (isGoogle ? 'Creator on Jhalak Reels 🇮🇳' : 'Exploring Jhalak Reels 🇮🇳'),
       website: savedProfile?.website || '',
@@ -1713,13 +1962,14 @@ export default function App() {
       // quota handled
     }
 
-    // Sync profile to Cloud Firestore (emails are 100% private and excluded)
+    // Sync profile to Cloud Firestore
     syncUserProfile({
       id: newUserId,
       name: updatedUser.name,
       username: updatedUser.username,
       avatar: updatedUser.avatar,
       bio: updatedUser.bio,
+      email: updatedUser.email,
       followersCount: updatedUser.followersCount,
       watchHours: updatedUser.watchHours,
     }).catch(() => {});
@@ -1745,19 +1995,21 @@ export default function App() {
     setIsGoogleAuthLoading(true);
     try {
       const fbUser = await signInWithGoogle();
-      const email = fbUser.email || '';
-      const rawName = fbUser.displayName || (email ? email.split('@')[0] : 'Creator');
-      const cleanUsername =
-        (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') ||
-        `user_${fbUser.uid.slice(0, 6)}`;
-      // Automatically fetch the user's real Google display name and profile photo
+      const realDisplayName = (fbUser.displayName || '').trim();
+      const realEmail = (fbUser.email || '').trim();
+      const rawName = realDisplayName || (realEmail ? realEmail.split('@')[0] : 'User');
+      
+      // Automatically set profile username to the user's real Google displayName
+      const cleanUsername = realDisplayName || (realEmail ? realEmail.split('@')[0] : 'User');
+      
+      // Display their real Google photoURL instead of "user_xxxx"
       const avatar =
         fbUser.photoURL ||
-        `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
 
       const account: GoogleAccount = {
         name: rawName,
-        email,
+        email: realEmail,
         avatar,
         username: cleanUsername,
         firebaseUid: fbUser.uid,
@@ -1768,7 +2020,7 @@ export default function App() {
           id: fbUser.uid,
           name: rawName,
           username: cleanUsername,
-          email,
+          email: realEmail,
           avatar,
           bio: 'Creator on Jhalak Reels 🇮🇳',
           followersCount: 0,
@@ -1789,7 +2041,7 @@ export default function App() {
         const list = raw ? JSON.parse(raw) : [];
         const updated = [
           account,
-          ...(Array.isArray(list) ? list.filter((a: any) => a?.email?.toLowerCase() !== email.toLowerCase()) : []),
+          ...(Array.isArray(list) ? list.filter((a: any) => a?.email?.toLowerCase() !== realEmail.toLowerCase()) : []),
         ].slice(0, 5);
         localStorage.setItem('ig_saved_accounts', JSON.stringify(updated));
       } catch {
@@ -1798,21 +2050,11 @@ export default function App() {
 
       handleGoogleLoginSuccess(account);
     } catch (err: any) {
-      if (isFirebaseApiKeyError(err)) {
-        // Fallback login directly - generate a fresh separate creator account
-        const randomSuffix = Math.floor(100000 + Math.random() * 900000).toString();
-        const fallbackAccount: GoogleAccount = {
-          name: `Creator ${randomSuffix.slice(-4)}`,
-          email: '',
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=user_${randomSuffix}`,
-          username: `creator_${randomSuffix}`,
-          firebaseUid: `user_creator_${randomSuffix}`,
-        };
-        handleGoogleLoginSuccess(fallbackAccount);
-        return;
-      }
-
-      if (err?.code !== 'auth/popup-closed-by-user') {
+      // Force real Google Sign-In: do NOT generate anonymous/mock users
+      if (err?.code === 'auth/popup-closed-by-user') {
+        showToast('Google Sign-In was cancelled. Tap to choose your account.');
+      } else {
+        showToast(err?.message || 'Could not complete Google Sign-In. Please try again.');
         setIsGoogleAuthModalOpen(true);
       }
     } finally {
@@ -2323,6 +2565,11 @@ export default function App() {
                           onToggleLike={handleToggleLike}
                           onToggleSave={handleToggleSave}
                           onAddComment={handleAddComment}
+                          isFollowing={Boolean(
+                            followedUsers[post.username] ||
+                            (post.userId && followedUsers[post.userId])
+                          )}
+                          onToggleFollow={() => handleToggleFollow(post.username, post.userId)}
                           onShare={(p) => {
                             setSharePost(p);
                             recommendationEngine.recordInteraction(p.category || 'Travel', 'share');

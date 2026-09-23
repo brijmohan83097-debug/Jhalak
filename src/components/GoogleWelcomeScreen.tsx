@@ -18,14 +18,21 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
   onOpenLegalPolicy,
   isLoading = false,
 }) => {
-  // Check if saved accounts from previous genuine logins exist, or provide 1-click account
+  // Check if saved accounts from previous genuine Google logins exist
   const savedAccounts = useMemo<GoogleAccount[]>(() => {
     try {
       const raw = localStorage.getItem('ig_saved_accounts');
       if (raw) {
         const list = JSON.parse(raw);
         if (Array.isArray(list) && list.length > 0) {
-          const filtered = list.filter((a: any) => a && (a.username || a.name));
+          const filtered = list.filter(
+            (a: any) =>
+              a &&
+              a.email &&
+              a.email.includes('@') &&
+              !a.firebaseUid?.startsWith('user_creator_') &&
+              !a.username?.startsWith('creator_')
+          );
           if (filtered.length > 0) return filtered;
         }
       }

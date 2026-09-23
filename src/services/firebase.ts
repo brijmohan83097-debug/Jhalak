@@ -33,6 +33,8 @@ import {
   deleteDoc,
   where,
   addDoc,
+  arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import {
   getStorage,
@@ -43,7 +45,7 @@ import {
   getDownloadURL,
 } from 'firebase/storage';
 import rawConfig from '../../firebase-applet-config.json';
-import { Post, User } from '../types';
+import { Post, User, Comment, Conversation, Message } from '../types';
 import { ADMIN_EMAIL, isSuperAdmin } from '../constants/admin';
 
 // Silence Firebase internal logs and connection retry noise completely
@@ -56,22 +58,21 @@ export { ADMIN_EMAIL, isSuperAdmin };
 
 // Load config from Vite environment variables with fallback to firebase-applet-config.json
 const env = (import.meta as any).env || {};
+// Explicitly restore valid Firebase API Key; do not let Gemini API key override Firebase apiKey
 const resolvedApiKey = (
   env.VITE_FIREBASE_API_KEY ||
-  env.VITE_GOOGLE_API_KEY ||
-  env.VITE_API_KEY ||
   rawConfig.apiKey ||
-  ''
-).trim();
+  'AIzaSyAq50DxZ5OBH-HpFY_sulhCZ'
+).trim() || 'AIzaSyAq50DxZ5OBH-HpFY_sulhCZ';
 
 const firebaseConfig = {
   apiKey: resolvedApiKey,
-  authDomain: (env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain || '').trim(),
-  projectId: (env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId || '').trim(),
-  storageBucket: (env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket || '').trim(),
-  messagingSenderId: (env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId || '').trim(),
-  appId: (env.VITE_FIREBASE_APP_ID || rawConfig.appId || '').trim(),
-  firestoreDatabaseId: (env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId || '').trim(),
+  authDomain: (env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain || 'brijchat-b281e.firebaseapp.com').trim(),
+  projectId: (env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId || 'brijchat-b281e').trim(),
+  storageBucket: (env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket || 'brijchat-b281e.firebasestorage.app').trim(),
+  messagingSenderId: (env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId || '1042822490780').trim(),
+  appId: (env.VITE_FIREBASE_APP_ID || rawConfig.appId || '1:1042822490780:web:0aef935122fffd1ffa5b59').trim(),
+  firestoreDatabaseId: (env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId || '(default)').trim(),
 };
 
 // Initialize Firebase app singleton
@@ -374,38 +375,31 @@ export function getInstantFallbackGoogleUser(customEmail?: string, customName?: 
 
 /**
  * Standard Firebase Google Authentication:
- * Triggers native Google Auth popup (with automatic fallback to signInWithRedirect).
- * Uses prompt: 'select_account' so all available Google accounts on the device/browser
- * are shown for instant 1-tap selection without manual typing.
- * If Firebase API key is restricted or invalid in this preview environment, provides
- * a graceful instant login mode so users sign in instantly without crashing on the API key error.
+ * Triggers native Google Auth popup (with fallback to signInWithRedirect if popup is blocked).
+ * Sets prompt: 'select_account' so all available Google accounts on the device/browser
+ * are shown for instant account selection every time.
+ * Enforces real Google Sign-In without mock or anonymous user generation.
  */
 export async function signInWithGoogle(): Promise<FirebaseUser> {
+  // Enforce account picker list every time
+  googleProvider.setCustomParameters({
+    prompt: 'select_account',
+  });
+
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
   } catch (err: any) {
-    // Intercept api-key-not-valid and provide graceful 1-click fallback
-    if (isFirebaseApiKeyError(err)) {
-      return getInstantFallbackGoogleUser();
-    }
-
-    // If popup was blocked or closed, try redirect if blocked
+    // If popup was blocked by the browser, fallback to signInWithRedirect
     if (
       err?.code === 'auth/popup-blocked' ||
       err?.code === 'auth/cancelled-popup-request' ||
-      (err?.message && err.message.toLowerCase().includes('popup'))
+      (err?.message && err.message.toLowerCase().includes('popup-blocked'))
     ) {
-      try {
-        await signInWithRedirect(auth, googleProvider);
-        return new Promise<FirebaseUser>(() => {});
-      } catch (redirectErr: any) {
-        if (isFirebaseApiKeyError(redirectErr)) {
-          return getInstantFallbackGoogleUser();
-        }
-        throw redirectErr;
-      }
+      await signInWithRedirect(auth, googleProvider);
+      return new Promise<FirebaseUser>(() => {});
     }
+    // Force real Google Sign-In: throw the real error, do not create mock/anonymous users
     throw err;
   }
 }
@@ -429,15 +423,8 @@ export async function checkRedirectAuthResult(): Promise<FirebaseUser | null> {
  * Sign in with Email and Password
  */
 export async function signInWithEmail(email: string, pass: string): Promise<FirebaseUser> {
-  try {
-    const result = await signInWithEmailAndPassword(auth, email, pass);
-    return result.user;
-  } catch (err: any) {
-    if (isFirebaseApiKeyError(err)) {
-      return getInstantFallbackGoogleUser(email);
-    }
-    throw err;
-  }
+  const result = await signInWithEmailAndPassword(auth, email, pass);
+  return result.user;
 }
 
 /**
@@ -449,40 +436,33 @@ export async function registerWithEmail(
   displayName: string,
   username?: string
 ): Promise<FirebaseUser> {
-  try {
-    const result = await createUserWithEmailAndPassword(auth, email, pass);
-    const cleanUsername = (username || displayName).toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${Date.now()}`;
-    const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+  const result = await createUserWithEmailAndPassword(auth, email, pass);
+  const cleanUsername = (username || displayName).trim() || displayName;
+  const avatar = `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400`;
 
-    await updateProfile(result.user, {
-      displayName,
-      photoURL: avatar,
-    });
+  await updateProfile(result.user, {
+    displayName,
+    photoURL: avatar,
+  });
 
-    // Sync user profile to Firestore
-    await syncUserProfile({
-      id: result.user.uid,
-      name: displayName,
-      username: cleanUsername,
-      email,
-      avatar,
-      bio: 'Creator on Jhalak Reels 🇮🇳',
-      followersCount: 0,
-      followingCount: 0,
-      postsCount: 0,
-      watchHours: 0,
-      dailyReelsCount: 0,
-      dailyPhotosCount: 0,
-      lastUploadDate: new Date().toISOString().split('T')[0],
-    });
+  // Sync user profile to Firestore
+  await syncUserProfile({
+    id: result.user.uid,
+    name: displayName,
+    username: cleanUsername,
+    email,
+    avatar,
+    bio: 'Creator on Jhalak Reels 🇮🇳',
+    followersCount: 0,
+    followingCount: 0,
+    postsCount: 0,
+    watchHours: 0,
+    dailyReelsCount: 0,
+    dailyPhotosCount: 0,
+    lastUploadDate: new Date().toISOString().split('T')[0],
+  });
 
-    return result.user;
-  } catch (err: any) {
-    if (isFirebaseApiKeyError(err)) {
-      return getInstantFallbackGoogleUser(email, displayName);
-    }
-    throw err;
-  }
+  return result.user;
 }
 
 /**
@@ -569,9 +549,10 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
     const payload: Record<string, any> = {
       id: userData.id,
       name: userData.name || 'User',
-      username: userData.username || `user_${userData.id.slice(0, 6)}`,
-      avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.id}`,
+      username: userData.username || userData.name || 'User',
+      avatar: userData.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
       bio: userData.bio || '',
+      email: userData.email || '',
       website: userData.website || '',
       followersCount: userData.followersCount ?? 0,
       followingCount: userData.followingCount ?? 0,
@@ -752,8 +733,31 @@ export async function savePostToFirestore(post: Post): Promise<void> {
   const path = `posts/${post.id}`;
   try {
     const postRef = doc(db, 'posts', post.id);
+    let existingComments: Comment[] = [];
+    let existingLikedBy: string[] = [];
+
+    try {
+      const snap = await getDoc(postRef);
+      if (snap.exists()) {
+        const d = snap.data();
+        if (Array.isArray(d.comments)) existingComments = d.comments;
+        if (Array.isArray(d.likedBy)) existingLikedBy = d.likedBy;
+      }
+    } catch {
+      // safe fallback
+    }
+
+    const postComments = Array.isArray(post.comments) ? post.comments : [];
+    const mergedComments = postComments.length >= existingComments.length ? postComments : existingComments;
+    const postLikedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
+    const mergedLikedBy = Array.from(new Set([...existingLikedBy, ...postLikedBy]));
+
     const rawData: Record<string, any> = {
       ...post,
+      comments: mergedComments,
+      commentsCount: mergedComments.length,
+      likedBy: mergedLikedBy,
+      likesCount: Math.max(post.likesCount || 0, mergedLikedBy.length),
       createdAtIso: new Date().toISOString(),
       updatedAtIso: new Date().toISOString(),
     };
@@ -763,7 +767,7 @@ export async function savePostToFirestore(post: Post): Promise<void> {
         cleanData[key] = value;
       }
     }
-    await setDoc(postRef, cleanData);
+    await setDoc(postRef, cleanData, { merge: true });
   } catch (error) {
     try {
       handleFirestoreError(error, OperationType.WRITE, path);
@@ -787,6 +791,12 @@ export function subscribeToFirestorePosts(callback: (posts: Post[]) => void) {
         snapshot.forEach((docSnap) => {
           const d = docSnap.data() as Post;
           if (d && d.id) {
+            if (!Array.isArray(d.comments)) {
+              d.comments = [];
+            }
+            if (!Array.isArray(d.likedBy)) {
+              d.likedBy = [];
+            }
             posts.push(d);
           }
         });
@@ -819,6 +829,12 @@ export async function loadPostsFromFirestore(): Promise<Post[]> {
     snapshot.forEach((docSnap) => {
       const d = docSnap.data() as Post;
       if (d && d.id) {
+        if (!Array.isArray(d.comments)) {
+          d.comments = [];
+        }
+        if (!Array.isArray(d.likedBy)) {
+          d.likedBy = [];
+        }
         posts.push(d);
       }
     });
@@ -839,22 +855,137 @@ export async function loadPostsFromFirestore(): Promise<Post[]> {
 }
 
 /**
- * Toggle like on a post in Firestore
+ * Toggle like on a post in Firestore permanently per user
  */
-export async function toggleLikeInFirestore(postId: string, isLiked: boolean): Promise<void> {
-  const path = `posts/${postId}`;
-  try {
-    const postRef = doc(db, 'posts', postId);
-    await updateDoc(postRef, {
-      likesCount: increment(isLiked ? 1 : -1),
-    });
-  } catch (error) {
+export async function toggleLikeInFirestore(
+  postId: string,
+  isLiked: boolean,
+  userId?: string,
+  username?: string
+): Promise<void> {
+  const cleanPostId = postId.replace(/^reel-/, '');
+  const candidateIds = Array.from(new Set([postId, cleanPostId, `reel-${cleanPostId}`]));
+
+  const userIdsToTrack: string[] = [];
+  if (userId) userIdsToTrack.push(userId);
+  if (username && username !== userId) userIdsToTrack.push(username);
+
+  for (const id of candidateIds) {
+    const path = `posts/${id}`;
     try {
-      handleFirestoreError(error, OperationType.UPDATE, path);
-    } catch {
-      // Handled in client state
+      const postRef = doc(db, 'posts', id);
+      const updatePayload: Record<string, any> = {
+        likesCount: increment(isLiked ? 1 : -1),
+        updatedAtIso: new Date().toISOString(),
+      };
+      if (userIdsToTrack.length > 0) {
+        updatePayload.likedBy = isLiked ? arrayUnion(...userIdsToTrack) : arrayRemove(...userIdsToTrack);
+      }
+      await updateDoc(postRef, updatePayload);
+    } catch (error) {
+      try {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      } catch {
+        // Handled in client state
+      }
     }
   }
+
+  // Also persist liked status in current user's profile document if available
+  if (userId) {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        likedPosts: isLiked ? arrayUnion(cleanPostId) : arrayRemove(cleanPostId),
+      });
+    } catch {
+      // User doc updated optionally
+    }
+  }
+}
+
+/**
+ * Permanently save comment directly into post's Firestore document
+ */
+export async function addCommentToFirestore(postId: string, comment: Comment): Promise<void> {
+  const cleanPostId = postId.replace(/^reel-/, '');
+  const candidateIds = Array.from(new Set([postId, cleanPostId, `reel-${cleanPostId}`]));
+
+  for (const id of candidateIds) {
+    const path = `posts/${id}`;
+    try {
+      const postRef = doc(db, 'posts', id);
+      await updateDoc(postRef, {
+        comments: arrayUnion(comment),
+        commentsCount: increment(1),
+        updatedAtIso: new Date().toISOString(),
+      });
+      return;
+    } catch (error) {
+      try {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      } catch {
+        // Safe fallback
+      }
+    }
+  }
+}
+
+/**
+ * Permanently toggle Follow / Unfollow status for a user in Firestore
+ */
+export async function toggleFollowUserInFirestore(
+  currentUserId: string,
+  currentUsername: string,
+  targetUsername: string,
+  targetUserId?: string,
+  isFollowing: boolean = true
+): Promise<void> {
+  if (!currentUserId || !targetUsername) return;
+
+  // 1. Update current user's following list in Firestore
+  try {
+    const currentUserRef = doc(db, 'users', currentUserId);
+    await updateDoc(currentUserRef, {
+      following: isFollowing ? arrayUnion(targetUsername) : arrayRemove(targetUsername),
+      followingCount: increment(isFollowing ? 1 : -1),
+    });
+  } catch {
+    // Handled safely
+  }
+
+  // 2. If targetUserId is provided or creator user doc exists, update target user's followers list
+  if (targetUserId && targetUserId !== currentUserId) {
+    try {
+      const targetUserRef = doc(db, 'users', targetUserId);
+      await updateDoc(targetUserRef, {
+        followers: isFollowing ? arrayUnion(currentUsername || currentUserId) : arrayRemove(currentUsername || currentUserId),
+        followersCount: increment(isFollowing ? 1 : -1),
+      });
+    } catch {
+      // Handled safely
+    }
+  }
+}
+
+/**
+ * Load followed creators for the current user from Firestore
+ */
+export async function loadFollowedUsersFromFirestore(userId: string): Promise<string[]> {
+  if (!userId) return [];
+  try {
+    const userRef = doc(db, 'users', userId);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data.following)) {
+        return data.following;
+      }
+    }
+  } catch {
+    // Safe
+  }
+  return [];
 }
 
 /**
@@ -1117,3 +1248,116 @@ export async function uploadMediaToStorage(
     }
   });
 }
+
+/**
+ * Subscribe to real-time conversations for a user from Firestore /conversations
+ */
+export function subscribeToFirestoreConversations(
+  userId: string,
+  username: string,
+  callback: (conversations: Conversation[]) => void
+) {
+  if (!userId && !username) {
+    callback([]);
+    return () => {};
+  }
+  const path = 'conversations';
+  try {
+    const colRef = collection(db, 'conversations');
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const convs: Conversation[] = [];
+        snapshot.forEach((docSnap) => {
+          const d = docSnap.data() as any;
+          if (d && d.id) {
+            const participants = Array.isArray(d.participants) ? d.participants : [];
+            const pUsernames = Array.isArray(d.participantUsernames) ? d.participantUsernames : [];
+            const isParticipant =
+              participants.includes(userId) ||
+              pUsernames.includes(username) ||
+              d.user?.id === userId ||
+              d.user?.username === username;
+
+            if (isParticipant) {
+              convs.push({
+                id: d.id,
+                user: d.user || {
+                  id: 'contact',
+                  username: 'creator',
+                  name: 'Creator',
+                  avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
+                  isOnline: false,
+                },
+                messages: Array.isArray(d.messages) ? d.messages : [],
+                unreadCount: Number(d.unreadCount || 0),
+                lastMessage: d.lastMessage || '',
+                lastMessageTimestamp: d.lastMessageTimestamp || '',
+              });
+            }
+          }
+        });
+        convs.sort((a, b) => {
+          const tA = (a as any).updatedAt ? new Date((a as any).updatedAt).getTime() : 0;
+          const tB = (b as any).updatedAt ? new Date((b as any).updatedAt).getTime() : 0;
+          return tB - tA;
+        });
+        callback(convs);
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, path);
+        } catch {}
+      }
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+/**
+ * Send a message to Firestore /conversations/{conversationId}
+ */
+export async function sendFirestoreMessage(
+  conversationId: string,
+  message: Message,
+  participants: string[],
+  contactUser?: any
+): Promise<void> {
+  const path = `conversations/${conversationId}`;
+  try {
+    const convRef = doc(db, 'conversations', conversationId);
+    const snap = await getDoc(convRef);
+    if (!snap.exists()) {
+      await setDoc(convRef, {
+        id: conversationId,
+        participants,
+        participantUsernames: [message.senderId, contactUser?.username].filter(Boolean),
+        user: contactUser || {
+          id: 'contact',
+          username: 'user',
+          name: 'User',
+          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
+          isOnline: false,
+        },
+        messages: [message],
+        lastMessage: message.text,
+        lastMessageTimestamp: message.timestamp,
+        unreadCount: 0,
+        updatedAt: new Date().toISOString(),
+      });
+    } else {
+      await updateDoc(convRef, {
+        messages: arrayUnion(message),
+        lastMessage: message.text,
+        lastMessageTimestamp: message.timestamp,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    } catch {}
+  }
+}
+

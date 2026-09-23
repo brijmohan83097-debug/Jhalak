@@ -91,6 +91,8 @@ export interface Post {
   isLiked: boolean;
   isSaved: boolean;
   comments: Comment[];
+  commentsCount?: number;
+  likedBy?: string[];
   timestamp: string;
   filter?: string;
   audioTitle?: string;
@@ -125,6 +127,7 @@ export interface Reel {
   isLiked: boolean;
   isSaved: boolean;
   comments: Comment[];
+  likedBy?: string[];
   tags: string[];
   timestamp: string;
   language?: string;

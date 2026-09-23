@@ -129,6 +129,20 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
     };
   }, []);
 
+  const togglePlayPause = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (vid.paused) {
+      vid.play().then(() => setIsPlaying(true)).catch(() => {
+        vid.muted = true;
+        vid.play().then(() => setIsPlaying(true)).catch(() => {});
+      });
+    } else {
+      vid.pause();
+      setIsPlaying(false);
+    }
+  };
+
   const toggleSoundAndPlay = () => {
     const vid = videoRef.current;
     const nextMuted = !isMuted;
@@ -285,12 +299,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     setVideoError(true);
                   }}
                   className="w-full h-full object-contain cursor-pointer"
-                  onClick={toggleSoundAndPlay}
+                  onClick={togglePlayPause}
                 />
                 {!isPlaying && !videoError && (
                   <div
                     className="absolute inset-0 flex items-center justify-center z-10 cursor-pointer"
-                    onClick={toggleSoundAndPlay}
+                    onClick={togglePlayPause}
                   >
                     <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 text-white shadow-2xl hover:scale-105 active:scale-95 transition">
                       <Play className="w-8 h-8 fill-white text-white ml-1" />
@@ -545,8 +559,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   className="hover:opacity-75 transition"
                 >
                   <Heart
-                    className={`w-6 h-6 ${
-                      post.isLiked ? 'text-rose-500 fill-rose-500' : 'text-neutral-800 dark:text-white'
+                    className={`w-6 h-6 transition-all duration-150 ${
+                      post.isLiked ? 'text-red-600 fill-red-600 scale-105' : 'text-neutral-800 dark:text-white'
                     }`}
                   />
                 </button>

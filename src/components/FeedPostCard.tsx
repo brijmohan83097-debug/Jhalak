@@ -54,6 +54,8 @@ interface FeedPostCardProps {
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
   onDeletePost?: (postId: string) => void;
+  isFollowing?: boolean;
+  onToggleFollow?: () => void;
   currentLanguage?: SupportedLanguage;
 }
 
@@ -73,6 +75,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onReportPost,
   onBlockUser,
   onDeletePost,
+  isFollowing = false,
+  onToggleFollow,
   currentLanguage = 'en',
 }) => {
   const [commentText, setCommentText] = useState('');
@@ -103,26 +107,27 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (!videoRef.current) return;
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-            videoRef.current.muted = isMuted;
-            videoRef.current
-              .play()
-              .then(() => setIsPlaying(true))
-              .catch(() => {
-                // Autoplay blocked by browser policy without user gesture
-                if (videoRef.current) {
-                  videoRef.current.muted = true;
-                  videoRef.current.play().catch(() => setIsPlaying(false));
-                }
-              });
-          } else {
-            videoRef.current.pause();
+          const vid = videoRef.current;
+          if (!vid) return;
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.35) {
+            vid.muted = isMuted;
+            const playPromise = vid.play();
+            if (playPromise !== undefined) {
+              playPromise
+                .then(() => setIsPlaying(true))
+                .catch(() => {
+                  // Autoplay blocked by browser policy without user gesture -> play muted reliably
+                  vid.muted = true;
+                  vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                });
+            }
+          } else if (!entry.isIntersecting || entry.intersectionRatio < 0.2) {
+            vid.pause();
             setIsPlaying(false);
           }
         });
       },
-      { threshold: [0.6] }
+      { threshold: [0.15, 0.35, 0.6] }
     );
 
     observer.observe(currentMediaContainer);
@@ -196,16 +201,28 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Video posts: When any video is clicked on the Home Feed, immediately open it in the full-screen Reels viewer starting at that exact video.
+    // Video posts: Single tap toggles Play / Pause directly with momentary feedback
     if (post.mediaType === 'video') {
-      if (onOpenFullScreen) {
-        onOpenFullScreen({
-          ...post,
-          mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
-        });
-        return;
+      const vid = videoRef.current;
+      if (vid) {
+        if (vid.paused) {
+          vid.play().then(() => {
+            setIsPlaying(true);
+            setShowPlayPauseIcon('play');
+          }).catch(() => {
+            vid.muted = true;
+            vid.play().then(() => {
+              setIsPlaying(true);
+              setShowPlayPauseIcon('play');
+            }).catch(() => {});
+          });
+        } else {
+          vid.pause();
+          setIsPlaying(false);
+          setShowPlayPauseIcon('pause');
+        }
+        setTimeout(() => setShowPlayPauseIcon(null), 650);
       }
-      onOpenDetail(post);
       return;
     }
 
@@ -301,7 +318,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           </div>
 
           <div>
-            <div className="flex items-center gap-1.5 leading-none">
+            <div className="flex items-center gap-1.5 leading-none flex-wrap">
               <button
                 id={`post-user-btn-${post.id}`}
                 onClick={() => onViewUser(post.username)}
@@ -312,6 +329,28 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                   <BadgeCheck className="w-4 h-4 text-sky-500 fill-sky-500 flex-shrink-0" />
                 )}
               </button>
+
+              {/* Follow / Following Button right next to creator's username */}
+              {!isOwner && (
+                <button
+                  id={`post-follow-btn-${post.id}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onToggleFollow) {
+                      onToggleFollow();
+                    }
+                  }}
+                  className={`ml-1 px-2.5 py-0.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer active:scale-95 ${
+                    isFollowing
+                      ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                      : 'bg-sky-500 hover:bg-sky-600 text-white shadow-xs'
+                  }`}
+                >
+                  {isFollowing ? 'Following' : 'Follow'}
+                </button>
+              )}
+
               <span className="text-neutral-400 dark:text-neutral-500 text-xs">•</span>
               <span className="text-xs text-neutral-500 dark:text-neutral-400">
                 {post.timestamp}
@@ -516,7 +555,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         {/* Center Heart Burst on double tap */}
         {showHeartBurst && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 animate-ping duration-500">
-            <Heart className="w-24 h-24 text-rose-500 fill-rose-500 drop-shadow-2xl opacity-90 scale-125 transition-transform" />
+            <Heart className="w-24 h-24 text-red-600 fill-red-600 drop-shadow-2xl opacity-95 scale-125 transition-transform" />
           </div>
         )}
 
@@ -549,7 +588,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           <div className="flex items-center gap-4">
             <button
               id={`like-btn-${post.id}`}
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 onToggleLike(post.id);
                 recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
               }}
@@ -557,8 +597,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               className="group p-0.5 text-neutral-800 dark:text-neutral-200 hover:opacity-70 transition active:scale-125"
             >
               <Heart
-                className={`w-6 h-6 transition-colors ${
-                  post.isLiked ? 'text-rose-500 fill-rose-500' : ''
+                className={`w-6 h-6 transition-all duration-150 ${
+                  post.isLiked ? 'text-red-600 fill-red-600 scale-105' : 'text-neutral-800 dark:text-neutral-200'
                 }`}
               />
             </button>

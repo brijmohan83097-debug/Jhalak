@@ -1,12 +1,12 @@
 {
   "projectId": "brijchat-b281e",
-  "appId": "1:1042822490780:web:0aef935122fffd1ffa5b59",
-  "apiKey": "AIzaSyAq50DxZ5OBH-HpFY_sulhCZ",
+  "appId": "1:1042822490780:web:f7e48ded06fe858afa5b59",
+  "apiKey": "AIzaSyAq5DDxZ5OBH-HpFY_su1hCZ3Snd9O-osY",
   "authDomain": "brijchat-b281e.firebaseapp.com",
-  "firestoreDatabaseId": "(default)",
+  "firestoreDatabaseId": "ai-studio-jhalakreelsmadei-0a2469ef-daf6-4e51-a38a-44eac144003a",
   "storageBucket": "brijchat-b281e.firebasestorage.app",
   "messagingSenderId": "1042822490780",
   "measurementId": "",
-  "oAuthClientId": "",
+  "oAuthClientId": "1042822490780-js00tb8pquft7no0hm6rsrtnhbusqle2.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

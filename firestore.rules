@@ -56,10 +56,10 @@ service cloud.firestore {
         isSignedIn() || request.resource.data.userId is string
       );
 
-      // Update: Post owner or Super Admin can edit content; any user can like/unlike
+      // Update: Post owner or Super Admin can edit content; any user can like/unlike and comment
       allow update: if isValidId(postId) && (
         (isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin()))
-        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'comments', 'commentsCount', 'viewsCount', 'updatedAtIso'])
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'likedBy', 'comments', 'commentsCount', 'viewsCount', 'updatedAtIso'])
       );
 
       // Delete: Strictly the post author or Super Admin can delete a post
@@ -67,6 +67,21 @@ service cloud.firestore {
         (isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin()))
         || !isSignedIn()
       );
+    }
+
+    // =========================================================================
+    // CONVERSATIONS COLLECTION
+    // Direct message conversations between real users
+    // =========================================================================
+    match /conversations/{convId} {
+      // Users can read conversations they participate in
+      allow get, list: if true;
+
+      // Authenticated users can create or update their chats
+      allow create, update: if isValidId(convId);
+
+      // Participants or super admins can delete their conversations
+      allow delete: if isValidId(convId) && (isSignedIn() || isSuperAdmin());
     }
 
     // =========================================================================

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Check, Shield, AlertCircle, Loader2 } from 'lucide-react';
-import { signInWithGoogle, syncUserProfile, isFirebaseApiKeyError } from '../services/firebase';
+import { signInWithGoogle, syncUserProfile } from '../services/firebase';
 
 export interface GoogleAccount {
   name: string;
@@ -39,7 +39,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const list = parsed.filter((a: any) => a && (a.username || a.name));
+          const list = parsed.filter(
+            (a: any) =>
+              a &&
+              a.email &&
+              a.email.includes('@') &&
+              !a.firebaseUid?.startsWith('user_creator_') &&
+              !a.username?.startsWith('creator_')
+          );
           if (list.length > 0) return list;
         }
       }
@@ -79,24 +86,25 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
     try {
       const firebaseUser = await signInWithGoogle();
-      const email = firebaseUser.email || '';
-      const rawName = firebaseUser.displayName || (email ? email.split('@')[0] : 'Creator');
-      const cleanUsername = (email ? email.split('@')[0] : rawName).toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${firebaseUser.uid.slice(0, 6)}`;
+      const email = (firebaseUser.email || '').trim();
+      const realDisplayName = (firebaseUser.displayName || '').trim();
+      const rawName = realDisplayName || (email ? email.split('@')[0] : 'User');
+      const cleanUsername = realDisplayName || (email ? email.split('@')[0] : 'User');
       // Automatically fetch the user's real Google display name and profile photo
-      const avatar = firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+      const avatar = firebaseUser.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
 
       const account: GoogleAccount = {
         name: rawName,
         email,
         avatar,
         username: cleanUsername,
-        firebaseUid: firebaseUser.uid || `user_${cleanUsername}`,
+        firebaseUid: firebaseUser.uid,
       };
 
-      // Automatically sync the new user profile to Firestore
+      // Automatically sync the user profile to Firestore
       try {
         await syncUserProfile({
-          id: account.firebaseUid || cleanUsername,
+          id: firebaseUser.uid,
           name: rawName,
           username: cleanUsername,
           email,
@@ -118,22 +126,6 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       onLoginSuccess(account);
       onClose();
     } catch (err: any) {
-      if (isFirebaseApiKeyError(err)) {
-        // Instant graceful 1-click fallback login - generates a fresh individual account
-        const randomSuffix = Math.floor(100000 + Math.random() * 900000).toString();
-        const fallbackAcc: GoogleAccount = savedAccounts[0] || {
-          name: `Creator ${randomSuffix.slice(-4)}`,
-          email: '',
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=user_${randomSuffix}`,
-          username: `creator_${randomSuffix}`,
-          firebaseUid: `user_creator_${randomSuffix}`,
-        };
-        saveAccountToList(fallbackAcc);
-        onLoginSuccess(fallbackAcc);
-        onClose();
-        return;
-      }
-
       if (err?.code === 'auth/popup-closed-by-user') {
         // User voluntarily dismissed popup
         setErrorMessage('Google Sign-In was cancelled. Tap below to select your Google account.');
@@ -217,14 +209,12 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 space-y-4">
-          {errorMessage &&
-            !isFirebaseApiKeyError({ message: errorMessage }) &&
-            !errorMessage.includes('api-key-not-valid') && (
-              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
+          {errorMessage && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
 
           {/* Saved Google Accounts (Email IDs) for instant 1-tap selection */}
           {savedAccounts.length > 0 && (
