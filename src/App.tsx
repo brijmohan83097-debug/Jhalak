@@ -32,7 +32,7 @@ import { AccountDeletionModal } from './components/AccountDeletionModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
-import { CheckCircle, Plus, Search, ArrowLeft, Check, RefreshCw } from 'lucide-react';
+import { CheckCircle, Plus, Search, ArrowLeft, Check, RefreshCw, BadgeCheck } from 'lucide-react';
 import { SupportedLanguage, translations } from './translations';
 import { recommendationEngine, inferCategory, inferLanguage } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
@@ -337,6 +337,9 @@ export default function App() {
     title: string;
   } | null>(null);
 
+  // Selected profile user to view in Instagram-style profile
+  const [selectedProfileUser, setSelectedProfileUser] = useState<User | null>(null);
+
   // Follow / Unfollow State with local cache and Firestore persistence
   const [followedUsers, setFollowedUsers] = useState<Record<string, boolean>>(() => {
     try {
@@ -355,7 +358,11 @@ export default function App() {
           setFollowedUsers((prev) => {
             const next = { ...prev };
             list.forEach((u) => {
-              next[u] = true;
+              const clean = (u || '').replace(/^@/, '').trim();
+              if (clean) {
+                next[clean] = true;
+                next[`@${clean}`] = true;
+              }
             });
             try {
               localStorage.setItem('ig_followed_users', JSON.stringify(next));
@@ -373,14 +380,22 @@ export default function App() {
       showToast('Sign in with Google to follow creators ✨');
       return;
     }
-    const cleanTarget = targetUsername.trim();
+    const cleanTarget = (targetUsername || '').replace(/^@/, '').trim();
     if (!cleanTarget) return;
 
-    const currentlyFollowing = Boolean(followedUsers[cleanTarget]);
+    const currentlyFollowing = Boolean(
+      followedUsers[cleanTarget] ||
+        followedUsers[`@${cleanTarget}`] ||
+        (targetUserId && followedUsers[targetUserId])
+    );
     const nextFollowing = !currentlyFollowing;
 
     setFollowedUsers((prev) => {
-      const updated = { ...prev, [cleanTarget]: nextFollowing };
+      const updated = {
+        ...prev,
+        [cleanTarget]: nextFollowing,
+        [`@${cleanTarget}`]: nextFollowing,
+      };
       if (targetUserId) {
         updated[targetUserId] = nextFollowing;
       }
@@ -399,7 +414,7 @@ export default function App() {
       nextFollowing
     ).catch(() => {});
 
-    showToast(nextFollowing ? `Following ${cleanTarget} ✨` : `Unfollowed ${cleanTarget}`);
+    showToast(nextFollowing ? `Following @${cleanTarget} ✨` : `Unfollowed @${cleanTarget}`);
   };
 
   const t = translations[currentLanguage];
@@ -2205,20 +2220,58 @@ export default function App() {
     showToast(t.profileUpdated || t.profileUpdatedSuccess || 'Profile updated successfully');
   };
 
-  // View User Profile handler
-  const handleViewUser = (username: string) => {
+  // View User Profile handler - opens Instagram-style profile
+  const handleViewUser = (rawUsername: string) => {
     pauseAllMedia();
-    if (username === currentUser.username) {
+    const cleanUsername = (rawUsername || '').replace(/^@/, '').trim();
+    if (!cleanUsername) return;
+
+    if (cleanUsername.toLowerCase() === (currentUser.username || '').replace(/^@/, '').toLowerCase()) {
+      setSelectedProfileUser(null);
       if (!isAuthenticated) {
         setIsGoogleAuthModalOpen(true);
         showToast('Sign in with Google to view your profile 👤');
         return;
       }
       setCurrentTab('profile');
-    } else {
-      showToast(`Viewing @${username}'s posts in Explore`);
-      setCurrentTab('explore');
+      return;
     }
+
+    // Find any post or reel from this user to gather profile details
+    const matchingPost = posts.find(
+      (p) => (p.username || '').replace(/^@/, '').toLowerCase() === cleanUsername.toLowerCase()
+    );
+    const matchingReel = reels.find(
+      (r) => (r.username || '').replace(/^@/, '').toLowerCase() === cleanUsername.toLowerCase()
+    );
+
+    const avatar =
+      matchingPost?.userAvatar ||
+      matchingReel?.userAvatar ||
+      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
+
+    const name = cleanUsername;
+    const isVerified = Boolean(matchingPost?.isVerified || matchingReel?.isVerified);
+
+    const targetUser: User = {
+      id: matchingPost?.userId || matchingReel?.userId || `user-${cleanUsername}`,
+      username: cleanUsername,
+      name: name,
+      avatar: avatar,
+      bio: `Creator on Jhalak ✨ Bhojpuri & Hindi Reels | @${cleanUsername}`,
+      postsCount: 0,
+      followersCount: 1420,
+      followingCount: 88,
+      isVerified: isVerified,
+    };
+
+    // Close any conflicting sub-modals
+    setSelectedPostDetail(null);
+    setFullScreenViewerState(null);
+    setActiveCommentsPostId(null);
+    setIsSearchOverlayOpen(false);
+
+    setSelectedProfileUser(targetUser);
   };
 
   const userPosts = useMemo(() => {
@@ -2285,6 +2338,61 @@ export default function App() {
 
     return Array.from(postMap.values());
   }, [posts, currentUser]);
+
+  const selectedUserPosts = useMemo(() => {
+    if (!selectedProfileUser) return [];
+    const targetUsername = (selectedProfileUser.username || '').replace(/^@/, '').toLowerCase();
+    const targetId = (selectedProfileUser.id || '').toLowerCase();
+
+    const postMap = new Map<string, Post>();
+
+    posts.forEach((p) => {
+      const pUsername = (p.username || '').replace(/^@/, '').toLowerCase();
+      const pUserId = (p.userId || '').toLowerCase();
+      if ((pUsername && pUsername === targetUsername) || (targetId && pUserId === targetId)) {
+        postMap.set(p.id, p);
+      }
+    });
+
+    reels.forEach((r) => {
+      const rUsername = (r.username || '').replace(/^@/, '').toLowerCase();
+      const rUserId = (r.userId || '').toLowerCase();
+      if ((rUsername && rUsername === targetUsername) || (targetId && rUserId === targetId)) {
+        if (!postMap.has(r.id)) {
+          postMap.set(r.id, {
+            id: r.id,
+            userId: r.userId,
+            username: r.username,
+            userAvatar: r.userAvatar,
+            isVerified: r.isVerified,
+            location: r.location,
+            mediaUrl: r.videoUrl,
+            thumbnailUrl: r.thumbnailUrl || r.videoUrl,
+            mediaType: 'video',
+            caption: r.caption,
+            tags: r.tags || [],
+            category: r.category,
+            likesCount: r.likesCount,
+            isLiked: r.isLiked,
+            isSaved: r.isSaved,
+            comments: r.comments || [],
+            commentsCount: r.commentsCount,
+            timestamp: r.timestamp,
+            audioTitle: r.audioTitle,
+            audioArtist: r.audioArtist,
+            audioUrl: r.audioUrl,
+            audioCover: r.audioCover,
+            language: r.language,
+            productTag: r.productTag,
+            createdAt: r.createdAt,
+            isUserCreated: r.isUserCreated,
+          });
+        }
+      }
+    });
+
+    return Array.from(postMap.values());
+  }, [selectedProfileUser, posts, reels]);
 
   const savedPosts = posts.filter((p) => p.isSaved);
   const totalUnreadMessages = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
@@ -2681,6 +2789,8 @@ export default function App() {
           {currentTab === 'profile' && (
             <ProfileView
               user={currentUser}
+              currentUser={currentUser}
+              isOwnProfile={true}
               userPosts={userPosts}
               savedPosts={savedPosts}
               onOpenEditProfile={() => setIsEditProfileOpen(true)}
@@ -3041,6 +3151,86 @@ export default function App() {
           onBanUserAccount={handleAdminBanUser}
           onUnbanUser={handleAdminUnbanUser}
         />
+      )}
+
+      {/* MODAL 14: Instagram-Style User Profile View */}
+      {selectedProfileUser && (
+        <div
+          id="user-profile-view-modal"
+          className="fixed inset-0 z-50 bg-white dark:bg-black overflow-y-auto"
+        >
+          {/* Top Sticky Header */}
+          <div className="sticky top-0 z-40 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center justify-between max-w-4xl mx-auto">
+            <div className="flex items-center gap-3">
+              <button
+                id="user-profile-back-btn"
+                onClick={() => setSelectedProfileUser(null)}
+                className="p-2 -ml-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 transition cursor-pointer"
+                aria-label="Back"
+                title="Go back"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div>
+                <h2 className="font-bold text-sm sm:text-base text-neutral-900 dark:text-white flex items-center gap-1.5">
+                  <span>{selectedProfileUser.username}</span>
+                  {selectedProfileUser.isVerified && (
+                    <BadgeCheck className="w-4 h-4 text-sky-500 fill-sky-500" />
+                  )}
+                </h2>
+                <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                  {selectedUserPosts.length} {t.posts || 'posts'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              id={`modal-follow-top-btn-${selectedProfileUser.username}`}
+              onClick={() => {
+                handleToggleFollow(selectedProfileUser.username, selectedProfileUser.id);
+              }}
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm ${
+                followedUsers[selectedProfileUser.username] ||
+                followedUsers[`@${selectedProfileUser.username}`] ||
+                (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
+                  ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                  : 'bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-rose-500/20'
+              }`}
+            >
+              {followedUsers[selectedProfileUser.username] ||
+              followedUsers[`@${selectedProfileUser.username}`] ||
+              (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
+                ? (t.following || 'Following')
+                : (t.follow || 'Follow')}
+            </button>
+          </div>
+
+          <div className="pt-2 pb-16">
+            <ProfileView
+              user={selectedProfileUser}
+              currentUser={currentUser}
+              isOwnProfile={false}
+              isFollowing={Boolean(
+                followedUsers[selectedProfileUser.username] ||
+                  followedUsers[`@${selectedProfileUser.username}`] ||
+                  (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
+              )}
+              onToggleFollow={(u, id) => handleToggleFollow(u, id)}
+              onBack={() => setSelectedProfileUser(null)}
+              onStartChat={(targetUser) => {
+                setSelectedProfileUser(null);
+                setCurrentTab('messages');
+              }}
+              userPosts={selectedUserPosts}
+              savedPosts={[]}
+              onOpenEditProfile={() => setIsEditProfileOpen(true)}
+              onOpenSettings={() => setIsSettingsModalOpen(true)}
+              onSelectPost={(p) => handleOpenFullScreen(p, selectedUserPosts)}
+              onOpenStoryModal={() => setActiveStoryIndex(0)}
+              currentLanguage={currentLanguage}
+            />
+          </div>
+        </div>
       )}
 
       {/* Quick Report Confirmation Dialog */}

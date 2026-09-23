@@ -438,37 +438,48 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
 
   // Start Recording
   const startRecording = () => {
-    pauseAllMedia();
+    // Exclude live camera element from pauseAllMedia so the stream does not freeze
+    pauseAllMedia(videoLiveRef.current);
     if (!stream) return;
+
+    if (videoLiveRef.current && videoLiveRef.current.paused) {
+      videoLiveRef.current.play().catch(() => {});
+    }
+
     recordedChunksRef.current = [];
     recordedBytesRef.current = 0;
     setRecordingSeconds(0);
 
+    // Prefer hardware-accelerated, non-blocking codecs first to avoid CPU stalls
     const mimeTypes = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm',
+      'video/mp4;codecs=avc1,mp4a.40.2',
       'video/mp4',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h264,opus',
+      'video/webm',
     ];
     let selectedMime = '';
     for (const mime of mimeTypes) {
-      if (MediaRecorder.isTypeSupported(mime)) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mime)) {
         selectedMime = mime;
         break;
       }
     }
 
     try {
-      // Memory-optimized recording options: 2.5 Mbps video, 128 kbps audio to prevent OOM
+      // Capture thumbnail early from current live stream so it is ready
+      const initialThumb = captureThumbnailFromStream();
+      if (initialThumb) {
+        setRecordedThumbnail(initialThumb);
+      }
+
       let recorder: MediaRecorder;
       try {
-        recorder = new MediaRecorder(stream, {
-          ...(selectedMime ? { mimeType: selectedMime } : {}),
-          videoBitsPerSecond: 2_500_000,
-          audioBitsPerSecond: 128_000,
-        });
+        recorder = new MediaRecorder(
+          stream,
+          selectedMime ? { mimeType: selectedMime, videoBitsPerSecond: 2_000_000 } : undefined
+        );
       } catch {
-        // Safe fallback for webview containers that don't support custom bitrates
         recorder = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : undefined);
       }
 
@@ -486,8 +497,9 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
 
       recorder.onstop = () => {
         if (recordedChunksRef.current.length === 0) return;
+        const actualMime = recorder.mimeType || selectedMime || 'video/webm';
         const blob = new Blob(recordedChunksRef.current, {
-          type: selectedMime || 'video/webm',
+          type: actualMime,
         });
 
         // Revoke previous blob URL to prevent memory leaks
@@ -497,7 +509,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
 
         const url = URL.createObjectURL(blob);
         recordedVideoUrlRef.current = url;
-        const thumb = captureThumbnailFromStream();
+        const thumb = captureThumbnailFromStream() || recordedThumbnail;
 
         setRecordedBlob(blob);
         setRecordedVideoUrl(url);
@@ -505,10 +517,15 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
         setIsPreviewPlaying(true);
       };
 
-      // 1000ms timeslice reduces GC pressure and heap fragmentation significantly vs 250ms
+      // 1000ms timeslice reduces GC pressure and heap fragmentation without stalling
       recorder.start(1000);
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
+
+      // Ensure live video continues smoothly playing
+      if (videoLiveRef.current && videoLiveRef.current.paused) {
+        videoLiveRef.current.play().catch(() => {});
+      }
 
       // Start timer with configured max duration
       timerRef.current = window.setInterval(() => {
@@ -539,33 +556,13 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
       }
     }
     setIsRecording(false);
-
-    // CRITICAL: Stop and kill all microphone tracks immediately to eliminate echo / feedback
-    try {
-      if (streamRef.current) {
-        streamRef.current.getAudioTracks().forEach((track) => {
-          track.enabled = false;
-          track.stop();
-        });
-      }
-      if (stream) {
-        stream.getAudioTracks().forEach((track) => {
-          track.enabled = false;
-          track.stop();
-        });
-      }
-      if (videoLiveRef.current) {
-        videoLiveRef.current.pause();
-      }
-    } catch {
-      // ignore
-    }
   };
 
-  // Auto-play recorded clip smoothly with audio once ready
+  // Auto-play recorded clip smoothly in a loop once ready
   useEffect(() => {
     if (recordedVideoUrl && videoPreviewRef.current) {
       const vid = videoPreviewRef.current;
+      vid.loop = true;
       vid.muted = isPreviewMuted;
       vid.currentTime = 0;
       const playPromise = vid.play();
@@ -575,6 +572,7 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
             setIsPreviewPlaying(true);
           })
           .catch(() => {
+            // Autoplay policy fallback: mute and play
             vid.muted = true;
             setIsPreviewMuted(true);
             vid.play().then(() => setIsPreviewPlaying(true)).catch(() => {});
@@ -699,13 +697,27 @@ export const ReelsCamera: React.FC<ReelsCameraProps> = ({
         <div className="absolute inset-0 w-screen h-screen bg-black overflow-hidden">
           <video
             ref={videoPreviewRef}
+            key={recordedVideoUrl}
             src={recordedVideoUrl}
             autoPlay
             loop
             playsInline
+            muted={isPreviewMuted}
+            preload="auto"
             className={`absolute inset-0 w-screen h-screen object-cover object-[center_28%] ${activeFilterPreset.cssClass}`}
             onPlay={() => setIsPreviewPlaying(true)}
             onPause={() => setIsPreviewPlaying(false)}
+            onLoadedData={() => {
+              if (videoPreviewRef.current) {
+                videoPreviewRef.current.play().catch(() => {
+                  if (videoPreviewRef.current) {
+                    videoPreviewRef.current.muted = true;
+                    setIsPreviewMuted(true);
+                    videoPreviewRef.current.play().catch(() => {});
+                  }
+                });
+              }
+            }}
           />
 
           {/* Play/Pause Overlay button on tap */}
