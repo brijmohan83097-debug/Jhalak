@@ -56,23 +56,72 @@ try {
 
 export { ADMIN_EMAIL, isSuperAdmin };
 
-// Load config from Vite environment variables with fallback to firebase-applet-config.json
+// Read configuration directly from window.FIREBASE_CONFIG or process.env
+const winConfig = typeof window !== 'undefined' ? (window as any).FIREBASE_CONFIG || {} : {};
+const procEnv = typeof process !== 'undefined' ? process.env || {} : {};
 const env = (import.meta as any).env || {};
-// Explicitly restore valid Firebase API Key; do not let Gemini API key override Firebase apiKey
+
 const resolvedApiKey = (
+  winConfig.apiKey ||
+  procEnv.FIREBASE_API_KEY ||
+  procEnv.VITE_FIREBASE_API_KEY ||
+  procEnv.apiKey ||
   env.VITE_FIREBASE_API_KEY ||
   rawConfig.apiKey ||
-  'AIzaSyAq50DxZ5OBH-HpFY_sulhCZ'
-).trim() || 'AIzaSyAq50DxZ5OBH-HpFY_sulhCZ';
+  'AIzaSyAq5DDxZ5OBH-HpFY_su1hCZ3Snd9O-osY'
+).trim();
 
 const firebaseConfig = {
   apiKey: resolvedApiKey,
-  authDomain: (env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain || 'brijchat-b281e.firebaseapp.com').trim(),
-  projectId: (env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId || 'brijchat-b281e').trim(),
-  storageBucket: (env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket || 'brijchat-b281e.firebasestorage.app').trim(),
-  messagingSenderId: (env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId || '1042822490780').trim(),
-  appId: (env.VITE_FIREBASE_APP_ID || rawConfig.appId || '1:1042822490780:web:0aef935122fffd1ffa5b59').trim(),
-  firestoreDatabaseId: (env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId || '(default)').trim(),
+  authDomain: (
+    winConfig.authDomain ||
+    procEnv.FIREBASE_AUTH_DOMAIN ||
+    procEnv.VITE_FIREBASE_AUTH_DOMAIN ||
+    env.VITE_FIREBASE_AUTH_DOMAIN ||
+    rawConfig.authDomain ||
+    'brijchat-b281e.firebaseapp.com'
+  ).trim(),
+  projectId: (
+    winConfig.projectId ||
+    procEnv.FIREBASE_PROJECT_ID ||
+    procEnv.VITE_FIREBASE_PROJECT_ID ||
+    env.VITE_FIREBASE_PROJECT_ID ||
+    rawConfig.projectId ||
+    'brijchat-b281e'
+  ).trim(),
+  storageBucket: (
+    winConfig.storageBucket ||
+    procEnv.FIREBASE_STORAGE_BUCKET ||
+    procEnv.VITE_FIREBASE_STORAGE_BUCKET ||
+    env.VITE_FIREBASE_STORAGE_BUCKET ||
+    rawConfig.storageBucket ||
+    'brijchat-b281e.firebasestorage.app'
+  ).trim(),
+  messagingSenderId: (
+    winConfig.messagingSenderId ||
+    procEnv.FIREBASE_MESSAGING_SENDER_ID ||
+    procEnv.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
+    rawConfig.messagingSenderId ||
+    '1042822490780'
+  ).trim(),
+  appId: (
+    winConfig.appId ||
+    procEnv.FIREBASE_APP_ID ||
+    procEnv.VITE_FIREBASE_APP_ID ||
+    env.VITE_FIREBASE_APP_ID ||
+    rawConfig.appId ||
+    '1:1042822490780:web:f7e48ded06fe858afa5b59'
+  ).trim(),
+  firestoreDatabaseId: (
+    winConfig.firestoreDatabaseId ||
+    winConfig.databaseId ||
+    procEnv.FIREBASE_DATABASE_ID ||
+    procEnv.VITE_FIREBASE_DATABASE_ID ||
+    env.VITE_FIREBASE_DATABASE_ID ||
+    rawConfig.firestoreDatabaseId ||
+    'ai-studio-jhalakreelsmadei-0a2469ef-daf6-4e51-a38a-44eac144003a'
+  ).trim(),
 };
 
 // Initialize Firebase app singleton
@@ -374,34 +423,39 @@ export function getInstantFallbackGoogleUser(customEmail?: string, customName?: 
 }
 
 /**
+ * Checks if an error is an API key validity, restriction, or auth domain error
+ */
+export function isApiKeyError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err.code || '');
+  const msg = String(err.message || '').toLowerCase();
+  return (
+    code === 'auth/api-key-not-valid' ||
+    code === 'auth/invalid-api-key' ||
+    code === 'auth/unauthorized-domain' ||
+    code === 'auth/configuration-not-found' ||
+    code === 'auth/internal-error' ||
+    msg.includes('api-key') ||
+    msg.includes('api key') ||
+    msg.includes('invalid api key') ||
+    msg.includes('api_key')
+  );
+}
+
+/**
  * Standard Firebase Google Authentication:
- * Triggers native Google Auth popup (with fallback to signInWithRedirect if popup is blocked).
+ * Triggers official Google Auth popup using signInWithPopup(auth, new GoogleAuthProvider()).
  * Sets prompt: 'select_account' so all available Google accounts on the device/browser
- * are shown for instant account selection every time.
- * Enforces real Google Sign-In without mock or anonymous user generation.
+ * are shown in the official Google account chooser every time.
  */
 export async function signInWithGoogle(): Promise<FirebaseUser> {
-  // Enforce account picker list every time
-  googleProvider.setCustomParameters({
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({
     prompt: 'select_account',
   });
 
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
-  } catch (err: any) {
-    // If popup was blocked by the browser, fallback to signInWithRedirect
-    if (
-      err?.code === 'auth/popup-blocked' ||
-      err?.code === 'auth/cancelled-popup-request' ||
-      (err?.message && err.message.toLowerCase().includes('popup-blocked'))
-    ) {
-      await signInWithRedirect(auth, googleProvider);
-      return new Promise<FirebaseUser>(() => {});
-    }
-    // Force real Google Sign-In: throw the real error, do not create mock/anonymous users
-    throw err;
-  }
+  const result = await signInWithPopup(auth, provider);
+  return result.user;
 }
 
 /**

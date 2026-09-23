@@ -2065,11 +2065,9 @@ export default function App() {
 
       handleGoogleLoginSuccess(account);
     } catch (err: any) {
-      // Force real Google Sign-In: do NOT generate anonymous/mock users
       if (err?.code === 'auth/popup-closed-by-user') {
         showToast('Google Sign-In was cancelled. Tap to choose your account.');
       } else {
-        showToast(err?.message || 'Could not complete Google Sign-In. Please try again.');
         setIsGoogleAuthModalOpen(true);
       }
     } finally {
@@ -2428,7 +2426,6 @@ export default function App() {
           onClose={() => setIsGoogleAuthModalOpen(false)}
           onLoginSuccess={handleGoogleLoginSuccess}
           onContinueAsGuest={handleExploreAsGuest}
-          currentEmail={currentUser.email}
           onOpenLegalPolicy={(tab) => {
             setLegalModalTab(tab);
             setIsLegalModalOpen(true);
@@ -2975,7 +2972,6 @@ export default function App() {
         onClose={() => setIsGoogleAuthModalOpen(false)}
         onLoginSuccess={handleGoogleLoginSuccess}
         onContinueAsGuest={handleExploreAsGuest}
-        currentEmail={currentUser.email}
         onOpenLegalPolicy={(tab) => {
           setLegalModalTab(tab);
           setIsLegalModalOpen(true);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, Shield, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Shield, Loader2 } from 'lucide-react';
 import { signInWithGoogle, syncUserProfile } from '../services/firebase';
 
 export interface GoogleAccount {
@@ -26,63 +26,15 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   onClose,
   onLoginSuccess,
   onContinueAsGuest,
-  currentEmail,
   onOpenLegalPolicy,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Load genuine saved Google accounts from localStorage for fast 1-tap selection
-  const [savedAccounts, setSavedAccounts] = useState<GoogleAccount[]>(() => {
-    try {
-      const raw = localStorage.getItem('ig_saved_accounts');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const list = parsed.filter(
-            (a: any) =>
-              a &&
-              a.email &&
-              a.email.includes('@') &&
-              !a.firebaseUid?.startsWith('user_creator_') &&
-              !a.username?.startsWith('creator_')
-          );
-          if (list.length > 0) return list;
-        }
-      }
-    } catch {
-      // safe fallback
-    }
-    return [];
-  });
 
   if (!isOpen) return null;
 
-  const saveAccountToList = (acc: GoogleAccount) => {
-    try {
-      const updated = [acc, ...savedAccounts.filter((a) => a.email.toLowerCase() !== acc.email.toLowerCase())].slice(0, 5);
-      setSavedAccounts(updated);
-      localStorage.setItem('ig_saved_accounts', JSON.stringify(updated));
-    } catch {
-      // safe
-    }
-  };
-
-  const removeSavedAccount = (emailToRemove: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = savedAccounts.filter((a) => a.email.toLowerCase() !== emailToRemove.toLowerCase());
-    setSavedAccounts(updated);
-    try {
-      localStorage.setItem('ig_saved_accounts', JSON.stringify(updated));
-    } catch {
-      // safe
-    }
-  };
-
-  // Primary Standard Google Sign-In with Native Popup / select_account
+  // Single Standard Google Sign-In with Native Popup
   const handleContinueWithGoogle = async () => {
     setIsLoading(true);
-    setErrorMessage(null);
 
     try {
       const firebaseUser = await signInWithGoogle();
@@ -90,8 +42,9 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       const realDisplayName = (firebaseUser.displayName || '').trim();
       const rawName = realDisplayName || (email ? email.split('@')[0] : 'User');
       const cleanUsername = realDisplayName || (email ? email.split('@')[0] : 'User');
-      // Automatically fetch the user's real Google display name and profile photo
-      const avatar = firebaseUser.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
+      const avatar =
+        firebaseUser.photoURL ||
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
 
       const account: GoogleAccount = {
         name: rawName,
@@ -101,7 +54,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         firebaseUid: firebaseUser.uid,
       };
 
-      // Automatically sync the user profile to Firestore
+      // Sync user profile to Firestore
       try {
         await syncUserProfile({
           id: firebaseUser.uid,
@@ -119,36 +72,26 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           lastUploadDate: new Date().toISOString().split('T')[0],
         });
       } catch {
-        // Handled silently
+        // Safe Firestore background sync
       }
 
-      saveAccountToList(account);
+      // Save to saved accounts in localStorage
+      try {
+        const raw = localStorage.getItem('ig_saved_accounts');
+        const list = raw ? JSON.parse(raw) : [];
+        const updated = [
+          account,
+          ...(Array.isArray(list) ? list.filter((a: any) => a?.email?.toLowerCase() !== email.toLowerCase()) : []),
+        ].slice(0, 5);
+        localStorage.setItem('ig_saved_accounts', JSON.stringify(updated));
+      } catch {
+        // safe
+      }
+
       onLoginSuccess(account);
       onClose();
-    } catch (err: any) {
-      if (err?.code === 'auth/popup-closed-by-user') {
-        // User voluntarily dismissed popup
-        setErrorMessage('Google Sign-In was cancelled. Tap below to select your Google account.');
-      } else if (err?.code === 'auth/popup-blocked') {
-        setErrorMessage('Popup was blocked by your browser. Please allow popups for this site to sign in with Google.');
-      } else {
-        setErrorMessage(err?.message || 'Could not complete Google Sign-In. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 1-Click instant login with a previously authenticated Google Account
-  const handleSelectSavedAccount = async (acc: GoogleAccount) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      saveAccountToList(acc);
-      onLoginSuccess(acc);
-      onClose();
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to select account.');
+    } catch {
+      // Hide error banner completely so signInWithPopup opens smoothly without blocking
     } finally {
       setIsLoading(false);
     }
@@ -193,7 +136,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                 Sign in with Google
               </h2>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                Jhalak Reels: Made in India
+                Official Google Account Chooser
               </p>
             </div>
           </div>
@@ -209,73 +152,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 space-y-4">
-          {errorMessage && (
-            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          {/* Saved Google Accounts (Email IDs) for instant 1-tap selection */}
-          {savedAccounts.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 px-1">
-                Saved Accounts:
-              </p>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {savedAccounts.map((acc) => {
-                  const isCurrent = currentEmail && currentEmail.toLowerCase() === acc.email.toLowerCase();
-                  return (
-                    <div
-                      key={acc.email}
-                      id={`google-account-card-${acc.email}`}
-                      onClick={() => handleSelectSavedAccount(acc)}
-                      className={`w-full p-3 rounded-2xl border flex items-center justify-between gap-3 text-left transition cursor-pointer ${
-                        isCurrent
-                          ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20'
-                          : 'border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/60'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <img
-                          src={acc.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
-                          alt={acc.name}
-                          className="w-10 h-10 rounded-full object-cover border border-neutral-300 dark:border-neutral-700 flex-shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-neutral-900 dark:text-white truncate">
-                            {acc.name}
-                          </p>
-                          <p className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 truncate">
-                            @{acc.username || 'creator'}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {isCurrent ? (
-                          <span className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xs">
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(e) => removeSavedAccount(acc.email, e)}
-                            title="Remove from list"
-                            className="p-1 rounded-full text-neutral-400 hover:text-rose-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Primary One-Tap Standard 'Sign in with Google' Button */}
+          {/* Single Clean "Sign in with Google" Button */}
           <button
             id="continue-with-google-btn"
             type="button"
@@ -316,10 +193,10 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           {/* Account Selector Note */}
           <div className="p-3 bg-neutral-50 dark:bg-neutral-800/40 rounded-2xl border border-neutral-100 dark:border-neutral-800 text-[11px] text-neutral-500 dark:text-neutral-400 space-y-1 text-center">
             <p className="font-semibold text-neutral-700 dark:text-neutral-300">
-              Instant 1-Tap Account Chooser:
+              Official Account Chooser:
             </p>
             <p>
-              Shows all Google accounts on your phone or computer. Tap to select and your profile name and photo will automatically sync.
+              Opens the official Google sign-in window to select your Google account.
             </p>
           </div>
 
@@ -341,7 +218,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             </button>
           </div>
 
-          {/* Legal Consent Notice (Google Play Requirement) */}
+          {/* Legal Consent Notice */}
           <div className="pt-2 text-center text-[10px] text-neutral-400 leading-tight">
             <span>By signing in, you agree to our </span>
             <button
@@ -367,10 +244,9 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         {/* Footer Security Badge */}
         <div className="p-3.5 bg-neutral-50 dark:bg-neutral-800/50 border-t border-neutral-100 dark:border-neutral-800 text-center flex items-center justify-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
           <Shield className="w-3.5 h-3.5 text-emerald-500" />
-          <span>Standard Google Authentication • No manual entry required</span>
+          <span>Standard Firebase Google Authentication</span>
         </div>
       </div>
     </div>
   );
 };
-
