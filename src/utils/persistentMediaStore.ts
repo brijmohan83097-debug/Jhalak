@@ -54,11 +54,12 @@ export async function purgeOfflineMediaStorage(): Promise<void> {
             const parsed = JSON.parse(raw);
             const sanitizeItem = (item: any): any => {
               if (!item || typeof item !== 'object') return item;
-              if (typeof item.mediaUrl === 'string' && (item.mediaUrl.startsWith('data:video/') || item.mediaUrl.startsWith('blob:'))) {
-                item.mediaUrl = '';
+              // Only strip huge base64 strings (> 1000 chars), never blob: or stream URLs
+              if (typeof item.mediaUrl === 'string' && item.mediaUrl.startsWith('data:video/') && item.mediaUrl.length > 1000) {
+                item.mediaUrl = item.thumbnailUrl || '';
               }
-              if (typeof item.videoUrl === 'string' && (item.videoUrl.startsWith('data:video/') || item.videoUrl.startsWith('blob:'))) {
-                item.videoUrl = '';
+              if (typeof item.videoUrl === 'string' && item.videoUrl.startsWith('data:video/') && item.videoUrl.length > 1000) {
+                item.videoUrl = item.thumbnailUrl || '';
               }
               // Clean nested slides (stories)
               if (Array.isArray(item.stories)) {

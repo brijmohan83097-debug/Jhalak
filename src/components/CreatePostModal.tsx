@@ -26,6 +26,7 @@ import {
   Link2,
   CheckCircle2,
   Globe,
+  Lock,
 } from 'lucide-react';
 import { Post, User, Reel } from '../types';
 import { GoLiveStudio } from './GoLiveStudio';
@@ -45,10 +46,18 @@ import {
   fileToDataUrl,
 } from '../utils/imageCompressor';
 import {
+  compressVideo,
+  validateVideoFileSize,
+  formatBytes,
+  MAX_VIDEO_UPLOAD_SIZE_BYTES,
+  MAX_VIDEO_UPLOAD_SIZE_MB,
+} from '../utils/videoCompressor';
+import {
   UGCCommunityGuidelinesModal,
   hasUserConsentedToUGC,
 } from './UGCCommunityGuidelinesModal';
 import {
+  auth,
   uploadMediaToStorage,
   checkAndIncrementDailyUpload,
   savePostToFirestore,
@@ -186,6 +195,19 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     'camera' | 'upload' | 'share' | null
   >(null);
   const [pendingUploadFile, setPendingUploadFile] = useState<File | Blob | null>(null);
+  const [videoCompression, setVideoCompression] = useState<{
+    isCompressing: boolean;
+    percent: number;
+    status: string;
+    originalSize: number;
+  } | null>(null);
+  const [videoAlert, setVideoAlert] = useState<{
+    title: string;
+    message: string;
+    details?: string;
+    type: 'error' | 'warning';
+  } | null>(null);
+  const compressionAbortRef = useRef<AbortController | null>(null);
   const [storageWarning, setStorageWarning] = useState<{
     title: string;
     message: string;
@@ -196,6 +218,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [showDirectUrlBox, setShowDirectUrlBox] = useState(false);
   const [isTestingStorage, setIsTestingStorage] = useState(false);
   const [firebaseDiagnostics, setFirebaseDiagnostics] = useState<FirebaseDiagnosticStatus | null>(null);
+  const [privacy, setPrivacy] = useState<'public' | 'private'>('public');
 
   // Immediately stop any playing feed videos when create modal opens
   useEffect(() => {
@@ -240,6 +263,123 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     setPendingActionAfterConsent(null);
   };
 
+  const processSelectedVideo = async (file: File | Blob, customThumbnail?: string, customAudio?: string) => {
+    // 1. Initial size validation against 25MB limit
+    const validation = validateVideoFileSize(file, MAX_VIDEO_UPLOAD_SIZE_BYTES);
+    if (!validation.valid) {
+      setVideoAlert({
+        title: 'Video Exceeds 25MB Limit',
+        message: validation.error || `Selected video (${validation.sizeMB} MB) is too large for upload.`,
+        details: 'Maximum file size allowed is 25 MB. Please trim your video or choose a smaller clip.',
+        type: 'error',
+      });
+      return;
+    }
+
+    setMediaType('video');
+    setStep('edit');
+
+    if (customAudio) {
+      setSelectedAudio(customAudio);
+    }
+
+    // Create immediate local object URL for preview
+    const previewUrl = URL.createObjectURL(file);
+    setSelectedMediaUrl(previewUrl);
+
+    // Extract thumbnail
+    if (customThumbnail) {
+      setThumbnailDataUrl(customThumbnail);
+    } else {
+      try {
+        const thumb = await generateVideoThumbnail(
+          file instanceof File ? file : new File([file], 'reel-preview.mp4', { type: file.type || 'video/mp4' }),
+          640,
+          640,
+          0.7
+        );
+        setThumbnailDataUrl(thumb);
+      } catch {
+        setThumbnailDataUrl(createVideoFallbackDataUrl('Video Reel'));
+      }
+    }
+
+    // Set initial pending file
+    setPendingUploadFile(file);
+
+    // 2. Automatic client-side video compression to 720p with optimized bitrate
+    const abortCtrl = new AbortController();
+    compressionAbortRef.current = abortCtrl;
+    setVideoCompression({
+      isCompressing: true,
+      percent: 0,
+      status: 'Compressing video to 720p...',
+      originalSize: file.size,
+    });
+
+    try {
+      const result = await compressVideo(file, {
+        maxDimension: 720,
+        targetBitrate: 2_000_000,
+        maxSizeBytes: MAX_VIDEO_UPLOAD_SIZE_BYTES,
+        signal: abortCtrl.signal,
+        onProgress: (p) => {
+          setVideoCompression((prev) =>
+            prev ? { ...prev, percent: p.percent, status: p.status } : null
+          );
+        },
+      });
+
+      // Update pending upload file with compressed blob
+      setPendingUploadFile(result.blob);
+      const compressedUrl = URL.createObjectURL(result.blob);
+      setSelectedMediaUrl(compressedUrl);
+
+      // Convert to base64 if small for direct offline feed support
+      if (result.compressedSize <= 3 * 1024 * 1024) {
+        fileToDataUrl(result.blob).then((b64) => {
+          setSelectedMediaUrl(b64);
+        }).catch(() => {});
+      }
+
+      if (result.wasCompressed) {
+        const savedPct = Math.round((1 - result.compressionRatio) * 100);
+        if (onShowToast) {
+          onShowToast(
+            `🎬 Optimized to 720p: ${formatBytes(result.originalSize)} ➔ ${formatBytes(
+              result.compressedSize
+            )} (${savedPct > 0 ? `${savedPct}% smaller` : 'optimized'})`
+          );
+        }
+      }
+    } catch (compErr: any) {
+      console.warn('Client-side video compression notice:', compErr?.message);
+      // 3. If compression fails or file is too large, show user warning alert
+      if (file.size > MAX_VIDEO_UPLOAD_SIZE_BYTES) {
+        setVideoAlert({
+          title: 'Video Too Large (Max 25MB)',
+          message: `Compression failed and original video (${formatBytes(file.size)}) exceeds the 25MB upload limit: ${compErr?.message || 'File could not be compressed.'}`,
+          details: 'Please choose a shorter or smaller video clip under 25MB.',
+          type: 'error',
+        });
+        setPendingUploadFile(null);
+        setSelectedMediaUrl('');
+        setStep('upload');
+      } else {
+        // Under 25MB limit: notify user but allow proceeding with original video
+        setPendingUploadFile(file);
+        setVideoAlert({
+          title: 'Compression Notice',
+          message: `Using original video (${formatBytes(file.size)}): ${compErr?.message || 'Compression could not be completed'}. File is within the 25MB limit.`,
+          type: 'warning',
+        });
+      }
+    } finally {
+      setVideoCompression(null);
+      compressionAbortRef.current = null;
+    }
+  };
+
   const handleVideoRecorded = async (
     videoBlob: Blob,
     videoUrl: string,
@@ -247,42 +387,9 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     audioTitle?: string
   ) => {
     setMediaType('video');
-    const directUrl = videoUrl || URL.createObjectURL(videoBlob);
-    setSelectedMediaUrl(directUrl);
     setShareAsReel(true);
     setIsCameraOpen(false);
-
-    if (audioTitle) {
-      setSelectedAudio(audioTitle);
-    }
-
-    if (thumbnail) {
-      setThumbnailDataUrl(thumbnail);
-    } else {
-      try {
-        const thumb = await generateVideoThumbnail(
-          new File([videoBlob], 'recorded-reel.mp4', {
-            type: videoBlob.type || 'video/mp4',
-          }),
-          640,
-          640,
-          0.7
-        );
-        setThumbnailDataUrl(thumb);
-      } catch {
-        setThumbnailDataUrl(createVideoFallbackDataUrl('Recorded Reel'));
-      }
-    }
-
-    // Convert to base64 if small for direct offline and feed persistence
-    if (videoBlob.size <= 3 * 1024 * 1024) {
-      fileToDataUrl(videoBlob).then((b64) => {
-        setSelectedMediaUrl(b64);
-      }).catch(() => {});
-    }
-
-    setStep('edit');
-    setPendingUploadFile(videoBlob);
+    await processSelectedVideo(videoBlob, thumbnail, audioTitle);
     if (onShowToast) {
       onShowToast('🎬 Reel ready!');
     }
@@ -291,29 +398,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setPendingUploadFile(file);
       const isVideo = file.type.startsWith('video/');
 
       if (isVideo) {
-        const objectUrl = URL.createObjectURL(file);
-        setMediaType('video');
-        setSelectedMediaUrl(objectUrl);
-        setStep('edit');
-
-        // Extract thumbnail
-        try {
-          const thumb = await generateVideoThumbnail(file, 640, 640, 0.7);
-          setThumbnailDataUrl(thumb);
-        } catch {
-          setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
-        }
-
-        // Convert to base64 for direct offline feed support if under 3MB
-        if (file.size <= 3 * 1024 * 1024) {
-          fileToDataUrl(file).then((b64) => {
-            setSelectedMediaUrl(b64);
-          }).catch(() => {});
-        }
+        await processSelectedVideo(file);
       } else {
         setMediaType('image');
         setIsCompressingPhoto(true);
@@ -358,29 +446,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      setPendingUploadFile(file);
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
       if (isVideo) {
-        const objectUrl = URL.createObjectURL(file);
-        setMediaType('video');
-        setSelectedMediaUrl(objectUrl);
-        setStep('edit');
-
-        // Extract thumbnail
-        try {
-          const thumb = await generateVideoThumbnail(file, 640, 640, 0.7);
-          setThumbnailDataUrl(thumb);
-        } catch {
-          setThumbnailDataUrl(createVideoFallbackDataUrl(file.name || 'Video Reel'));
-        }
-
-        // Convert to base64 for direct offline feed support if under 3MB
-        if (file.size <= 3 * 1024 * 1024) {
-          fileToDataUrl(file).then((b64) => {
-            setSelectedMediaUrl(b64);
-          }).catch(() => {});
-        }
+        await processSelectedVideo(file);
       } else if (isImage) {
         setMediaType('image');
         setIsCompressingPhoto(true);
@@ -483,9 +552,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       location,
     });
 
+    const fbAuth = auth.currentUser;
+    const resolvedUserId = (fbAuth?.uid || currentUser.id || '').trim();
+    const resolvedEmail = (fbAuth?.email || currentUser.email || '').trim().toLowerCase();
+
     const newPost: Post = {
       id: postId,
-      userId: currentUser.id,
+      userId: resolvedUserId,
+      userEmail: resolvedEmail,
+      privacy: privacy,
+      isPrivate: privacy === 'private',
       username: currentUser.username,
       userAvatar: currentUser.avatar,
       isVerified: currentUser.isVerified,
@@ -516,7 +592,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     if (mediaType === 'video' && shareAsReel) {
       newReel = {
         id: postId,
-        userId: currentUser.id,
+        userId: resolvedUserId,
+        userEmail: resolvedEmail,
+        privacy: privacy,
+        isPrivate: privacy === 'private',
         username: currentUser.username,
         userAvatar: currentUser.avatar,
         isVerified: currentUser.isVerified,
@@ -598,6 +677,99 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4"
     >
       <div className="relative w-full max-w-2xl bg-white dark:bg-neutral-900 rounded-2xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 flex flex-col max-h-[92vh]">
+        {/* User Warning Alert Dialog if Video is Too Large or Compression Fails */}
+        {videoAlert && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-md bg-neutral-900 border border-amber-500/50 rounded-2xl p-5 shadow-2xl text-white">
+              <div className="flex items-start gap-3 mb-3.5">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    videoAlert.type === 'error'
+                      ? 'bg-rose-500/20 border border-rose-500/40 text-rose-400'
+                      : 'bg-amber-500/20 border border-amber-500/40 text-amber-400'
+                  }`}
+                >
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h3
+                    className={`text-base font-bold flex items-center gap-2 ${
+                      videoAlert.type === 'error' ? 'text-rose-400' : 'text-amber-400'
+                    }`}
+                  >
+                    {videoAlert.title}
+                  </h3>
+                  <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                    {videoAlert.message}
+                  </p>
+                  {videoAlert.details && (
+                    <p className="text-[11px] text-neutral-400 mt-2 bg-neutral-950/80 p-2.5 rounded-lg border border-neutral-800">
+                      {videoAlert.details}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 mt-4 pt-3 border-t border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setVideoAlert(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-white transition active:scale-95 cursor-pointer"
+                >
+                  Understood
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Automatic 720p Video Compression Progress Indicator */}
+        {videoCompression && videoCompression.isCompressing && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-sm bg-neutral-900 border border-sky-500/40 rounded-2xl p-5 shadow-2xl text-white text-center">
+              <div className="w-12 h-12 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center mx-auto mb-3">
+                <Clapperboard className="w-6 h-6 text-sky-400 animate-pulse" />
+              </div>
+
+              <h4 className="text-sm font-bold text-white mb-1">
+                Optimizing Video to 720p
+              </h4>
+              <p className="text-xs text-neutral-400 mb-3">
+                Reducing resolution to 720p & optimizing bitrate directly in browser...
+              </p>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-neutral-800 rounded-full h-2 overflow-hidden mb-2">
+                <div
+                  className="bg-gradient-to-r from-sky-500 to-indigo-500 h-full transition-all duration-200"
+                  style={{ width: `${videoCompression.percent}%` }}
+                />
+              </div>
+
+              <div className="flex justify-between items-center text-[11px] text-neutral-400 mb-4 font-mono">
+                <span>{videoCompression.status}</span>
+                <span className="font-bold text-sky-400">{videoCompression.percent}%</span>
+              </div>
+
+              <div className="text-[11px] text-neutral-500 mb-4 bg-neutral-950/70 py-1.5 px-3 rounded-lg border border-neutral-800">
+                Max limit: 25MB • Original: {formatBytes(videoCompression.originalSize)}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (compressionAbortRef.current) {
+                    compressionAbortRef.current.abort();
+                  }
+                }}
+                className="text-xs text-rose-400 hover:text-rose-300 font-semibold px-3 py-1.5 rounded-lg hover:bg-neutral-800 transition cursor-pointer"
+              >
+                Cancel Compression
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Clear Firebase Storage Warning Dialog if Storage or Bucket is Unreachable */}
         {storageWarning && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
@@ -947,7 +1119,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   {isCompressingPhoto
                     ? 'Applying canvas resizing to max 800px & 0.7 JPEG quality'
                     : mediaType === 'video'
-                    ? 'High definition vertical Reels or horizontal clips'
+                    ? 'Max 25MB • Auto-compressed to 720p with optimized bitrate'
                     : 'Supports high-res photography (auto-optimized)'}
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-3">
@@ -1460,6 +1632,79 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Video & Post Privacy Toggle (Public vs Private) */}
+                <div
+                  id="create-post-privacy-container"
+                  className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/70 dark:bg-neutral-800/40 p-3 space-y-2.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                          privacy === 'private'
+                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                            : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {privacy === 'private' ? (
+                          <Lock className="w-4 h-4" />
+                        ) : (
+                          <Globe className="w-4 h-4" />
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
+                          Video Privacy / प्राइवेसी
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                              privacy === 'private'
+                                ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                            }`}
+                          >
+                            {privacy === 'private' ? '🔒 Private' : '🌐 Public'}
+                          </span>
+                        </span>
+                        <p className="text-[11px] text-neutral-500">
+                          {privacy === 'private'
+                            ? 'Only you can see this in your profile Videos folder'
+                            : 'Anyone on Jhalak feed & explore can watch'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Public / Private Selector Buttons */}
+                  <div className="grid grid-cols-2 gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      id="upload-privacy-public-btn"
+                      onClick={() => setPrivacy('public')}
+                      className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition border cursor-pointer ${
+                        privacy === 'public'
+                          ? 'bg-sky-500 text-white border-sky-600 shadow-sm'
+                          : 'bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                      }`}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>🌐 Public (Sabhi ke liye)</span>
+                    </button>
+                    <button
+                      type="button"
+                      id="upload-privacy-private-btn"
+                      onClick={() => setPrivacy('private')}
+                      className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition border cursor-pointer ${
+                        privacy === 'private'
+                          ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 border-neutral-900 dark:border-white shadow-sm'
+                          : 'bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                      }`}
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>🔒 Private (Sirf mere liye)</span>
+                    </button>
+                  </div>
+                </div>
 
                 {/* 3. Strict Safety Disclaimer on Post Upload Screen */}
                 <div

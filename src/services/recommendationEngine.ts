@@ -68,17 +68,75 @@ export function inferCategory(item: {
 }
 
 /**
+ * Safely parses any post or reel timestamp into an epoch millisecond number for reliable chronological sorting.
+ */
+export function getItemTimestamp(item: any): number {
+  if (!item) return 0;
+
+  // 1. Direct millisecond number
+  if (typeof item.createdAt === 'number' && !isNaN(item.createdAt) && item.createdAt > 0) {
+    return item.createdAt;
+  }
+
+  // 2. Firestore Timestamp object: { seconds: number, nanoseconds?: number } or toMillis()
+  if (item.createdAt && typeof item.createdAt === 'object') {
+    if (typeof item.createdAt.toMillis === 'function') {
+      try {
+        const ms = item.createdAt.toMillis();
+        if (!isNaN(ms) && ms > 0) return ms;
+      } catch {}
+    }
+    if (typeof item.createdAt.seconds === 'number') {
+      return item.createdAt.seconds * 1000;
+    }
+  }
+
+  // 3. String createdAt or createdAtIso or updatedAtIso
+  const dateStr = item.createdAtIso || item.updatedAtIso || (typeof item.createdAt === 'string' ? item.createdAt : null);
+  if (dateStr) {
+    const parsed = new Date(dateStr).getTime();
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  // 4. Relative timestamp string (e.g., 'Just now', '12s ago', '5m ago', '2h ago', '1d ago')
+  if (typeof item.timestamp === 'string') {
+    const raw = item.timestamp.trim();
+    if (raw === 'Just now' || raw.toLowerCase().includes('just now')) {
+      return Date.now();
+    }
+    const secMatch = raw.match(/(\d+)\s*(?:s|sec|seconds?)\s*ago/i);
+    if (secMatch) return Date.now() - parseInt(secMatch[1], 10) * 1000;
+
+    const minMatch = raw.match(/(\d+)\s*(?:m|min|minutes?)\s*ago/i);
+    if (minMatch) return Date.now() - parseInt(minMatch[1], 10) * 60 * 1000;
+
+    const hourMatch = raw.match(/(\d+)\s*(?:h|hrs?|hours?)\s*ago/i);
+    if (hourMatch) return Date.now() - parseInt(hourMatch[1], 10) * 3600 * 1000;
+
+    const dayMatch = raw.match(/(\d+)\s*(?:d|days?)\s*ago/i);
+    if (dayMatch) return Date.now() - parseInt(dayMatch[1], 10) * 86400 * 1000;
+
+    const parsed = new Date(raw).getTime();
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  return 0;
+}
+
+/**
  * Check if a post or reel was newly created by the user
  */
 export function isNewlyCreated(item: {
   isUserCreated?: boolean;
-  createdAt?: number;
+  createdAt?: any;
   timestamp?: string;
   id?: string;
 }): boolean {
   if (item.isUserCreated) return true;
   if (item.timestamp === 'Just now' || item.timestamp?.includes('seconds ago') || item.timestamp?.includes('m ago')) return true;
-  if (item.createdAt && item.createdAt > 1700000000000) return true;
+  const time = getItemTimestamp(item);
+  // Created within last 15 minutes
+  if (time > Date.now() - 15 * 60 * 1000) return true;
   return false;
 }
 
@@ -661,33 +719,22 @@ class RecommendationEngine {
       }
     });
 
-    // Newly created posts are sorted in reverse chronological order (newest first)
-    newlyCreated.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    // Reverse chronological order for newly created posts (newest first)
+    newlyCreated.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
 
-    // 2. Smart recommendation logic for regular feed posts
-    const hotCat = this.getHotCategory();
-
+    // 2. Feed ordering: latest uploaded videos & posts on top, tiebroken by category affinity
     const sortedRegular = [...regularPosts].sort((a, b) => {
+      const timeDiff = getItemTimestamp(b) - getItemTimestamp(a);
+      if (Math.abs(timeDiff) > 60000) {
+        return timeDiff;
+      }
       const catA = inferCategory(a);
       const catB = inferCategory(b);
       const langA = inferLanguage(a);
       const langB = inferLanguage(b);
 
-      let scoreA = this.calculateScore(catA, a.id, a.likesCount, langA, a.mediaType === 'video');
-      let scoreB = this.calculateScore(catB, b.id, b.likesCount, langB, b.mediaType === 'video');
-
-      // Prioritize similar genre videos higher up in the feed
-      if (hotCat) {
-        if (catA === hotCat) scoreA += 100;
-        if (catB === hotCat) scoreB += 100;
-      }
-
-      // Active app language priority
-      if (activeLanguage) {
-        if (langA === activeLanguage.toLowerCase()) scoreA += 40;
-        if (langB === activeLanguage.toLowerCase()) scoreB += 40;
-      }
-
+      const scoreA = this.calculateScore(catA, a.id, a.likesCount, langA, a.mediaType === 'video');
+      const scoreB = this.calculateScore(catB, b.id, b.likesCount, langB, b.mediaType === 'video');
       return scoreB - scoreA;
     });
 
@@ -698,7 +745,7 @@ class RecommendationEngine {
   /**
    * Personalized Reels Queue based on real-time watch time and affinity:
    * 1. Always show newly created reels at the very top (first item in the queue array via unshift / reverse chronological order).
-   * 2. Prioritize similar genre reels (e.g. Bhojpuri or watched category) higher up in the queue.
+   * 2. Show latest uploaded videos on top.
    */
   public getPersonalizedReelsQueue(
     reels: Reel[],
@@ -722,39 +769,20 @@ class RecommendationEngine {
     });
 
     // Reverse chronological order for newly created reels (newest first)
-    newlyCreated.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    newlyCreated.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
 
-    // 2. Recommend similar genre videos higher up for regular reels
-    const hotCategory = forcedHotCategory ?? this.getHotCategory();
+    // 2. Show latest uploaded videos on top (reverse chronological order)
+    const sortedRegular = [...regularReels].sort((a, b) => {
+      const timeDiff = getItemTimestamp(b) - getItemTimestamp(a);
+      if (Math.abs(timeDiff) > 60000) {
+        return timeDiff;
+      }
+      const sA = this.calculateScore(inferCategory(a), a.id, a.likesCount, inferLanguage(a), true);
+      const sB = this.calculateScore(inferCategory(b), b.id, b.likesCount, inferLanguage(b), true);
+      return sB - sA;
+    });
 
-    let sortedRegular: Reel[];
-    if (hotCategory) {
-      const hotReels = regularReels
-        .filter((r) => inferCategory(r) === hotCategory)
-        .sort((a, b) => {
-          const sA = this.calculateScore(inferCategory(a), a.id, a.likesCount, inferLanguage(a), true);
-          const sB = this.calculateScore(inferCategory(b), b.id, b.likesCount, inferLanguage(b), true);
-          return sB - sA;
-        });
-
-      const otherReels = regularReels
-        .filter((r) => inferCategory(r) !== hotCategory)
-        .sort((a, b) => {
-          const sA = this.calculateScore(inferCategory(a), a.id, a.likesCount, inferLanguage(a), true);
-          const sB = this.calculateScore(inferCategory(b), b.id, b.likesCount, inferLanguage(b), true);
-          return sB - sA;
-        });
-
-      sortedRegular = [...hotReels, ...otherReels];
-    } else {
-      sortedRegular = [...regularReels].sort((a, b) => {
-        const sA = this.calculateScore(inferCategory(a), a.id, a.likesCount, inferLanguage(a), true);
-        const sB = this.calculateScore(inferCategory(b), b.id, b.likesCount, inferLanguage(b), true);
-        return sB - sA;
-      });
-    }
-
-    // Always return newly created reels at the very top (first items in queue array)
+    // Always return newly created reels and latest uploaded videos at the very top
     return [...newlyCreated, ...sortedRegular];
   }
 

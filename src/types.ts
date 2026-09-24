@@ -77,6 +77,9 @@ export interface ProductTag {
 export interface Post {
   id: string;
   userId: string;
+  userEmail?: string;
+  privacy?: 'public' | 'private';
+  isPrivate?: boolean;
   username: string;
   userAvatar: string;
   isVerified?: boolean;
@@ -109,6 +112,9 @@ export interface Post {
 export interface Reel {
   id: string;
   userId: string;
+  userEmail?: string;
+  privacy?: 'public' | 'private';
+  isPrivate?: boolean;
   username: string;
   userAvatar: string;
   isVerified?: boolean;

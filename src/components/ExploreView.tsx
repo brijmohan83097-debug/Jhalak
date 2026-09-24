@@ -18,7 +18,7 @@ import {
   Sparkles,
   ArrowLeft,
 } from 'lucide-react';
-import { Post } from '../types';
+import { Post, User } from '../types';
 import { SupportedLanguage, translations } from '../translations';
 import {
   createVideoFallbackDataUrl,
@@ -35,6 +35,7 @@ interface ExploreViewProps {
   autoFocusSearch?: boolean;
   initialQuery?: string;
   onClose?: () => void;
+  searchableUsers?: User[];
 }
 
 const cityFilters = ['All Regions', 'Patna', 'Varanasi', 'Ara / Bhojpur', 'Gorakhpur'] as const;
@@ -81,6 +82,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   autoFocusSearch = false,
   initialQuery = '',
   onClose,
+  searchableUsers = [],
 }) => {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [activeSearchTab, setActiveSearchTab] = useState<SearchTab>('all');
@@ -112,6 +114,13 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
       return () => clearTimeout(timer);
     }
   }, [autoFocusSearch]);
+
+  // Sync initialQuery if prop changes
+  useEffect(() => {
+    if (initialQuery) {
+      setSearchQuery(initialQuery);
+    }
+  }, [initialQuery]);
 
   // Stop audio preview on unmount
   useEffect(() => {
@@ -163,10 +172,28 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     activeAudioPreviewRef.current = player;
   };
 
-  // Derive unique creators from posts
+  // Derive unique creators and friends from searchableUsers and posts
   const creators = useMemo<CreatorResult[]>(() => {
     const map = new Map<string, CreatorResult>();
 
+    // 1. Add registered users & friends first
+    if (Array.isArray(searchableUsers)) {
+      searchableUsers.forEach((u) => {
+        const uname = (u.username || '').toLowerCase().trim();
+        if (!uname) return;
+        map.set(uname, {
+          id: u.id || uname,
+          username: u.username,
+          name: u.name || u.username,
+          avatar: u.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
+          isVerified: Boolean(u.isVerified),
+          followersCount: u.followersCount || 0,
+          bio: u.bio || '',
+        });
+      });
+    }
+
+    // 2. Add creators from posts
     posts.forEach((p) => {
       const uname = (p.username || '').toLowerCase().trim();
       if (!uname || map.has(uname)) return;
@@ -184,7 +211,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     });
 
     return Array.from(map.values());
-  }, [posts]);
+  }, [posts, searchableUsers]);
 
   // Filtered Posts
   const filteredPosts = useMemo(() => {

@@ -34,7 +34,7 @@ import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
 import { CheckCircle, Plus, Search, ArrowLeft, Check, RefreshCw, BadgeCheck } from 'lucide-react';
 import { SupportedLanguage, translations } from './translations';
-import { recommendationEngine, inferCategory, inferLanguage } from './services/recommendationEngine';
+import { recommendationEngine, inferCategory, inferLanguage, getItemTimestamp } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
 import { SplashScreen } from './components/SplashScreen';
 import {
@@ -51,9 +51,11 @@ import {
   subscribeToAuthState,
   subscribeToFirestorePosts,
   loadPostsFromFirestore,
+  loadUsersFromFirestore,
   syncUserProfile,
   getUserProfile,
   savePostToFirestore,
+  updatePostPrivacyInFirestore,
   deletePostFromFirestore,
   decrementUserPostsCount,
   toggleLikeInFirestore,
@@ -215,22 +217,14 @@ export default function App() {
     }
   });
 
-  // Strict validator that preserves all user-uploaded posts & reels while discarding old dummy fixture IDs
+  // Validator that preserves all user-uploaded and Firestore posts & reels
   const isRealPost = (p: Post | any): boolean => {
     if (!p || !p.id) return false;
-    const id = String(p.id);
-    if (id.startsWith('dummy-') || id.startsWith('post-bhojpuri-') || id.match(/^post-[0-9]{1,3}$/)) {
-      return false;
-    }
     return true;
   };
 
   const isRealReel = (r: Reel | any): boolean => {
     if (!r || !r.id) return false;
-    const id = String(r.id);
-    if (id.startsWith('dummy-') || id.startsWith('reel-bhojpuri-') || id.match(/^reel-[0-9]{1,3}$/)) {
-      return false;
-    }
     return true;
   };
 
@@ -291,6 +285,7 @@ export default function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createInitialAudio, setCreateInitialAudio] = useState<string | undefined>(undefined);
   const [selectedPostDetail, setSelectedPostDetail] = useState<Post | null>(null);
+  const [targetReelId, setTargetReelId] = useState<string | null>(null);
   const [fullScreenViewerState, setFullScreenViewerState] = useState<{
     isOpen: boolean;
     initialPostId: string;
@@ -324,6 +319,8 @@ export default function App() {
   const [isUgcConsentModalOpen, setIsUgcConsentModalOpen] = useState(false);
   const [pendingAudioForUgcConsent, setPendingAudioForUgcConsent] = useState<string | null>(null);
   const [isSearchOverlayOpen, setIsSearchOverlayOpen] = useState(false);
+  const [searchOverlayInitialQuery, setSearchOverlayInitialQuery] = useState('');
+  const [searchableUsers, setSearchableUsers] = useState<User[]>([]);
   const [isCreateStoryModalOpen, setIsCreateStoryModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
   const [isAdminModDashboardOpen, setIsAdminModDashboardOpen] = useState(false);
@@ -642,6 +639,7 @@ export default function App() {
     });
 
     const finalPosts = Array.from(postMap.values());
+    finalPosts.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
     setPosts(finalPosts);
 
     // Also merge video posts into Reels
@@ -677,6 +675,9 @@ export default function App() {
         tags: vp.tags || [],
         timestamp: vp.timestamp || 'Recently',
         createdAt: vp.createdAt,
+        userEmail: vp.userEmail,
+        privacy: vp.privacy,
+        isPrivate: vp.isPrivate,
         isUserCreated: true,
       };
     });
@@ -701,7 +702,9 @@ export default function App() {
       if (!reelMap.has(lr.id)) reelMap.set(lr.id, lr);
     });
 
-    setReels(Array.from(reelMap.values()));
+    const finalReels = Array.from(reelMap.values());
+    finalReels.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
+    setReels(finalReels);
   };
 
   // Google Play Store Policy Deep Linking: auto-open Privacy Policy, Terms, or Account Deletion
@@ -727,21 +730,35 @@ export default function App() {
     }
   }, []);
 
-  // Feed Pull-To-Refresh: reloads latest posts & reels directly from Firestore silently
+  // Initial load of users & friends from Firestore
+  useEffect(() => {
+    loadUsersFromFirestore().then((users) => {
+      if (users && users.length > 0) {
+        setSearchableUsers(users);
+      }
+    });
+  }, []);
+
+  // Feed Pull-To-Refresh for video reels: reloads latest posts & reels directly from Firestore silently
   const handleRefreshFeed = async () => {
     setIsRefreshingFeed(true);
     try {
       await testConnection();
-      const freshPosts = await loadPostsFromFirestore();
+      const [freshPosts, freshUsers] = await Promise.all([
+        loadPostsFromFirestore(),
+        loadUsersFromFirestore(),
+      ]);
       if (freshPosts && freshPosts.length > 0) {
         syncPostsAndReels(freshPosts);
+      }
+      if (freshUsers && freshUsers.length > 0) {
+        setSearchableUsers(freshUsers);
       }
     } catch {
       // Quiet reload without intrusive toast popups
     } finally {
       setTimeout(() => {
         setIsRefreshingFeed(false);
-        setPullProgress(0);
       }, 500);
     }
   };
@@ -758,20 +775,7 @@ export default function App() {
   };
 
   const handleHomeTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      const currentY = e.touches[0].clientY;
-      const currentX = e.touches[0].clientX;
-      const deltaY = currentY - touchStartPosRef.current.y;
-      const deltaX = currentX - touchStartPosRef.current.x;
-      const isAtTop = window.scrollY <= 5;
-
-      if (isAtTop && deltaY > 15 && Math.abs(deltaY) > Math.abs(deltaX) * 1.5 && !isRefreshingFeed) {
-        const nextProgress = Math.min((deltaY - 15) / 70, 1);
-        setPullProgress((prev) => (Math.abs(prev - nextProgress) > 0.05 ? nextProgress : prev));
-      } else if (pullProgress > 0) {
-        setPullProgress(0);
-      }
-    }
+    // Dedicated standard scrolling on home feed without pull-to-refresh interference
   };
 
   const handleHomeTouchEnd = (e: React.TouchEvent) => {
@@ -781,21 +785,10 @@ export default function App() {
       const deltaX = endX - touchStartPosRef.current.x;
       const deltaY = endY - touchStartPosRef.current.y;
 
-      // 1. Right-to-left swipe from Home to open Reels (only if clean horizontal gesture without vertical scroll)
+      // Right-to-left swipe from Home to open Reels
       if (deltaX < -110 && Math.abs(deltaY) < 28 && Math.abs(deltaX) > Math.abs(deltaY) * 2.5) {
-        setPullProgress(0);
         setCurrentTab('reels');
         return;
-      }
-
-      // 2. Pull-to-refresh on Home feed to load latest posts (deltaY > 55, predominantly vertical, at top)
-      const isAtTop = window.scrollY <= 10;
-      if (isAtTop && deltaY > 55 && Math.abs(deltaY) > Math.abs(deltaX) && !isRefreshingFeed) {
-        setIsRefreshingFeed(true);
-        setPullProgress(1);
-        handleRefreshFeed();
-      } else {
-        setPullProgress(0);
       }
     }
   };
@@ -911,6 +904,54 @@ export default function App() {
       initialPostId: post.id,
       posts: finalList,
     });
+  };
+
+  // Immediately redirect to full-screen ReelsView for video post
+  const handleOpenReelFromPost = (post: Post) => {
+    pauseAllMedia();
+    const cleanPostId = post.id.replace(/^reel-/, '');
+
+    // Check if matching reel exists
+    const matchedReel = reels.find(
+      (r) =>
+        r.id === post.id ||
+        r.id === `reel-${post.id}` ||
+        (typeof r.id === 'string' && r.id.replace(/^reel-/, '') === cleanPostId) ||
+        (post.mediaUrl && r.videoUrl === post.mediaUrl)
+    );
+
+    const activeReelId = matchedReel ? matchedReel.id : `reel-${post.id}`;
+
+    if (!matchedReel) {
+      const newReelObj: Reel = {
+        id: activeReelId,
+        userId: post.userId || currentUser.id,
+        username: post.username || currentUser.username,
+        userAvatar: post.userAvatar || currentUser.avatar,
+        videoUrl: post.mediaUrl,
+        thumbnailUrl: post.thumbnailUrl,
+        caption: post.caption || '',
+        category: post.category || 'Bhojpuri',
+        audioTitle: post.audioTitle || 'Original Audio',
+        audioArtist: post.username,
+        likesCount: post.likesCount || 0,
+        commentsCount: post.commentsCount || (post.comments || []).length || 0,
+        sharesCount: 0,
+        isLiked: Boolean(post.isLiked),
+        isSaved: Boolean(post.isSaved),
+        comments: post.comments || [],
+        tags: post.tags || [],
+        timestamp: post.timestamp || 'Recently',
+      };
+      setReels((prev) => [newReelObj, ...prev.filter((r) => r.id !== newReelObj.id)]);
+    }
+
+    setTargetReelId(activeReelId);
+    setSelectedPostDetail(null);
+    setFullScreenViewerState(null);
+    setIsSearchOverlayOpen(false);
+    setCurrentTab('reels');
+    window.scrollTo({ top: 0, behavior: 'instant' as any });
   };
 
   // Toggle Like Handler
@@ -1144,18 +1185,84 @@ export default function App() {
 
   // Sort Feed Posts automatically based on Watch-Time, Language Engagement, and Moderation Filters
   const sortedFeedPosts = useMemo(() => {
-    const cleanPosts = posts.filter(
-      (p) =>
-        !moderationService.isUserBlocked(p.username) && !moderationService.isItemReported(p.id)
-    );
+    const cleanPosts = posts.filter((p) => {
+      if (moderationService.isUserBlocked(p.username) || moderationService.isItemReported(p.id)) {
+        return false;
+      }
+      if (p.privacy === 'private' || p.isPrivate) {
+        const isOwner =
+          isSuperAdmin(currentUser) ||
+          (currentUser?.id && p.userId && currentUser.id === p.userId) ||
+          (currentUser?.username && p.username &&
+            currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+              p.username.toLowerCase().replace(/^@/, '').trim()) ||
+          (currentUser?.email && p.userEmail &&
+            currentUser.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
+        return Boolean(isOwner);
+      }
+      return true;
+    });
     return recommendationEngine.sortPosts(cleanPosts, currentLanguage);
-  }, [posts, blockedVersion, currentLanguage, recsVersion]);
+  }, [posts, currentUser, blockedVersion, currentLanguage, recsVersion]);
 
   // Interleave Google AdMob / AdSense Native Ads (Unit ca-app-pub-7598643408736998/9251607358) between feed posts
   const feedItemsWithAds = useMemo(() => {
     const nativeAds = adMobService.getNativeFeedAds();
     return adMobService.insertNativeAds(sortedFeedPosts, nativeAds, 2);
   }, [sortedFeedPosts, blockedVersion]);
+
+  // Comprehensive searchable users list (friends from Firestore + creators from posts & reels)
+  const allSearchableUsers = useMemo<User[]>(() => {
+    const map = new Map<string, User>();
+
+    // 1. Current user
+    if (currentUser?.username) {
+      const clean = currentUser.username.toLowerCase().replace(/^@/, '');
+      map.set(clean, currentUser);
+    }
+
+    // 2. Firestore registered users & friends
+    (searchableUsers || []).forEach((u) => {
+      const uname = (u.username || '').toLowerCase().replace(/^@/, '').trim();
+      if (!uname) return;
+      map.set(uname, u);
+    });
+
+    // 3. Creators from posts & reels
+    posts.forEach((p) => {
+      const uname = (p.username || '').toLowerCase().replace(/^@/, '').trim();
+      if (!uname || map.has(uname)) return;
+      map.set(uname, {
+        id: p.userId || `user-${uname}`,
+        username: p.username,
+        name: p.username.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        avatar: p.userAvatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400`,
+        bio: p.caption ? p.caption.slice(0, 80) : '',
+        followersCount: 120,
+        followingCount: 45,
+        postsCount: 1,
+        isVerified: Boolean(p.isVerified),
+      });
+    });
+
+    reels.forEach((r) => {
+      const uname = (r.username || '').toLowerCase().replace(/^@/, '').trim();
+      if (!uname || map.has(uname)) return;
+      map.set(uname, {
+        id: r.userId || `user-${uname}`,
+        username: r.username,
+        name: r.username.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        avatar: r.userAvatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400`,
+        bio: r.caption ? r.caption.slice(0, 80) : '',
+        followersCount: 350,
+        followingCount: 80,
+        postsCount: 1,
+        isVerified: Boolean(r.isVerified),
+      });
+    });
+
+    return Array.from(map.values());
+  }, [currentUser, searchableUsers, posts, reels]);
 
   // Derive real suggested creators from posts (no mock users)
   const suggestedCreators = useMemo(() => {
@@ -1177,13 +1284,26 @@ export default function App() {
     return Array.from(creatorMap.values()).slice(0, 5);
   }, [posts, currentUser.username]);
 
-  // Clean Reels filtered against Blocked creators and Reported content
+  // Clean Reels filtered against Blocked creators, Reported content, and Private reels
   const unblockedReels = useMemo(() => {
-    return reels.filter(
-      (r) =>
-        !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
-    );
-  }, [reels, blockedVersion]);
+    return reels.filter((r) => {
+      if (moderationService.isUserBlocked(r.username) || moderationService.isItemReported(r.id)) {
+        return false;
+      }
+      if (r.privacy === 'private' || r.isPrivate) {
+        const isOwner =
+          isSuperAdmin(currentUser) ||
+          (currentUser?.id && r.userId && currentUser.id === r.userId) ||
+          (currentUser?.username && r.username &&
+            currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+              r.username.toLowerCase().replace(/^@/, '').trim()) ||
+          (currentUser?.email && r.userEmail &&
+            currentUser.email.toLowerCase().trim() === r.userEmail.toLowerCase().trim());
+        return Boolean(isOwner);
+      }
+      return true;
+    });
+  }, [reels, currentUser, blockedVersion]);
 
   // Safety & Moderation Handlers
   const handleReportSubmitted = (id: string, reason: string = 'Inappropriate Content') => {
@@ -1327,6 +1447,98 @@ export default function App() {
     }
 
     showToast('Post removed successfully. 🗑️');
+  };
+
+  const handleUpdatePostPrivacy = async (postId: string, privacy: 'public' | 'private') => {
+    if (!postId) return;
+    const cleanId = postId.replace(/^reel-/, '');
+    const isPrivate = privacy === 'private';
+
+    // 1. Optimistic update in posts state
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id === postId || p.id === cleanId || p.id === `reel-${cleanId}`) {
+          return { ...p, privacy, isPrivate };
+        }
+        return p;
+      })
+    );
+
+    // 2. Optimistic update in reels state
+    setReels((prev) =>
+      prev.map((r) => {
+        if (r.id === postId || r.id === cleanId || r.id === `reel-${cleanId}`) {
+          return { ...r, privacy, isPrivate };
+        }
+        return r;
+      })
+    );
+
+    // 3. Optimistic update in currentUser
+    setCurrentUser((prev) => {
+      const updateList = (list?: Post[]) =>
+        (list || []).map((p) => {
+          if (p.id === postId || p.id === cleanId || p.id === `reel-${cleanId}`) {
+            return { ...p, privacy, isPrivate };
+          }
+          return p;
+        });
+      return {
+        ...prev,
+        posts: updateList(prev.posts),
+        userPosts: updateList(prev.userPosts),
+      };
+    });
+
+    // 4. Update in local storage caches
+    try {
+      const targetUserId = currentUser?.id || '';
+      const targetUsername = currentUser?.username || '';
+      const keys = [
+        `ig_user_posts_${targetUserId}`,
+        `ig_user_posts_${targetUsername}`,
+        'jhalak_uploaded_posts_v1',
+        'jhalak_uploaded_reels_v1',
+      ];
+      keys.forEach((k) => {
+        const stored = localStorage.getItem(k);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              const updated = parsed.map((p: any) => {
+                if (p && (p.id === postId || p.id === cleanId || p.id === `reel-${cleanId}`)) {
+                  return { ...p, privacy, isPrivate };
+                }
+                return p;
+              });
+              localStorage.setItem(k, JSON.stringify(updated));
+            }
+          } catch {}
+        }
+      });
+    } catch {}
+
+    // 5. If post detail modal is currently showing this post, update it
+    setSelectedPostDetail((prev) => {
+      if (prev && (prev.id === postId || prev.id === cleanId || prev.id === `reel-${cleanId}`)) {
+        return { ...prev, privacy, isPrivate };
+      }
+      return prev;
+    });
+
+    // 6. Update Firestore in the cloud
+    try {
+      await updatePostPrivacyInFirestore(cleanId, privacy);
+    } catch (err) {
+      console.error('Failed to update post privacy in Firestore:', err);
+    }
+
+    showToast(
+      isPrivate
+        ? '🔒 Post is now Private (Only visible in your profile)'
+        : '🌐 Post is now Public! (Visible to everyone on feed & reels)'
+    );
   };
 
   const handleAdminBanUser = (username: string) => {
@@ -2218,10 +2430,10 @@ export default function App() {
     showToast(t.profileUpdated || t.profileUpdatedSuccess || 'Profile updated successfully');
   };
 
-  // View User Profile handler - opens Instagram-style profile
-  const handleViewUser = (rawUsername: string) => {
+  // View User Profile handler - opens Instagram-style profile & videos folder
+  const handleViewUser = (rawUsername: string, userObj?: User) => {
     pauseAllMedia();
-    const cleanUsername = (rawUsername || '').replace(/^@/, '').trim();
+    const cleanUsername = (rawUsername || userObj?.username || '').replace(/^@/, '').trim();
     if (!cleanUsername) return;
 
     if (cleanUsername.toLowerCase() === (currentUser.username || '').replace(/^@/, '').toLowerCase()) {
@@ -2235,6 +2447,12 @@ export default function App() {
       return;
     }
 
+    // Find in allSearchableUsers or provided userObj
+    const matchingFromList = userObj || allSearchableUsers.find(
+      (u) => (u.username || '').replace(/^@/, '').toLowerCase() === cleanUsername.toLowerCase() ||
+             (u.name || '').toLowerCase() === cleanUsername.toLowerCase()
+    );
+
     // Find any post or reel from this user to gather profile details
     const matchingPost = posts.find(
       (p) => (p.username || '').replace(/^@/, '').toLowerCase() === cleanUsername.toLowerCase()
@@ -2244,22 +2462,23 @@ export default function App() {
     );
 
     const avatar =
+      matchingFromList?.avatar ||
       matchingPost?.userAvatar ||
       matchingReel?.userAvatar ||
       `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
 
-    const name = cleanUsername;
-    const isVerified = Boolean(matchingPost?.isVerified || matchingReel?.isVerified);
+    const name = matchingFromList?.name || matchingPost?.username || cleanUsername;
+    const isVerified = Boolean(matchingFromList?.isVerified || matchingPost?.isVerified || matchingReel?.isVerified);
 
     const targetUser: User = {
-      id: matchingPost?.userId || matchingReel?.userId || `user-${cleanUsername}`,
+      id: matchingFromList?.id || matchingPost?.userId || matchingReel?.userId || `user-${cleanUsername}`,
       username: cleanUsername,
       name: name,
       avatar: avatar,
-      bio: `Creator on Jhalak ✨ Bhojpuri & Hindi Reels | @${cleanUsername}`,
-      postsCount: 0,
-      followersCount: 1420,
-      followingCount: 88,
+      bio: matchingFromList?.bio || `Creator on Jhalak ✨ Bhojpuri & Hindi Reels | @${cleanUsername}`,
+      postsCount: matchingFromList?.postsCount || 0,
+      followersCount: matchingFromList?.followersCount || 1420,
+      followingCount: matchingFromList?.followingCount || 88,
       isVerified: isVerified,
     };
 
@@ -2341,6 +2560,11 @@ export default function App() {
     if (!selectedProfileUser) return [];
     const targetUsername = (selectedProfileUser.username || '').replace(/^@/, '').toLowerCase();
     const targetId = (selectedProfileUser.id || '').toLowerCase();
+    const isViewingSelf = Boolean(
+      (currentUser?.id && targetId && currentUser.id.toLowerCase() === targetId) ||
+      (currentUser?.username && targetUsername && currentUser.username.toLowerCase().replace(/^@/, '') === targetUsername) ||
+      isSuperAdmin(currentUser)
+    );
 
     const postMap = new Map<string, Post>();
 
@@ -2348,7 +2572,9 @@ export default function App() {
       const pUsername = (p.username || '').replace(/^@/, '').toLowerCase();
       const pUserId = (p.userId || '').toLowerCase();
       if ((pUsername && pUsername === targetUsername) || (targetId && pUserId === targetId)) {
-        postMap.set(p.id, p);
+        if (isViewingSelf || (p.privacy !== 'private' && !p.isPrivate)) {
+          postMap.set(p.id, p);
+        }
       }
     });
 
@@ -2356,47 +2582,70 @@ export default function App() {
       const rUsername = (r.username || '').replace(/^@/, '').toLowerCase();
       const rUserId = (r.userId || '').toLowerCase();
       if ((rUsername && rUsername === targetUsername) || (targetId && rUserId === targetId)) {
-        if (!postMap.has(r.id)) {
-          postMap.set(r.id, {
-            id: r.id,
-            userId: r.userId,
-            username: r.username,
-            userAvatar: r.userAvatar,
-            isVerified: r.isVerified,
-            location: r.location,
-            mediaUrl: r.videoUrl,
-            thumbnailUrl: r.thumbnailUrl || r.videoUrl,
-            mediaType: 'video',
-            caption: r.caption,
-            tags: r.tags || [],
-            category: r.category,
-            likesCount: r.likesCount,
-            isLiked: r.isLiked,
-            isSaved: r.isSaved,
-            comments: r.comments || [],
-            commentsCount: r.commentsCount,
-            timestamp: r.timestamp,
-            audioTitle: r.audioTitle,
-            audioArtist: r.audioArtist,
-            audioUrl: r.audioUrl,
-            audioCover: r.audioCover,
-            language: r.language,
-            productTag: r.productTag,
-            createdAt: r.createdAt,
-            isUserCreated: r.isUserCreated,
-          });
+        if (isViewingSelf || (r.privacy !== 'private' && !r.isPrivate)) {
+          if (!postMap.has(r.id)) {
+            postMap.set(r.id, {
+              id: r.id,
+              userId: r.userId,
+              username: r.username,
+              userAvatar: r.userAvatar,
+              isVerified: r.isVerified,
+              location: r.location,
+              mediaUrl: r.videoUrl,
+              thumbnailUrl: r.thumbnailUrl || r.videoUrl,
+              mediaType: 'video',
+              caption: r.caption,
+              tags: r.tags || [],
+              category: r.category,
+              likesCount: r.likesCount,
+              isLiked: r.isLiked,
+              isSaved: r.isSaved,
+              comments: r.comments || [],
+              commentsCount: r.commentsCount,
+              timestamp: r.timestamp,
+              audioTitle: r.audioTitle,
+              audioArtist: r.audioArtist,
+              audioUrl: r.audioUrl,
+              audioCover: r.audioCover,
+              language: r.language,
+              productTag: r.productTag,
+              createdAt: r.createdAt,
+              userEmail: r.userEmail,
+              privacy: r.privacy,
+              isPrivate: r.isPrivate,
+              isUserCreated: r.isUserCreated,
+            });
+          }
         }
       }
     });
 
     return Array.from(postMap.values());
-  }, [selectedProfileUser, posts, reels]);
+  }, [selectedProfileUser, currentUser, posts, reels]);
 
   const savedPosts = posts.filter((p) => p.isSaved);
   const totalUnreadMessages = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
 
-  // Real Explore items from Firebase / uploaded posts
-  const allExploreItems = posts;
+  // Real Explore items from Firebase / uploaded posts (private items hidden from non-owners)
+  const allExploreItems = useMemo(() => {
+    return posts.filter((p) => {
+      if (moderationService.isUserBlocked(p.username) || moderationService.isItemReported(p.id)) {
+        return false;
+      }
+      if (p.privacy === 'private' || p.isPrivate) {
+        const isOwner =
+          isSuperAdmin(currentUser) ||
+          (currentUser?.id && p.userId && currentUser.id === p.userId) ||
+          (currentUser?.username && p.username &&
+            currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+              p.username.toLowerCase().replace(/^@/, '').trim()) ||
+          (currentUser?.email && p.userEmail &&
+            currentUser.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
+        return Boolean(isOwner);
+      }
+      return true;
+    });
+  }, [posts, currentUser, blockedVersion]);
 
   // If not logged in and not in guest mode, show the realistic Google Welcome & Sign-In Screen
   if (!isAuthenticated && !isGuestMode) {
@@ -2509,24 +2758,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Guest Mode Notification Banner */}
-      {isGuestMode && (
-        <aside
-          aria-label="Guest mode notice"
-          className="bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-fuchsia-500/10 border-b border-rose-500/20 px-4 py-2 text-center text-xs flex items-center justify-center gap-2 select-none"
-        >
-          <span className="text-neutral-700 dark:text-neutral-300">
-            👋 You are currently exploring <strong>Jhalak</strong> as Guest.
-          </span>
-          <button
-            onClick={() => setIsGoogleAuthModalOpen(true)}
-            className="font-semibold text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center gap-1 ml-1 cursor-pointer"
-          >
-            <span>Sign in with Google</span> →
-          </button>
-        </aside>
-      )}
-
       {/* Main Layout */}
       <div className="flex w-full min-h-screen">
         {/* Left Sidebar (Desktop & Tablet) */}
@@ -2557,31 +2788,38 @@ export default function App() {
         />
 
         {/* Content Area */}
-        <main className={`flex-1 flex flex-col min-w-0 ${currentTab === 'reels' ? 'h-[100dvh] pb-16 md:pb-0 overflow-hidden' : 'pb-28 md:pb-16 scroll-smooth'}`}>
-          {/* Mobile Top Header (only on mobile) */}
-          <MobileHeader
-            currentTab={currentTab}
-            onTabChange={handleTabChange}
-            currentUser={currentUser}
-            unreadMessagesCount={totalUnreadMessages}
-            darkMode={darkMode}
-            onToggleDarkMode={() => setDarkMode((d) => !d)}
-            onOpenCreateModal={handleOpenCreateModal}
-            onShowNotifications={() => setIsNotificationsModalOpen(true)}
-            onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
-            onOpenSettings={() => setIsSettingsModalOpen(true)}
-            onOpenLegalPolicies={() => {
-              setLegalModalTab('privacy');
-              setIsLegalModalOpen(true);
-            }}
-            onOpenSearch={() => setIsSearchOverlayOpen(true)}
-            onOpenAdminPanel={() => {
-              if (isSuperAdmin(currentUser)) {
-                setIsAdminModDashboardOpen(true);
-              }
-            }}
-            currentLanguage={currentLanguage}
-          />
+        <main className={`flex-1 flex flex-col min-w-0 ${currentTab === 'reels' ? 'h-[100dvh] pb-0 overflow-hidden' : 'pb-28 md:pb-16 scroll-smooth'}`}>
+          {/* Mobile Top Header (only on mobile, hidden on reels for true edge-to-edge full-screen layout) */}
+          {currentTab !== 'reels' && (
+            <MobileHeader
+              currentTab={currentTab}
+              onTabChange={handleTabChange}
+              currentUser={currentUser}
+              unreadMessagesCount={totalUnreadMessages}
+              darkMode={darkMode}
+              onToggleDarkMode={() => setDarkMode((d) => !d)}
+              onOpenCreateModal={handleOpenCreateModal}
+              onShowNotifications={() => setIsNotificationsModalOpen(true)}
+              onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
+              onOpenSettings={() => setIsSettingsModalOpen(true)}
+              onOpenLegalPolicies={() => {
+                setLegalModalTab('privacy');
+                setIsLegalModalOpen(true);
+              }}
+              onOpenSearch={(query) => {
+                setSearchOverlayInitialQuery(query || '');
+                setIsSearchOverlayOpen(true);
+              }}
+              onOpenAdminPanel={() => {
+                if (isSuperAdmin(currentUser)) {
+                  setIsAdminModDashboardOpen(true);
+                }
+              }}
+              currentLanguage={currentLanguage}
+              searchableUsers={allSearchableUsers}
+              onViewUser={handleViewUser}
+            />
+          )}
 
           {/* Tab 1: HOME FEED */}
           {currentTab === 'home' && (
@@ -2594,34 +2832,6 @@ export default function App() {
             >
               {/* Feed Column */}
               <div className="w-full max-w-[470px] sm:max-w-[540px] flex flex-col">
-                {/* Pull to Refresh Indicator */}
-                {(pullProgress > 0 || isRefreshingFeed) && (
-                  <div
-                    id="pull-to-refresh-indicator"
-                    className="flex items-center justify-center py-2 transition-all duration-200"
-                    style={{
-                      opacity: Math.max(pullProgress, isRefreshingFeed ? 1 : 0),
-                      transform: `scale(${Math.max(0.85, pullProgress)})`,
-                    }}
-                  >
-                    <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-md text-xs font-semibold text-rose-500">
-                      <RefreshCw
-                        className={`w-3.5 h-3.5 ${isRefreshingFeed ? 'animate-spin' : ''}`}
-                        style={{
-                          transform: !isRefreshingFeed ? `rotate(${pullProgress * 360}deg)` : undefined,
-                        }}
-                      />
-                      <span>
-                        {isRefreshingFeed
-                          ? 'Refreshing feed...'
-                          : pullProgress >= 1
-                          ? 'Release to refresh'
-                          : 'Pull down to refresh'}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
                 {/* Posts Feed */}
                 <div className="mt-2 md:mt-4 space-y-2">
                   {sortedFeedPosts.length === 0 ? (
@@ -2680,10 +2890,21 @@ export default function App() {
                             recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
                           }}
                           onOpenDetail={(p) => {
+                            if (p.mediaType === 'video') {
+                              handleOpenReelFromPost(p);
+                              return;
+                            }
                             pauseAllMedia();
                             setSelectedPostDetail(p);
                           }}
-                          onOpenFullScreen={(p) => handleOpenFullScreen(p, sortedFeedPosts)}
+                          onOpenReel={handleOpenReelFromPost}
+                          onOpenFullScreen={(p) => {
+                            if (p.mediaType === 'video') {
+                              handleOpenReelFromPost(p);
+                              return;
+                            }
+                            handleOpenFullScreen(p, sortedFeedPosts);
+                          }}
                           onOpenComments={(p) => {
                             if (!isAuthenticated) {
                               setIsGoogleAuthModalOpen(true);
@@ -2698,6 +2919,7 @@ export default function App() {
                           onReportPost={handleQuickReportPost}
                           onBlockUser={handleUserBlocked}
                           onDeletePost={handleDeletePost}
+                          onUpdatePostPrivacy={handleUpdatePostPrivacy}
                           currentLanguage={currentLanguage}
                         />
                       );
@@ -2726,7 +2948,14 @@ export default function App() {
             <ErrorBoundary compact fallbackTitle="Explore Feed">
               <ExploreView
                 posts={allExploreItems}
-                onSelectPost={(p) => handleOpenFullScreen(p, allExploreItems)}
+                searchableUsers={allSearchableUsers}
+                onSelectPost={(p) => {
+                  if (p.mediaType === 'video') {
+                    handleOpenReelFromPost(p);
+                  } else {
+                    handleOpenFullScreen(p, allExploreItems);
+                  }
+                }}
                 onViewUser={handleViewUser}
                 onUseAudio={handleUseAudio}
                 currentLanguage={currentLanguage}
@@ -2736,11 +2965,13 @@ export default function App() {
 
           {/* Tab 3: REELS FEED */}
           {currentTab === 'reels' && (
-            <div className="w-full h-full flex-1 flex justify-center items-center p-0 m-0 bg-black overflow-hidden">
+            <div className="w-full h-[100dvh] flex-1 flex justify-center items-center p-0 m-0 bg-black overflow-hidden">
               <ErrorBoundary compact fallbackTitle="Reels Player">
                 <ReelsView
                   reels={unblockedReels}
                   currentUser={currentUser}
+                  initialReelId={targetReelId}
+                  onBack={() => setCurrentTab('home')}
                   isActive={
                     currentTab === 'reels' &&
                     !isCreateModalOpen &&
@@ -2760,6 +2991,7 @@ export default function App() {
                   onReportReel={(r, reason) => handleReportSubmitted(r.id, reason)}
                   onBlockUser={(u) => handleUserBlocked(u)}
                   onDeleteReel={handleDeletePost}
+                  onUpdatePostPrivacy={handleUpdatePostPrivacy}
                   onUploadReel={handleOpenCreateModal}
                   onRefreshReels={handleRefreshFeed}
                   isRefreshing={isRefreshingFeed}
@@ -2792,8 +3024,15 @@ export default function App() {
               savedPosts={savedPosts}
               onOpenEditProfile={() => setIsEditProfileOpen(true)}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
-              onSelectPost={(p) => handleOpenFullScreen(p, [...userPosts, ...savedPosts])}
+              onSelectPost={(p) => {
+                if (p.mediaType === 'video') {
+                  handleOpenReelFromPost(p);
+                } else {
+                  handleOpenFullScreen(p, [...userPosts, ...savedPosts]);
+                }
+              }}
               onDeletePost={handleDeletePost}
+              onUpdatePostPrivacy={handleUpdatePostPrivacy}
               onOpenStoryModal={() => setActiveStoryIndex(0)}
               onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
               onOpenLegalPolicies={() => {
@@ -2813,7 +3052,7 @@ export default function App() {
         </main>
 
         {/* 1. Google AdMob / AdSense Banner Ad at the bottom (Unit ca-app-pub-7598643408736998/4957139129) */}
-        {activeStoryIndex === null && (
+        {activeStoryIndex === null && currentTab !== 'reels' && (
           <AdMobBannerAd />
         )}
 
@@ -2879,6 +3118,7 @@ export default function App() {
             handleUserBlocked(u);
           }}
           onDeletePost={handleDeletePost}
+          onUpdatePostPrivacy={handleUpdatePostPrivacy}
         />
       )}
 
@@ -2903,6 +3143,7 @@ export default function App() {
             handleUserBlocked(u);
           }}
           onDeletePost={handleDeletePost}
+          onUpdatePostPrivacy={handleUpdatePostPrivacy}
         />
       )}
 
@@ -3099,6 +3340,8 @@ export default function App() {
             <ErrorBoundary compact fallbackTitle="Search & Explore" onReset={() => setIsSearchOverlayOpen(false)}>
               <ExploreView
                 posts={allExploreItems}
+                searchableUsers={allSearchableUsers}
+                initialQuery={searchOverlayInitialQuery}
                 onSelectPost={(p) => {
                   setIsSearchOverlayOpen(false);
                   handleOpenFullScreen(p, allExploreItems);
@@ -3221,8 +3464,17 @@ export default function App() {
               savedPosts={[]}
               onOpenEditProfile={() => setIsEditProfileOpen(true)}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
-              onSelectPost={(p) => handleOpenFullScreen(p, selectedUserPosts)}
+              onSelectPost={(p) => {
+                if (p.mediaType === 'video') {
+                  setSelectedProfileUser(null);
+                  handleOpenReelFromPost(p);
+                } else {
+                  handleOpenFullScreen(p, selectedUserPosts);
+                }
+              }}
               onOpenStoryModal={() => setActiveStoryIndex(0)}
+              onDeletePost={handleDeletePost}
+              onUpdatePostPrivacy={handleUpdatePostPrivacy}
               currentLanguage={currentLanguage}
             />
           </div>

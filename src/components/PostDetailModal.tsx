@@ -18,6 +18,8 @@ import {
   Flag,
   Ban,
   Trash2,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import { Post, User } from '../types';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
@@ -43,6 +45,7 @@ interface PostDetailModalProps {
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
   onDeletePost?: (postId: string) => void;
+  onUpdatePostPrivacy?: (postId: string, privacy: 'public' | 'private') => void;
 }
 
 const QUICK_REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😢', '😍'];
@@ -60,6 +63,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   onReportPost,
   onBlockUser,
   onDeletePost,
+  onUpdatePostPrivacy,
 }) => {
   const isOwner = Boolean(
     post && (
@@ -373,18 +377,26 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                 />
               </button>
               <div>
-                <button
-                  onClick={() => {
-                    onClose();
-                    onViewUser(post.username);
-                  }}
-                  className="font-semibold text-sm text-neutral-900 dark:text-white flex items-center gap-1 hover:underline"
-                >
-                  {post.username}
-                  {post.isVerified && (
-                    <BadgeCheck className="w-3.5 h-3.5 text-sky-500 fill-sky-500" />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onViewUser(post.username);
+                    }}
+                    className="font-semibold text-sm text-neutral-900 dark:text-white flex items-center gap-1 hover:underline"
+                  >
+                    {post.username}
+                    {post.isVerified && (
+                      <BadgeCheck className="w-3.5 h-3.5 text-sky-500 fill-sky-500" />
+                    )}
+                  </button>
+                  {(post.privacy === 'private' || post.isPrivate) && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 rounded-full">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Private</span>
+                    </span>
                   )}
-                </button>
+                </div>
                 {post.location && (
                   <span className="text-xs text-neutral-500 block truncate max-w-[170px]">
                     {post.location}
@@ -745,6 +757,52 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             <h3 className="text-sm font-bold text-center mb-3">Post Options</h3>
 
             <div className="space-y-1.5">
+              {/* Post Privacy Toggle (Owner only) */}
+              {isOwner && onUpdatePostPrivacy && (
+                <button
+                  id={`detail-privacy-btn-${post.id}`}
+                  onClick={() => {
+                    const nextPrivacy = post.privacy === 'private' || post.isPrivate ? 'public' : 'private';
+                    onUpdatePostPrivacy(post.id, nextPrivacy);
+                    setShowOptionsMenu(false);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition group cursor-pointer"
+                >
+                  <div
+                    className={`p-1.5 rounded-lg ${
+                      post.privacy === 'private' || post.isPrivate
+                        ? 'bg-amber-500/15 text-amber-500'
+                        : 'bg-emerald-500/15 text-emerald-500'
+                    } group-hover:scale-110 transition`}
+                  >
+                    {post.privacy === 'private' || post.isPrivate ? (
+                      <Lock className="w-4 h-4" />
+                    ) : (
+                      <Globe className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold">Post Privacy / प्राइवेसी</p>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          post.privacy === 'private' || post.isPrivate
+                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                            : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                        }`}
+                      >
+                        {post.privacy === 'private' || post.isPrivate ? '🔒 Private' : '🌐 Public'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-500">
+                      {post.privacy === 'private' || post.isPrivate
+                        ? 'Only visible to you. Tap to make Public'
+                        : 'Visible to everyone on feed. Tap to make Private'}
+                    </p>
+                  </div>
+                </button>
+              )}
+
               {/* Delete Post (Owner only) */}
               {isOwner && (
                 <button

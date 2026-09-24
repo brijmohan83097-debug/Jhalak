@@ -6,6 +6,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "email": { "type": "string" },
         "name": { "type": "string", "maxLength": 100 },
         "username": { "type": "string", "maxLength": 50 },
         "avatar": { "type": "string" },
@@ -31,6 +32,9 @@
       "properties": {
         "id": { "type": "string" },
         "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "privacy": { "type": "string", "enum": ["public", "private"] },
+        "isPrivate": { "type": "boolean" },
         "author": { "type": "string", "maxLength": 100 },
         "username": { "type": "string", "maxLength": 50 },
         "userAvatar": { "type": "string" },

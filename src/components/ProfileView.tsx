@@ -10,19 +10,16 @@ import {
   Camera,
   Film,
   LogOut,
-  CheckCircle2,
   Globe2,
-  Gift,
   Scale,
   ShieldAlert,
   Trash2,
   ArrowLeft,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import { User, Post } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
-import { UpiShagunSheet } from './UpiShagunSheet';
-import { CreatorDashboardCard } from './CreatorDashboardCard';
-import { CreatorMonetizationView } from './CreatorMonetizationView';
 import { safeSetItem } from '../utils/safeStorage';
 import { isSuperAdmin } from '../constants/admin';
 import { moderationService } from '../services/moderationService';
@@ -45,11 +42,11 @@ interface ProfileViewProps {
   onOpenSettings: () => void;
   onSelectPost: (post: Post) => void;
   onDeletePost?: (postId: string) => void;
+  onUpdatePostPrivacy?: (postId: string, privacy: 'public' | 'private') => void;
   onOpenStoryModal?: () => void;
   onOpenGoogleLogin?: () => void;
   onOpenLegalPolicies?: () => void;
   onOpenAdminPanel?: () => void;
-  onOpenMonetizationView?: () => void;
   onDeleteAccount?: () => void;
   onLogout?: () => void;
   currentLanguage?: SupportedLanguage;
@@ -69,17 +66,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenSettings,
   onSelectPost,
   onDeletePost,
+  onUpdatePostPrivacy,
   onOpenStoryModal,
   onOpenGoogleLogin,
   onOpenLegalPolicies,
   onOpenAdminPanel,
-  onOpenMonetizationView,
   onDeleteAccount,
   onLogout,
   currentLanguage = 'en',
 }) => {
-  const [activeTab, setActiveTab] = useState<'posts' | 'saved' | 'tagged'>('posts');
-  const [showMonetizationModal, setShowMonetizationModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'posts' | 'reels' | 'videos' | 'saved' | 'tagged'>('posts');
   const [highlights, setHighlights] = useState<any[]>(() => {
     try {
       const userKey = user?.id ? `ig_profile_highlights_${user.id}` : 'ig_profile_highlights';
@@ -116,7 +112,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setHighlights([]);
     }
   }, [user?.id]);
-  const [showShagunSheet, setShowShagunSheet] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const t = translations[currentLanguage] || translations.en;
@@ -268,9 +263,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const effectiveFollowersCount =
     (user?.followersCount || 0) + (!isOwnProfile && isFollowing ? 1 : 0);
 
+  const videoPosts = React.useMemo(() => {
+    return safeResolvedPosts.filter((p) => p.mediaType === 'video');
+  }, [safeResolvedPosts]);
+
   const displayPosts =
     activeTab === 'posts'
       ? safeResolvedPosts
+      : (activeTab === 'reels' || activeTab === 'videos')
+      ? videoPosts
       : activeTab === 'saved'
       ? safeSavedPosts
       : [];
@@ -419,36 +420,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     {t.messages || 'Message'}
                   </button>
                 )}
-
-                {/* Send Shagun Tip */}
-                <button
-                  id="profile-shagun-tip-btn"
-                  onClick={() => setShowShagunSheet(true)}
-                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-amber-500/20 active:scale-95 cursor-pointer"
-                  title={`Send UPI Shagun tip to @${user?.username || ''}`}
-                >
-                  <Gift className="w-3.5 h-3.5 animate-bounce [animation-duration:3s]" />
-                  <span>Send Shagun 🎁</span>
-                </button>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
-                {/* UPI Shagun Tip Button */}
-                <button
-                  id="profile-shagun-tip-btn"
-                  onClick={() => setShowShagunSheet(true)}
-                  className="px-3 py-1.5 bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-amber-500/20 active:scale-95 cursor-pointer"
-                  title={`Send UPI Shagun tip to @${user?.username || ''} via GPay, PhonePe, Paytm`}
-                >
-                  <Gift className="w-3.5 h-3.5 animate-bounce [animation-duration:3s]" />
-                  <span>Send Shagun 🎁</span>
-                </button>
-
                 {/* Edit Profile Button */}
                 <button
                   id="edit-profile-btn"
                   onClick={onOpenEditProfile}
-                  className="px-4 py-1.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white rounded-lg text-sm font-semibold transition"
+                  className="px-4 py-1.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white rounded-lg text-sm font-semibold transition cursor-pointer"
                 >
                   {t.editProfile}
                 </button>
@@ -459,7 +438,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   onClick={onOpenSettings}
                   aria-label="Settings"
                   title="Settings & Language (सेटिंग्स और भाषा)"
-                  className="p-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-800 dark:text-neutral-200 hover:rotate-45 transition duration-300 relative group flex items-center gap-1"
+                  className="p-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-800 dark:text-neutral-200 hover:rotate-45 transition duration-300 relative group flex items-center gap-1 cursor-pointer"
                 >
                   <Settings className="w-4 h-4" />
                   <span className="hidden sm:inline text-xs font-semibold">{t.settings}</span>
@@ -469,41 +448,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <button
                   onClick={onOpenSettings}
                   title="Change language / भाषा बदलें"
-                  className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1.5"
+                  className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Globe2 className="w-3.5 h-3.5" />
                   <span>{activeLangObj?.name || 'English'}</span>
                 </button>
-
-                {/* Google Account */}
-                {onOpenGoogleLogin && (
-                  <button
-                    id="profile-google-btn"
-                    onClick={onOpenGoogleLogin}
-                    className="px-2.5 py-1.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5"
-                    title="Google Account Settings"
-                  >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                      />
-                    </svg>
-                    <span className="hidden sm:inline">{user?.isGoogleAuth ? 'Google Account' : 'Sign in'}</span>
-                  </button>
-                )}
 
                 {/* Legal & Privacy Policies button */}
                 {onOpenLegalPolicies && (
@@ -515,19 +464,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     aria-label="Legal & Privacy Policy"
                   >
                     <Scale className="w-4 h-4" />
-                  </button>
-                )}
-
-                {/* Direct Delete Account & Data Button (Play Store Requirement) */}
-                {onDeleteAccount && (
-                  <button
-                    id="profile-delete-account-header-btn"
-                    onClick={onDeleteAccount}
-                    className="p-2 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 rounded-lg text-rose-600 dark:text-rose-400 transition flex items-center cursor-pointer"
-                    title="Delete Account & Data (Google Play Policy)"
-                    aria-label="Delete Account & Data"
-                  >
-                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
 
@@ -600,49 +536,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 {user.website.replace(/^https?:\/\//, '')}
               </a>
             )}
-
-            {/* Google Account Status Badge (Only for logged-in profile owner) */}
-            {isOwnProfile && (
-              <div className="mt-3 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700/80 flex items-center justify-between">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow-xs flex-shrink-0">
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                      />
-                    </svg>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold text-neutral-800 dark:text-neutral-200 flex items-center gap-1 truncate">
-                      {t.googleAccount || 'Google Account'}
-                      <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
-                    </p>
-                    <p className="text-[10px] text-neutral-500">{t.googleVerifiedCreator}</p>
-                  </div>
-                </div>
-                {onOpenGoogleLogin && (
-                  <button
-                    onClick={onOpenGoogleLogin}
-                    className="text-[11px] font-semibold text-sky-600 dark:text-sky-400 hover:underline ml-2 whitespace-nowrap"
-                  >
-                    {t.manage}
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -706,44 +599,41 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* Creator Dashboard & Monetization Progress Card (Own Profile Only) */}
-      {isOwnProfile && (
-        <div className="mb-6">
-          <CreatorDashboardCard
-            user={user}
-            onOpenMonetizationView={() => {
-              if (onOpenMonetizationView) {
-                onOpenMonetizationView();
-              } else {
-                setShowMonetizationModal(true);
-              }
-            }}
-          />
-        </div>
-      )}
-
       {/* Profile Tabs Navigation */}
-      <div className="flex items-center justify-center gap-12 border-b border-neutral-200 dark:border-neutral-800 text-xs font-semibold tracking-wider uppercase mb-4">
+      <div className="flex items-center justify-center gap-6 sm:gap-12 border-b border-neutral-200 dark:border-neutral-800 text-xs font-semibold tracking-wider uppercase mb-4">
         <button
           id="profile-tab-posts"
           onClick={() => setActiveTab('posts')}
-          className={`flex items-center gap-1.5 py-3 border-t -mt-[1px] transition ${
+          className={`flex items-center gap-1.5 py-3 border-t -mt-[1px] transition cursor-pointer ${
             activeTab === 'posts'
-              ? 'border-neutral-900 dark:border-white text-neutral-900 dark:text-white'
+              ? 'border-neutral-900 dark:border-white text-neutral-900 dark:text-white font-bold'
               : 'border-transparent text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'
           }`}
         >
           <Grid className="w-4 h-4" />
-          <span>{t.posts}</span>
+          <span>{t.posts} ({safeResolvedPosts.length})</span>
+        </button>
+
+        <button
+          id="profile-tab-reels"
+          onClick={() => setActiveTab('reels')}
+          className={`flex items-center gap-1.5 py-3 border-t -mt-[1px] transition cursor-pointer ${
+            activeTab === 'reels'
+              ? 'border-rose-500 text-rose-500 dark:text-rose-400 font-bold'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'
+          }`}
+        >
+          <Film className="w-4 h-4 text-rose-500" />
+          <span>Videos Folder ({videoPosts.length})</span>
         </button>
 
         {isOwnProfile && (
           <button
             id="profile-tab-saved"
             onClick={() => setActiveTab('saved')}
-            className={`flex items-center gap-1.5 py-3 border-t -mt-[1px] transition ${
+            className={`flex items-center gap-1.5 py-3 border-t -mt-[1px] transition cursor-pointer ${
               activeTab === 'saved'
-                ? 'border-neutral-900 dark:border-white text-neutral-900 dark:text-white'
+                ? 'border-neutral-900 dark:border-white text-neutral-900 dark:text-white font-bold'
                 : 'border-transparent text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200'
             }`}
           >
@@ -774,15 +664,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="w-16 h-16 rounded-full border-2 border-dashed border-neutral-300 dark:border-neutral-700 flex items-center justify-center mx-auto mb-3">
             {activeTab === 'saved' ? (
               <Bookmark className="w-7 h-7 text-neutral-400" />
+            ) : activeTab === 'reels' ? (
+              <Film className="w-7 h-7 text-rose-500" />
             ) : (
               <Grid className="w-7 h-7 text-neutral-400" />
             )}
           </div>
           <h3 className="text-base font-semibold text-neutral-800 dark:text-neutral-200">
-            {activeTab === 'saved' ? t.noSavedPosts : 'Abhi koi reel ya post nahi hai'}
+            {activeTab === 'reels'
+              ? 'Is folder me abhi koi video nahi hai'
+              : activeTab === 'saved'
+              ? t.noSavedPosts
+              : 'Abhi koi reel ya post nahi hai'}
           </h3>
           <p className="text-xs text-neutral-500 mt-1 max-w-sm mx-auto">
-            {activeTab === 'saved'
+            {activeTab === 'reels'
+              ? 'Aapki ya is creator ki uploaded video reels yahan folder me dikhengi.'
+              : activeTab === 'saved'
               ? 'Save photos and videos that you want to see again. Only you can see what you’ve saved.'
               : 'Pehli reel ya photo post karein taaki wo aapki profile par dikhe.'}
           </p>
@@ -819,6 +717,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   <div className="absolute top-2 right-2 p-1 rounded-full bg-black/60 backdrop-blur-md text-white drop-shadow-md z-10 flex items-center justify-center">
                     <Film className="w-3.5 h-3.5 text-white" />
                   </div>
+                  {/* Private badge if post is private */}
+                  {(post.privacy === 'private' || post.isPrivate) && (
+                    <div className="absolute top-2 right-9 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Private</span>
+                    </div>
+                  )}
                   {/* Keep title visible on card preview */}
                   {post.caption && (
                     <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none">
@@ -842,6 +747,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     }`}
                     loading="lazy"
                   />
+                  {/* Private badge if post is private */}
+                  {(post.privacy === 'private' || post.isPrivate) && (
+                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Private</span>
+                    </div>
+                  )}
                 </div>
               )}
               {/* Hover Overlay */}
@@ -856,19 +768,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               </div>
 
-              {/* Direct Delete Post Button (Owner/SuperAdmin) */}
-              {onDeletePost && (isOwnProfile || isSuperAdmin(currentUser)) && isMatchingUser(post) && (
+              {/* Quick Privacy Toggle Button (Owner Only) */}
+              {onUpdatePostPrivacy && (isOwnProfile || isSuperAdmin(currentUser)) && isMatchingUser(post) && (
                 <button
-                  id={`profile-direct-delete-btn-${post.id}`}
+                  id={`profile-privacy-toggle-btn-${post.id}`}
                   type="button"
-                  title="Delete post permanently"
+                  title={
+                    post.privacy === 'private' || post.isPrivate
+                      ? 'Post is Private (Only you see it). Tap to make Public'
+                      : 'Post is Public. Tap to make Private'
+                  }
                   onClick={(e) => {
                     e.stopPropagation();
-                    setPostToDeleteConfirm(post);
+                    const nextPrivacy = post.privacy === 'private' || post.isPrivate ? 'public' : 'private';
+                    onUpdatePostPrivacy(post.id, nextPrivacy);
                   }}
-                  className="absolute top-2 left-2 z-20 p-1.5 rounded-full bg-rose-600/90 hover:bg-rose-700 text-white shadow-lg transition opacity-90 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
+                  className="absolute bottom-2 right-2 z-20 p-1.5 rounded-full bg-black/80 hover:bg-black text-white shadow-lg transition opacity-90 md:opacity-0 md:group-hover:opacity-100 cursor-pointer border border-white/20"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  {post.privacy === 'private' || post.isPrivate ? (
+                    <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  ) : (
+                    <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
                 </button>
               )}
             </div>
@@ -922,40 +843,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* UPI Shagun Creator Tipping Bottom Sheet */}
-      <UpiShagunSheet
-        isOpen={showShagunSheet}
-        onClose={() => setShowShagunSheet(false)}
-        creator={{
-          username: user?.username || '',
-          name: user?.name || user?.username || '',
-          avatar: user?.avatar || '',
-        }}
-        onTipSent={(amount, app, note) => {
-          setToastMsg(`Sent ₹${amount} Shagun to @${user?.username || ''} via ${app}! 🎁✨`);
-          setTimeout(() => setToastMsg(null), 4000);
-        }}
-      />
-
-      {/* Full Creator Monetization & UPI Payout Modal */}
-      {showMonetizationModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-4 sm:p-6 relative">
-            <button
-              onClick={() => setShowMonetizationModal(false)}
-              className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-neutral-900 dark:hover:text-white rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition z-10"
-              aria-label="Close monetization dashboard"
-            >
-              ✕
-            </button>
-            <CreatorMonetizationView
-              user={user}
-              onClose={() => setShowMonetizationModal(false)}
-            />
-          </div>
-        </div>
-      )}
-
       {/* Success Toast */}
       {toastMsg && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-neutral-900/95 text-white dark:bg-white dark:text-neutral-900 rounded-full shadow-2xl text-xs font-semibold flex items-center gap-2 border border-white/20 animate-in fade-in slide-in-from-bottom-2">
@@ -963,7 +850,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* Google Play Policy & Data Deletion Profile Footer */}
+      {/* Google Play Policy Profile Footer */}
       <footer className="pt-8 pb-14 text-center text-xs text-neutral-400 dark:text-neutral-500 border-t border-neutral-200 dark:border-neutral-800/80 mt-10 space-y-2">
         <div className="flex flex-wrap items-center justify-center gap-3 text-[11px]">
           {onOpenLegalPolicies && (
@@ -994,18 +881,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               >
                 UGC Guidelines
               </button>
-              <span>•</span>
             </>
-          )}
-          {onDeleteAccount && (
-            <button
-              type="button"
-              id="profile-footer-delete-account-btn"
-              onClick={onDeleteAccount}
-              className="text-rose-500 hover:text-rose-700 transition underline font-semibold cursor-pointer"
-            >
-              Delete Account & Data
-            </button>
           )}
         </div>
         <p className="text-[10px] text-neutral-400">

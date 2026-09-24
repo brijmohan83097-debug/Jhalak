@@ -24,6 +24,8 @@ import {
   ShoppingBag,
   Maximize2,
   Trash2,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import { Post, User, ContentCategory } from '../types';
 import { SupportedLanguage, translations } from '../translations';
@@ -47,6 +49,7 @@ interface FeedPostCardProps {
   onShare: (post: Post) => void;
   onOpenDetail: (post: Post) => void;
   onOpenFullScreen?: (post: Post) => void;
+  onOpenReel?: (post: Post) => void;
   onOpenComments?: (post: Post) => void;
   onViewUser: (username: string) => void;
   onNotInterested?: (postId: string, category?: ContentCategory) => void;
@@ -54,6 +57,7 @@ interface FeedPostCardProps {
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
   onDeletePost?: (postId: string) => void;
+  onUpdatePostPrivacy?: (postId: string, privacy: 'public' | 'private') => void;
   isFollowing?: boolean;
   onToggleFollow?: () => void;
   currentLanguage?: SupportedLanguage;
@@ -68,6 +72,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onShare,
   onOpenDetail,
   onOpenFullScreen,
+  onOpenReel,
   onOpenComments,
   onViewUser,
   onNotInterested,
@@ -75,6 +80,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onReportPost,
   onBlockUser,
   onDeletePost,
+  onUpdatePostPrivacy,
   isFollowing = false,
   onToggleFollow,
   currentLanguage = 'en',
@@ -96,8 +102,18 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaContainerRef = useRef<HTMLDivElement>(null);
   const lastTapTimeRef = useRef(0);
+  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // IntersectionObserver for autoplay on scroll
+  const isMutedRef = useRef(isMuted);
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+    if (videoRef.current) {
+      videoRef.current.defaultMuted = isMuted;
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
+
   useEffect(() => {
     if (post.mediaType !== 'video') return;
 
@@ -110,7 +126,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           const vid = videoRef.current;
           if (!vid) return;
           if (entry.isIntersecting && entry.intersectionRatio >= 0.35) {
-            vid.muted = isMuted;
+            vid.muted = isMutedRef.current;
             const playPromise = vid.play();
             if (playPromise !== undefined) {
               playPromise
@@ -135,14 +151,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     return () => {
       observer.disconnect();
     };
-  }, [post.mediaType, isMuted]);
-
-  // Sync mute state to video element
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = isMuted;
-    }
-  }, [isMuted]);
+  }, [post.mediaType]);
 
   // Track video watch time continuously for personalization & automatic Home Feed sorting
   const watchStartTimeRef = useRef<number | null>(null);
@@ -185,10 +194,14 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
   const handleMediaClick = (e: React.MouseEvent) => {
     const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300;
+    const DOUBLE_TAP_DELAY = 260;
 
     if (now - lastTapTimeRef.current < DOUBLE_TAP_DELAY) {
-      // Double tap triggered -> Like post
+      // Double tap triggered -> cancel pending single tap & Like post
+      if (tapTimeoutRef.current) {
+        clearTimeout(tapTimeoutRef.current);
+        tapTimeoutRef.current = null;
+      }
       if (!post.isLiked) {
         onToggleLike(post.id);
         recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
@@ -201,28 +214,24 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
     lastTapTimeRef.current = now;
 
-    // Video posts: Single tap toggles Play / Pause directly with momentary feedback
+    if (tapTimeoutRef.current) {
+      clearTimeout(tapTimeoutRef.current);
+      tapTimeoutRef.current = null;
+    }
+
+    // Video posts: When user taps anywhere on the video post, immediately open and redirect to full-screen ReelsView
     if (post.mediaType === 'video') {
-      const vid = videoRef.current;
-      if (vid) {
-        if (vid.paused) {
-          vid.play().then(() => {
-            setIsPlaying(true);
-            setShowPlayPauseIcon('play');
-          }).catch(() => {
-            vid.muted = true;
-            vid.play().then(() => {
-              setIsPlaying(true);
-              setShowPlayPauseIcon('play');
-            }).catch(() => {});
+      tapTimeoutRef.current = setTimeout(() => {
+        if (onOpenReel) {
+          onOpenReel(post);
+        } else if (onOpenFullScreen) {
+          onOpenFullScreen({
+            ...post,
+            mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
           });
-        } else {
-          vid.pause();
-          setIsPlaying(false);
-          setShowPlayPauseIcon('pause');
         }
-        setTimeout(() => setShowPlayPauseIcon(null), 650);
-      }
+        tapTimeoutRef.current = null;
+      }, 160);
       return;
     }
 
@@ -355,6 +364,15 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               <span className="text-xs text-neutral-500 dark:text-neutral-400">
                 {post.timestamp}
               </span>
+              {(post.privacy === 'private' || post.isPrivate) && (
+                <>
+                  <span className="text-neutral-400 dark:text-neutral-500 text-xs">•</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 rounded-full">
+                    <Lock className="w-2.5 h-2.5" />
+                    <span>Private</span>
+                  </span>
+                </>
+              )}
             </div>
 
             {post.location && (
@@ -424,13 +442,23 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           ) : (
             <>
               <video
-                ref={videoRef}
+                ref={(el) => {
+                  (videoRef as any).current = el;
+                  if (el) {
+                    el.defaultMuted = isMuted;
+                    el.muted = isMuted;
+                  }
+                }}
                 src={post.mediaUrl}
                 poster={post.thumbnailUrl}
+                autoPlay
                 loop
                 playsInline
+                webkit-playsinline="true"
                 muted={isMuted}
                 preload="metadata"
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
                 onError={() => {
                   setVideoError(true);
                 }}
@@ -443,15 +471,21 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               id={`feed-video-fullscreen-btn-${post.id}`}
               onClick={(e) => {
                 e.stopPropagation();
-                if (onOpenFullScreen) {
+                if (tapTimeoutRef.current) {
+                  clearTimeout(tapTimeoutRef.current);
+                  tapTimeoutRef.current = null;
+                }
+                if (onOpenReel) {
+                  onOpenReel(post);
+                } else if (onOpenFullScreen) {
                   onOpenFullScreen({
                     ...post,
                     mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
                   });
                 }
               }}
-              className="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[11px] font-medium transition cursor-pointer border border-white/20 active:scale-95"
-              title="Expand full screen"
+              className="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[11px] font-medium transition cursor-pointer border border-white/20 active:scale-95 shadow-md"
+              title="Watch full screen in Reels"
             >
               <Clapperboard className="w-3.5 h-3.5 text-amber-400" />
               <span>Watch Reel</span>
@@ -479,29 +513,55 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
             {/* Floating Mute / Unmute Button */}
             <button
+              type="button"
               id={`feed-mute-btn-${post.id}`}
               onClick={(e) => {
                 e.stopPropagation();
-                setIsMuted((prev) => !prev);
+                const nextMuted = !isMuted;
+                setIsMuted(nextMuted);
+                if (videoRef.current) {
+                  videoRef.current.defaultMuted = false;
+                  videoRef.current.muted = nextMuted;
+                  videoRef.current.volume = 1.0;
+                  if (!nextMuted && videoRef.current.paused) {
+                    videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                  }
+                }
               }}
               aria-label={isMuted ? 'Unmute post video' : 'Mute post video'}
-              className="absolute bottom-3 right-3 z-20 p-2 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white transition active:scale-95"
+              title={isMuted ? 'Tap to unmute' : 'Mute audio'}
+              className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/70 hover:bg-black/90 backdrop-blur-md text-white transition active:scale-95 border border-white/20 cursor-pointer shadow-lg"
             >
               {isMuted ? (
-                <VolumeX className="w-4 h-4 text-white/90" />
+                <>
+                  <VolumeX className="w-4 h-4 text-rose-400" />
+                  <span className="text-[11px] font-semibold tracking-wide">Unmute</span>
+                </>
               ) : (
-                <Volume2 className="w-4 h-4 text-emerald-400" />
+                <>
+                  <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
+                  <span className="text-[11px] font-semibold text-emerald-400 tracking-wide">Sound On</span>
+                </>
               )}
             </button>
 
-            {/* Play/Pause momentary badge */}
+            {/* Persistent Center Play Icon when Paused */}
+            {!isPlaying && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-xl transition-all">
+                  <Play className="w-7 h-7 fill-white ml-1 text-white" />
+                </div>
+              </div>
+            )}
+
+            {/* Play/Pause momentary badge feedback */}
             {showPlayPauseIcon && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white">
+                <div className="w-16 h-16 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-2xl animate-in zoom-in-75 duration-200">
                   {showPlayPauseIcon === 'play' ? (
-                    <Play className="w-6 h-6 fill-white ml-0.5" />
+                    <Play className="w-8 h-8 fill-white ml-0.5" />
                   ) : (
-                    <Pause className="w-6 h-6 fill-white" />
+                    <Pause className="w-8 h-8 fill-white" />
                   )}
                 </div>
               </div>
@@ -906,6 +966,52 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               </button>
 
               <div className="my-1 border-t border-neutral-100 dark:border-neutral-800" />
+
+              {/* Post Privacy Toggle (Owner Only) */}
+              {isOwner && onUpdatePostPrivacy && (
+                <button
+                  id={`post-privacy-toggle-btn-${post.id}`}
+                  onClick={() => {
+                    const nextPrivacy = post.privacy === 'private' || post.isPrivate ? 'public' : 'private';
+                    onUpdatePostPrivacy(post.id, nextPrivacy);
+                    setShowOptionsMenu(false);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left transition group cursor-pointer"
+                >
+                  <div
+                    className={`p-1.5 rounded-lg ${
+                      post.privacy === 'private' || post.isPrivate
+                        ? 'bg-amber-500/15 text-amber-500'
+                        : 'bg-emerald-500/15 text-emerald-500'
+                    } group-hover:scale-110 transition`}
+                  >
+                    {post.privacy === 'private' || post.isPrivate ? (
+                      <Lock className="w-4 h-4" />
+                    ) : (
+                      <Globe className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold">Post Privacy / प्राइवेसी</p>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          post.privacy === 'private' || post.isPrivate
+                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                            : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                        }`}
+                      >
+                        {post.privacy === 'private' || post.isPrivate ? '🔒 Private' : '🌐 Public'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-500">
+                      {post.privacy === 'private' || post.isPrivate
+                        ? 'Only visible to you. Tap to make Public'
+                        : 'Visible to everyone. Tap to make Private'}
+                    </p>
+                  </div>
+                </button>
+              )}
 
               {/* Delete Post for user's own post */}
               {isOwner && (

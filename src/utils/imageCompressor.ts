@@ -209,7 +209,10 @@ export async function generateVideoThumbnail(
       const video = document.createElement('video');
       video.muted = true;
       video.playsInline = true;
-      video.crossOrigin = 'anonymous';
+      // Only set crossOrigin for remote http/https URLs, never for blob: or local files
+      if (typeof source === 'string' && (source.startsWith('http://') || source.startsWith('https://'))) {
+        video.crossOrigin = 'anonymous';
+      }
       video.preload = 'auto';
 
       let objectUrl: string | null = null;
@@ -427,7 +430,6 @@ export async function compressVideoToBlob(
     const video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
-    video.crossOrigin = 'anonymous';
     const objectUrl = URL.createObjectURL(source);
     video.src = objectUrl;
 

@@ -28,6 +28,11 @@ import {
   Clapperboard,
   Trash2,
   RefreshCw,
+  ArrowLeft,
+  Share2,
+  Copy,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import { Reel, User } from '../types';
 import { SupportedLanguage, translations } from '../translations';
@@ -49,6 +54,8 @@ interface ReelsViewProps {
   reels: Reel[];
   currentUser: User;
   isActive?: boolean;
+  initialReelId?: string | null;
+  onBack?: () => void;
   onToggleLike: (reelId: string) => void;
   onToggleSave: (reelId: string) => void;
   onAddComment: (reelId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
@@ -58,6 +65,7 @@ interface ReelsViewProps {
   onReportReel?: (reel: Reel, reason: string) => void;
   onBlockUser?: (username: string) => void;
   onDeleteReel?: (reelId: string) => void;
+  onUpdatePostPrivacy?: (reelId: string, privacy: 'public' | 'private') => void;
   onUploadReel?: () => void;
   onRequireAuth?: (action: 'like' | 'comment' | 'upload' | 'profile') => void;
   onRefreshReels?: () => Promise<void> | void;
@@ -69,6 +77,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   reels: initialReels,
   currentUser,
   isActive = true,
+  initialReelId,
+  onBack,
   onToggleLike,
   onToggleSave,
   onAddComment,
@@ -78,6 +88,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   onReportReel,
   onBlockUser,
   onDeleteReel,
+  onUpdatePostPrivacy,
   onUploadReel,
   onRequireAuth,
   onRefreshReels,
@@ -88,6 +99,19 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     const unblocked = initialReels.filter(
       (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
     );
+    if (initialReelId) {
+      const cleanTarget = initialReelId.replace(/^reel-/, '');
+      const match = unblocked.find(
+        (r) =>
+          r.id === initialReelId ||
+          r.id === `reel-${initialReelId}` ||
+          (typeof r.id === 'string' && r.id.replace(/^reel-/, '') === cleanTarget)
+      );
+      if (match) {
+        const others = unblocked.filter((r) => r.id !== match.id);
+        return [match, ...recommendationEngine.getPersonalizedReelsQueue(others, 1)];
+      }
+    }
     const recQueue = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
     return recQueue;
   });
@@ -101,6 +125,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const [showCommentsDrawer, setShowCommentsDrawer] = useState(false);
   const [showAudioDetailSheet, setShowAudioDetailSheet] = useState(false);
   const [showWatermarkDownload, setShowWatermarkDownload] = useState(false);
+  const [shareModalReel, setShareModalReel] = useState<Reel | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const [showShagunSheet, setShowShagunSheet] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const [reportModalTarget, setReportModalTarget] = useState<{
@@ -160,15 +186,70 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
   // Re-synchronize queue if upstream initialReels length or content changes significantly
   useEffect(() => {
+    const unblocked = initialReels.filter(
+      (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
+    );
+    if (initialReelId) {
+      const cleanTarget = initialReelId.replace(/^reel-/, '');
+      const match = unblocked.find(
+        (r) =>
+          r.id === initialReelId ||
+          r.id === `reel-${initialReelId}` ||
+          (typeof r.id === 'string' && r.id.replace(/^reel-/, '') === cleanTarget)
+      );
+      if (match) {
+        const others = unblocked.filter((r) => r.id !== match.id);
+        const recQueue = recommendationEngine.getPersonalizedReelsQueue(others, 1);
+        setQueue([match, ...recQueue]);
+        setActiveIndex(0);
+        return;
+      }
+    }
     const firstReel = initialReels[0];
     if (firstReel && isNewlyCreated(firstReel)) {
       setActiveIndex(0);
     }
     setQueue(() => {
-      const recQueue = recommendationEngine.getPersonalizedReelsQueue(initialReels, 0);
+      const recQueue = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
       return recQueue;
     });
-  }, [initialReels]);
+  }, [initialReels, initialReelId]);
+
+  // Jump directly to requested reel and start playback smoothly
+  useEffect(() => {
+    if (!initialReelId || !isActive) return;
+    const cleanTarget = initialReelId.replace(/^reel-/, '');
+    const isTarget = (item: any) =>
+      item &&
+      (item.id === initialReelId ||
+        item.id === `reel-${initialReelId}` ||
+        (typeof item.id === 'string' && item.id.replace(/^reel-/, '') === cleanTarget));
+
+    const existingIdx = queue.findIndex(isTarget);
+    if (existingIdx !== -1) {
+      setActiveIndex(existingIdx);
+      setIsPlaying(true);
+      const timer = setTimeout(() => {
+        reelItemRefs.current[existingIdx]?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+        if (containerRef.current) {
+          containerRef.current.scrollTop = existingIdx * window.innerHeight;
+        }
+        const vid = videoRefs.current[existingIdx];
+        if (vid) {
+          vid.currentTime = 0;
+          vid.defaultMuted = false;
+          vid.muted = isMuted;
+          vid.volume = 1.0;
+          vid.play().catch(() => {
+            vid.muted = true;
+            setIsMuted(true);
+            vid.play().catch(() => {});
+          });
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [initialReelId, isActive, queue, isMuted]);
 
   const currentItem = queue[activeIndex] || queue[0] || initialReels[0];
   const isAdCurrent = adMobService.isAdItem(currentItem);
@@ -379,7 +460,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const handleVideoClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     const now = Date.now();
-    const DOUBLE_TAP_GAP = 220;
+    const DOUBLE_TAP_GAP = 260;
 
     if (now - lastTapTimeRef.current < DOUBLE_TAP_GAP) {
       // Double tap triggered -> cancel pending single tap & heart like reel
@@ -642,7 +723,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     <div
       ref={containerRef}
       id="reels-view-container"
-      className="h-screen w-full overflow-y-scroll snap-y snap-mandatory bg-black select-none no-scrollbar relative"
+      className="h-[100dvh] w-full overflow-y-scroll snap-y snap-mandatory bg-black select-none no-scrollbar relative"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -693,7 +774,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               key={item.id}
               data-index={index}
               ref={(el) => { reelItemRefs.current[index] = el; }}
-              className="h-screen w-full snap-start relative flex items-center justify-center bg-black overflow-hidden flex-shrink-0"
+              className="h-[100dvh] w-full snap-start relative flex items-center justify-center bg-black overflow-hidden flex-shrink-0"
             >
               <AdMobNativeReelAd
                 ad={item}
@@ -722,7 +803,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             key={reel.id}
             data-index={index}
             ref={(el) => { reelItemRefs.current[index] = el; }}
-            className="h-screen w-full snap-start relative flex items-center justify-center bg-black overflow-hidden flex-shrink-0 cursor-pointer"
+            className="h-[100dvh] w-full snap-start relative flex items-center justify-center bg-black overflow-hidden flex-shrink-0 cursor-pointer"
             onClick={handleVideoClick}
           >
             {/* Reel Media: Video or Image */}
@@ -738,13 +819,13 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 ref={(el) => {
                   videoRefs.current[index] = el;
                   if (el) {
-                    el.defaultMuted = false;
+                    el.defaultMuted = isMuted;
                     el.muted = isMuted;
                   }
                 }}
                 src={reel.videoUrl}
                 poster={reel.thumbnailUrl}
-                autoPlay={isCurrent}
+                autoPlay
                 loop
                 playsInline
                 webkit-playsinline="true"
@@ -761,13 +842,6 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   const vid = e.currentTarget;
                   vid.currentTime = 0;
                   vid.play().catch(() => {});
-                }}
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  if (!target.src.includes('trailer.mp4')) {
-                    target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
-                    target.play().catch(() => {});
-                  }
                 }}
                 className="w-full h-full object-cover pointer-events-none"
               />
@@ -795,6 +869,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               )}
             </AnimatePresence>
 
+            {/* Persistent Center Play Icon when Reel is Paused */}
+            {isCurrent && !isPlaying && !showPlayPauseIcon && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 animate-in zoom-in-90 duration-150">
+                <div className="w-20 h-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/25 shadow-2xl">
+                  <Play className="w-9 h-9 fill-white ml-1 text-white" />
+                </div>
+              </div>
+            )}
+
             {/* Momentary Play/Pause Icon Feedback on Tap */}
             <AnimatePresence>
               {isCurrent && showPlayPauseIcon && (
@@ -816,19 +899,39 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               )}
             </AnimatePresence>
 
-            {/* Top Bar on Reel: Title, Category pill, Audio status & 3-dot menu */}
-            <div className="absolute top-4 inset-x-4 flex items-center justify-between z-30 text-white">
+            {/* Top Bar on Reel: Title, Language badge, Category pill, Audio status & Refresh icons */}
+            <div className="absolute top-0 inset-x-0 pt-3 sm:pt-4 px-3 sm:px-4 flex items-center justify-between z-30 text-white pointer-events-auto">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg drop-shadow-md tracking-wide">
+                {onBack && (
+                  <button
+                    id={`reel-back-btn-${index}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onBack();
+                    }}
+                    className="p-2 -ml-1 rounded-full bg-black/40 hover:bg-black/70 backdrop-blur-md border border-white/20 text-white transition active:scale-95 cursor-pointer shadow-lg mr-0.5"
+                    aria-label="Back to feed"
+                    title="Back to feed"
+                  >
+                    <ArrowLeft className="w-5 h-5 text-white" />
+                  </button>
+                )}
+                <span className="font-extrabold text-lg sm:text-xl drop-shadow-md tracking-wide">
                   {t.reels}
                 </span>
+
+                {/* Language Badge */}
+                <span className="px-2 py-0.5 rounded-full bg-rose-600/80 backdrop-blur-md text-[10px] font-bold text-white uppercase tracking-wider border border-rose-400/40 shadow-sm">
+                  {reel.language ? reel.language.toUpperCase() : 'BHOJPURI'}
+                </span>
+
                 {reel.category && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowOptionsMenu(true);
                     }}
-                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md text-[11px] font-medium border border-white/20 transition cursor-pointer"
+                    className="hidden sm:flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md text-[11px] font-medium border border-white/20 transition cursor-pointer"
                     title="Tune your feed"
                   >
                     <Sparkles className="w-3 h-3 text-amber-300" />
@@ -851,7 +954,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       }
                     }}
                     disabled={isPullRefreshing || isRefreshing}
-                    className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
+                    className="p-2 sm:p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
                     aria-label="Refresh reels feed"
                     title="Refresh reels"
                   >
@@ -869,7 +972,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     e.stopPropagation();
                     toggleSoundAndPlay();
                   }}
-                  className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
+                  className="p-2 sm:p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white shadow-xl transition active:scale-95 flex items-center justify-center cursor-pointer"
                   aria-label={isMuted ? 'Unmute' : 'Mute'}
                   title={isMuted ? 'Unmute' : 'Mute'}
                 >
@@ -878,18 +981,6 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   ) : (
                     <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
                   )}
-                </button>
-
-                <button
-                  id={`reel-top-more-btn-${index}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowOptionsMenu(true);
-                  }}
-                  className="p-2 rounded-full bg-black/40 backdrop-blur-md hover:bg-black/60 transition"
-                  aria-label="Feed options"
-                >
-                  <MoreVertical className="w-4 h-4 text-white" />
                 </button>
               </div>
             </div>
@@ -949,6 +1040,13 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     <BadgeCheck className="w-4 h-4 text-sky-400 fill-sky-400 flex-shrink-0" />
                   )}
                 </button>
+
+                {(reel.privacy === 'private' || reel.isPrivate) && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-black/60 backdrop-blur-md border border-amber-400/40 px-2 py-0.5 rounded-full shadow-sm">
+                    <Lock className="w-2.5 h-2.5" />
+                    <span>Private</span>
+                  </span>
+                )}
 
                 {/* Follow / Following Toggle */}
                 <button
@@ -1015,7 +1113,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               </button>
             </div>
 
-            {/* Right Action Bar: Like, Comments, Share, WhatsApp, Save, Download, Shagun, 3-dot */}
+            {/* Right Action Bar: Clean essential buttons (Like, Comment, Share, More) + Audio Disc */}
             <div className="absolute bottom-16 md:bottom-4 right-3 z-30 flex flex-col items-center gap-3.5 text-white pointer-events-auto">
               {/* Like */}
               <button
@@ -1028,7 +1126,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   recommendationEngine.recordInteraction(cat, 'like', reel.id);
                   reorderUpcomingQueue();
                 }}
-                className="flex flex-col items-center group transition active:scale-125"
+                className="flex flex-col items-center group transition active:scale-125 cursor-pointer"
+                aria-label="Like reel"
+                title={reel.isLiked ? 'Unlike' : 'Like'}
               >
                 <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md group-hover:bg-black/60 transition">
                   <Heart
@@ -1055,7 +1155,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   }
                   setShowCommentsDrawer(true);
                 }}
-                className="flex flex-col items-center group transition active:scale-110"
+                className="flex flex-col items-center group transition active:scale-110 cursor-pointer"
+                aria-label="View comments"
+                title="Comments"
               >
                 <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md group-hover:bg-black/60 transition">
                   <MessageCircle className="w-6 h-6 text-white stroke-[2]" />
@@ -1065,15 +1167,17 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 </span>
               </button>
 
-              {/* Share */}
+              {/* Share (Opens dedicated bottom sheet with WhatsApp, Download, Copy Link, Native Share) */}
               <button
                 id={`reel-action-share-${index}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onShare(reel);
+                  setShareModalReel(reel);
                   recommendationEngine.recordInteraction(reel.category || 'Travel', 'share');
                 }}
-                className="flex flex-col items-center group transition active:scale-110"
+                className="flex flex-col items-center group transition active:scale-110 cursor-pointer"
+                aria-label="Share reel"
+                title="Share"
               >
                 <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md group-hover:bg-black/60 transition">
                   <Send className="w-6 h-6 text-white stroke-[2]" />
@@ -1081,99 +1185,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 <span className="text-[11px] font-semibold mt-0.5 drop-shadow-md">{t.share}</span>
               </button>
 
-              {/* Direct WhatsApp Share */}
-              <a
-                id={`reel-action-whatsapp-${index}`}
-                href={`https://api.whatsapp.com/send?text=${safeEncodeURIComponent(
-                  `Watch this Reel by @${reel.username} on Jhalak:\n"${reel.caption}"\n${typeof window !== 'undefined' ? window.location.href : ''}`
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                aria-label="Share Reel on WhatsApp"
-                title="Share on WhatsApp"
-                className="flex flex-col items-center group transition active:scale-110"
-              >
-                <div className="p-2.5 rounded-full bg-[#25D366]/20 backdrop-blur-md group-hover:bg-[#25D366]/35 group-hover:scale-110 border border-[#25D366]/40 transition">
-                  <div className="relative w-6 h-6 flex items-center justify-center">
-                    <MessageCircle className="w-6 h-6 text-[#25D366] fill-[#25D366] drop-shadow-[0_0_8px_rgba(37,211,102,0.8)]" />
-                    <Phone className="w-2.5 h-2.5 text-white fill-white absolute -rotate-12" />
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold mt-0.5 text-[#25D366] drop-shadow-md">
-                  WhatsApp
-                </span>
-              </a>
-
-              {/* Save */}
-              <button
-                id={`reel-action-save-${index}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleSave(reel.id);
-                  recommendationEngine.recordInteraction(reel.category || 'Travel', 'save');
-                }}
-                className="flex flex-col items-center group transition active:scale-110"
-                title={reel.isSaved ? 'Saved' : 'Save'}
-              >
-                <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md group-hover:bg-black/60 transition">
-                  <Bookmark
-                    className={`w-6 h-6 transition-colors ${
-                      reel.isSaved
-                        ? 'text-amber-400 fill-amber-400'
-                        : 'text-white stroke-[2]'
-                    }`}
-                  />
-                </div>
-              </button>
-
-              {/* Video Download */}
-              <button
-                id={`reel-action-download-${index}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowWatermarkDownload(true);
-                }}
-                className="flex flex-col items-center group transition active:scale-110 cursor-pointer"
-                aria-label="Download reel with watermark"
-                title="Download video"
-              >
-                <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md group-hover:bg-black/60 group-hover:scale-105 transition">
-                  <Download className="w-5 h-5 text-white group-hover:text-amber-400 transition-colors" />
-                </div>
-                <span className="text-[10px] font-semibold mt-0.5 text-white/90 drop-shadow-md">
-                  Save
-                </span>
-              </button>
-
-              {/* UPI Shagun */}
-              <button
-                id={`reel-action-shagun-${index}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowShagunSheet(true);
-                }}
-                className="flex flex-col items-center group transition active:scale-110 cursor-pointer"
-                aria-label="Send UPI Shagun Tip"
-                title="Send UPI Shagun tip to creator"
-              >
-                <div className="p-2.5 rounded-full bg-gradient-to-tr from-amber-500/80 to-rose-500/80 backdrop-blur-md group-hover:from-amber-500 group-hover:to-rose-500 group-hover:scale-105 shadow-md shadow-amber-500/20 transition">
-                  <Gift className="w-5 h-5 text-white animate-bounce [animation-duration:2.5s]" />
-                </div>
-                <span className="text-[10px] font-bold mt-0.5 text-amber-300 drop-shadow-md">
-                  Shagun
-                </span>
-              </button>
-
-              {/* 3-dot Options */}
+              {/* 3-dot More Options */}
               <button
                 id={`reel-action-more-${index}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowOptionsMenu(true);
                 }}
-                className="flex flex-col items-center group transition active:scale-110"
-                aria-label="Feed tuning options"
+                className="flex flex-col items-center group transition active:scale-110 cursor-pointer"
+                aria-label="More options"
                 title="Options"
               >
                 <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md group-hover:bg-black/60 transition">
@@ -1405,6 +1425,61 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
               <div className="my-1 border-t border-neutral-800/80" />
 
+              {/* Reel Privacy Toggle (Owner Only) */}
+              {isOwner && onUpdatePostPrivacy && (
+                <button
+                  id={`reel-privacy-toggle-btn-${currentReel.id}`}
+                  onClick={() => {
+                    const nextPrivacy =
+                      currentReel.privacy === 'private' || currentReel.isPrivate
+                        ? 'public'
+                        : 'private';
+                    onUpdatePostPrivacy(currentReel.id, nextPrivacy);
+                    setShowOptionsMenu(false);
+                    setToastMessage(
+                      nextPrivacy === 'private'
+                        ? '🔒 Reel privacy changed to Private (Only visible in your Videos folder)'
+                        : '🌐 Reel privacy changed to Public (Visible to everyone on feed)'
+                    );
+                    setTimeout(() => setToastMessage(null), 3500);
+                  }}
+                  className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-neutral-800/80 hover:bg-neutral-800 text-left transition group border border-neutral-700/60 cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`p-2 rounded-xl ${
+                        currentReel.privacy === 'private' || currentReel.isPrivate
+                          ? 'bg-amber-500/20 text-amber-400'
+                          : 'bg-emerald-500/20 text-emerald-400'
+                      } group-hover:scale-110 transition`}
+                    >
+                      {currentReel.privacy === 'private' || currentReel.isPrivate ? (
+                        <Lock className="w-5 h-5" />
+                      ) : (
+                        <Globe className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-white">Reel Privacy / प्राइवेसी</p>
+                      <p className="text-xs text-neutral-400">
+                        {currentReel.privacy === 'private' || currentReel.isPrivate
+                          ? 'Only visible to you. Tap to make Public'
+                          : 'Visible to all viewers. Tap to make Private'}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                      currentReel.privacy === 'private' || currentReel.isPrivate
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    }`}
+                  >
+                    {currentReel.privacy === 'private' || currentReel.isPrivate ? '🔒 Private' : '🌐 Public'}
+                  </span>
+                </button>
+              )}
+
               {/* Delete Post (Owner only) */}
               {isOwner && (
                 <button
@@ -1542,6 +1617,214 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           }}
         />
       )}
+
+      {/* Share Bottom Sheet / Modal: WhatsApp, Download Video, Copy Link, Native Web Share */}
+      <AnimatePresence>
+        {shareModalReel && (
+          <div
+            id="reel-share-modal-backdrop"
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4"
+            onClick={() => setShareModalReel(null)}
+          >
+            <motion.div
+              initial={{ y: '100%', opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: '100%', opacity: 0 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 300 }}
+              className="w-full max-w-sm bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl text-white pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Top Drag Handle on Mobile */}
+              <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
+                <div className="w-10 h-1 bg-neutral-700 rounded-full" />
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <Send className="w-4 h-4 text-rose-500" />
+                  <h3 className="font-bold text-sm text-white">Share Reel</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShareModalReel(null)}
+                  className="p-1 rounded-full text-neutral-400 hover:text-white hover:bg-neutral-800 transition cursor-pointer"
+                  aria-label="Close share menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Reel Preview Snippet */}
+              <div className="p-3 mx-4 my-3 rounded-xl bg-neutral-800/70 border border-neutral-700/60 flex items-center gap-3">
+                <div className="w-11 h-14 rounded-lg overflow-hidden bg-black flex-shrink-0 border border-neutral-700">
+                  {shareModalReel.thumbnailUrl ? (
+                    <img
+                      src={shareModalReel.thumbnailUrl}
+                      alt={shareModalReel.caption || 'Reel'}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-neutral-900">
+                      <Clapperboard className="w-5 h-5 text-neutral-500" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs font-semibold text-white block truncate">
+                    @{shareModalReel.username}
+                  </span>
+                  <p className="text-[11px] text-neutral-400 line-clamp-2 mt-0.5">
+                    {shareModalReel.caption || 'Watch this Reel on Jhalak!'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons: WhatsApp, Download Video, Copy Link, Native Share */}
+              <div className="px-4 pb-4 space-y-2">
+                {/* 1. Share to WhatsApp */}
+                <a
+                  id="reel-share-whatsapp-btn"
+                  href={`https://api.whatsapp.com/send?text=${safeEncodeURIComponent(
+                    `Watch this Reel by @${shareModalReel.username} on Jhalak:\n"${shareModalReel.caption}"\n${typeof window !== 'undefined' ? window.location.href : ''}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    setToastMessage('Opening WhatsApp...');
+                    setTimeout(() => setToastMessage(null), 2500);
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-[#25D366]/15 hover:bg-[#25D366]/25 border border-[#25D366]/40 text-white font-medium text-xs transition active:scale-[0.98] group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-[#25D366] flex items-center justify-center text-white flex-shrink-0 shadow-md">
+                      <MessageCircle className="w-4 h-4 fill-white text-white" />
+                    </div>
+                    <div className="text-left">
+                      <span className="block font-bold text-sm text-white group-hover:text-[#25D366] transition-colors">
+                        Share to WhatsApp
+                      </span>
+                      <span className="block text-[10px] text-neutral-400">
+                        Chat or WhatsApp Status
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-[#25D366] px-2 py-0.5 rounded-full bg-[#25D366]/10">
+                    Open ›
+                  </span>
+                </a>
+
+                {/* 2. Download Video */}
+                <button
+                  type="button"
+                  id="reel-share-download-btn"
+                  onClick={() => {
+                    setShareModalReel(null);
+                    setShowWatermarkDownload(true);
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/60 text-white font-medium text-xs transition active:scale-[0.98] group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-500 to-rose-500 flex items-center justify-center text-white flex-shrink-0 shadow-md">
+                      <Download className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="text-left">
+                      <span className="block font-bold text-sm text-white group-hover:text-amber-400 transition-colors">
+                        Download Video
+                      </span>
+                      <span className="block text-[10px] text-neutral-400">
+                        Save to device with Jhalak watermark
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-neutral-400 px-2 py-0.5 rounded-full bg-neutral-700/50">
+                    Save ›
+                  </span>
+                </button>
+
+                {/* 3. Copy Link */}
+                <button
+                  type="button"
+                  id="reel-share-copy-link-btn"
+                  onClick={() => {
+                    try {
+                      if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(window.location.href).catch(() => {});
+                      }
+                    } catch {}
+                    setShareCopied(true);
+                    setToastMessage('Link copied to clipboard! 📋');
+                    setTimeout(() => {
+                      setShareCopied(false);
+                      setToastMessage(null);
+                    }, 2500);
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/60 text-white font-medium text-xs transition active:scale-[0.98] group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white flex-shrink-0 shadow-md transition-colors ${shareCopied ? 'bg-emerald-500' : 'bg-sky-500'}`}>
+                      {shareCopied ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-white" />}
+                    </div>
+                    <div className="text-left">
+                      <span className="block font-bold text-sm text-white group-hover:text-sky-400 transition-colors">
+                        {shareCopied ? 'Link Copied!' : 'Copy Link'}
+                      </span>
+                      <span className="block text-[10px] text-neutral-400">
+                        {shareCopied ? 'Ready to paste anywhere' : 'Copy reel web link'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${shareCopied ? 'bg-emerald-500/20 text-emerald-400' : 'bg-neutral-700/50 text-neutral-400'}`}>
+                    {shareCopied ? 'Copied ✓' : 'Copy'}
+                  </span>
+                </button>
+
+                {/* 4. Native Web Share */}
+                <button
+                  type="button"
+                  id="reel-share-native-btn"
+                  onClick={() => {
+                    const shareData = {
+                      title: `Reel by @${shareModalReel.username} on Jhalak`,
+                      text: shareModalReel.caption || 'Watch this Reel on Jhalak!',
+                      url: window.location.href,
+                    };
+                    if (navigator.share) {
+                      navigator.share(shareData).catch(() => {});
+                    } else {
+                      try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                          navigator.clipboard.writeText(window.location.href).catch(() => {});
+                        }
+                      } catch {}
+                      setToastMessage('Link copied to clipboard! 📋');
+                      setTimeout(() => setToastMessage(null), 2500);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/60 text-white font-medium text-xs transition active:scale-[0.98] group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-neutral-700 flex items-center justify-center text-white flex-shrink-0 shadow-md">
+                      <Share2 className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="text-left">
+                      <span className="block font-bold text-sm text-white group-hover:text-neutral-200 transition-colors">
+                        More Share Options
+                      </span>
+                      <span className="block text-[10px] text-neutral-400">
+                        Instagram, Telegram, Messages & more
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-neutral-400 px-2 py-0.5 rounded-full bg-neutral-700/50">
+                    Share ›
+                  </span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Safety & Moderation (Report / Block) Modal */}
       <ReportModal

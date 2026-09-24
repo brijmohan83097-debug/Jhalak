@@ -17,6 +17,12 @@ import { SupportedLanguage, translations } from '../translations';
 import { User } from '../types';
 import { compressImage } from '../utils/imageCompressor';
 import {
+  compressVideo,
+  validateVideoFileSize,
+  formatBytes,
+  MAX_VIDEO_UPLOAD_SIZE_BYTES,
+} from '../utils/videoCompressor';
+import {
   uploadMediaToStorage,
   verifyFirebaseConfig,
   FirebaseDiagnosticStatus,
@@ -62,7 +68,20 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
   const [caption, setCaption] = useState('');
   const [urlInput, setUrlInput] = useState('');
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | Blob | null>(null);
+  const [videoCompression, setVideoCompression] = useState<{
+    isCompressing: boolean;
+    percent: number;
+    status: string;
+    originalSize: number;
+  } | null>(null);
+  const [videoAlert, setVideoAlert] = useState<{
+    title: string;
+    message: string;
+    details?: string;
+    type: 'error' | 'warning';
+  } | null>(null);
+  const compressionAbortRef = useRef<AbortController | null>(null);
   const [isTestingStorage, setIsTestingStorage] = useState(false);
   const [firebaseDiagnostics, setFirebaseDiagnostics] = useState<FirebaseDiagnosticStatus | null>(null);
   const [storageWarning, setStorageWarning] = useState<{
@@ -101,7 +120,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     if (!file) return;
 
     setStorageWarning(null);
-    setPendingFile(file);
+    setVideoAlert(null);
 
     const isVideo = file.type.startsWith('video');
     setMediaType(isVideo ? 'video' : 'image');
@@ -115,11 +134,80 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     }
 
     if (isVideo) {
-      // Direct in-memory session object URL; NEVER convert large video blobs to base64!
+      // 1. Initial size validation against 25MB limit
+      const validation = validateVideoFileSize(file, MAX_VIDEO_UPLOAD_SIZE_BYTES);
+      if (!validation.valid) {
+        setVideoAlert({
+          title: 'Video Exceeds 25MB Limit',
+          message: validation.error || `Selected video (${validation.sizeMB} MB) is too large for upload.`,
+          details: 'Maximum file size allowed is 25 MB. Please trim your video or choose a smaller clip.',
+          type: 'error',
+        });
+        return;
+      }
+
+      setPendingFile(file);
       const objUrl = URL.createObjectURL(file);
       activeObjectUrlRef.current = objUrl;
       setMediaUrl(objUrl);
+
+      // 2. Automatic client-side video compression to 720p with optimized bitrate
+      const abortCtrl = new AbortController();
+      compressionAbortRef.current = abortCtrl;
+      setVideoCompression({
+        isCompressing: true,
+        percent: 0,
+        status: 'Compressing story video to 720p...',
+        originalSize: file.size,
+      });
+
+      try {
+        const result = await compressVideo(file, {
+          maxDimension: 720,
+          targetBitrate: 2_000_000,
+          maxSizeBytes: MAX_VIDEO_UPLOAD_SIZE_BYTES,
+          signal: abortCtrl.signal,
+          onProgress: (p) => {
+            setVideoCompression((prev) =>
+              prev ? { ...prev, percent: p.percent, status: p.status } : null
+            );
+          },
+        });
+
+        setPendingFile(result.blob);
+        const compressedUrl = URL.createObjectURL(result.blob);
+        if (activeObjectUrlRef.current) {
+          try {
+            URL.revokeObjectURL(activeObjectUrlRef.current);
+          } catch {}
+        }
+        activeObjectUrlRef.current = compressedUrl;
+        setMediaUrl(compressedUrl);
+      } catch (compErr: any) {
+        console.warn('Story video compression notice:', compErr?.message);
+        if (file.size > MAX_VIDEO_UPLOAD_SIZE_BYTES) {
+          setVideoAlert({
+            title: 'Video Too Large (Max 25MB)',
+            message: `Compression failed and original video (${formatBytes(file.size)}) exceeds the 25MB upload limit.`,
+            details: 'Please choose a shorter or smaller video clip under 25MB.',
+            type: 'error',
+          });
+          setPendingFile(null);
+          setMediaUrl('');
+        } else {
+          setPendingFile(file);
+          setVideoAlert({
+            title: 'Compression Notice',
+            message: `Using original video (${formatBytes(file.size)}): ${compErr?.message || 'Compression skipped'}. File is within the 25MB limit.`,
+            type: 'warning',
+          });
+        }
+      } finally {
+        setVideoCompression(null);
+        compressionAbortRef.current = null;
+      }
     } else {
+      setPendingFile(file);
       try {
         // Automatically compress image for fast upload
         const compressed = await compressImage(file, 1080, 1080, 0.75);
@@ -169,6 +257,94 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-200"
     >
       <div className="relative w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 flex flex-col max-h-[90vh]">
+        {/* User Warning Alert Dialog if Video is Too Large or Compression Fails */}
+        {videoAlert && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-sm bg-neutral-900 border border-amber-500/50 rounded-2xl p-4 shadow-2xl text-white">
+              <div className="flex items-start gap-2.5 mb-3">
+                <div
+                  className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    videoAlert.type === 'error'
+                      ? 'bg-rose-500/20 border border-rose-500/40 text-rose-400'
+                      : 'bg-amber-500/20 border border-amber-500/40 text-amber-400'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <h4
+                    className={`text-sm font-bold flex items-center gap-1.5 ${
+                      videoAlert.type === 'error' ? 'text-rose-400' : 'text-amber-400'
+                    }`}
+                  >
+                    {videoAlert.title}
+                  </h4>
+                  <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                    {videoAlert.message}
+                  </p>
+                  {videoAlert.details && (
+                    <p className="text-[10px] text-neutral-400 mt-1.5 bg-neutral-950/80 p-2 rounded-lg border border-neutral-800">
+                      {videoAlert.details}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-end pt-2 border-t border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setVideoAlert(null)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-white transition active:scale-95 cursor-pointer"
+                >
+                  Understood
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Automatic 720p Video Compression Progress Indicator */}
+        {videoCompression && videoCompression.isCompressing && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-xs bg-neutral-900 border border-sky-500/40 rounded-2xl p-4 shadow-2xl text-white text-center">
+              <div className="w-10 h-10 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center mx-auto mb-2.5">
+                <Film className="w-5 h-5 text-sky-400 animate-pulse" />
+              </div>
+
+              <h4 className="text-xs font-bold text-white mb-0.5">
+                Optimizing Story Video to 720p
+              </h4>
+              <p className="text-[11px] text-neutral-400 mb-2.5">
+                Reducing resolution & bitrate for fast mobile streaming...
+              </p>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-neutral-800 rounded-full h-1.5 overflow-hidden mb-2">
+                <div
+                  className="bg-gradient-to-r from-sky-500 to-indigo-500 h-full transition-all duration-200"
+                  style={{ width: `${videoCompression.percent}%` }}
+                />
+              </div>
+
+              <div className="flex justify-between items-center text-[10px] text-neutral-400 mb-3 font-mono">
+                <span>{videoCompression.status}</span>
+                <span className="font-bold text-sky-400">{videoCompression.percent}%</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (compressionAbortRef.current) {
+                    compressionAbortRef.current.abort();
+                  }
+                }}
+                className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold px-2.5 py-1 rounded-lg hover:bg-neutral-800 transition cursor-pointer"
+              >
+                Cancel Compression
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Storage Warning Modal Banner if Bucket is Unreachable */}
         {storageWarning && (
           <div className="p-4 bg-amber-500/15 border-b border-amber-500/30 text-neutral-900 dark:text-white">

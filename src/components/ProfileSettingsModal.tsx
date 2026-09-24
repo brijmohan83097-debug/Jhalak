@@ -14,7 +14,6 @@ import {
   Lock,
   Sparkles,
   HelpCircle,
-  IndianRupee,
   FileText,
   Trash2,
   UserCog,
@@ -32,7 +31,6 @@ import {
 import { SupportedLanguage, SUPPORTED_LANGUAGES, translations } from '../translations';
 import { User } from '../types';
 import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
-import { CreatorMonetizationView } from './CreatorMonetizationView';
 import { AccountDeletionModal } from './AccountDeletionModal';
 import { verifyFirebaseConfig, FirebaseDiagnosticStatus } from '../services/firebase';
 import { purgeOfflineMediaStorage } from '../utils/persistentMediaStore';
@@ -56,7 +54,7 @@ interface ProfileSettingsModalProps {
   commentsCount?: number;
 }
 
-type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications' | 'monetization' | 'account' | 'firebase';
+type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications' | 'account' | 'firebase';
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   isOpen,
@@ -120,7 +118,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               {subView === 'language' && t.switchLanguage}
               {subView === 'privacy' && t.accountPrivacy}
               {subView === 'notifications' && t.notifications}
-              {subView === 'monetization' && 'Creator Monetization / कमाई'}
             </h2>
           </div>
 
@@ -157,31 +154,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   <span>{activeLangObj?.name}</span>
                 </div>
               </div>
-
-              {/* Creator Monetization / कमाई (Featured Section) */}
-              <button
-                id="settings-monetization-opt"
-                onClick={() => setSubView('monetization')}
-                className="w-full flex items-center justify-between p-3.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-emerald-500/10 to-transparent border border-amber-500/30 hover:border-amber-500/60 transition group text-left shadow-xs"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-emerald-500 text-neutral-950 flex items-center justify-center font-bold shadow-xs">
-                    <IndianRupee className="w-5 h-5 text-neutral-950" />
-                  </div>
-                  <div>
-                    <span className="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-                      Creator Monetization / कमाई
-                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.2 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                        Instant UPI
-                      </span>
-                    </span>
-                    <span className="text-xs text-neutral-500">
-                      Eligibility milestones, ₹ earnings & instant UPI payout
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-amber-600 dark:text-amber-400 group-hover:translate-x-0.5 transition-transform" />
-              </button>
 
               {/* 1. Edit Profile */}
               <button
@@ -662,11 +634,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 </button>
               </div>
             </div>
-          )}
-
-          {/* VIEW 5: Creator Monetization */}
-          {subView === 'monetization' && (
-            <CreatorMonetizationView currentUser={currentUser} />
           )}
 
           {/* VIEW 6: Account Settings & Data Deletion (Play Store Mandatory) */}

@@ -88,18 +88,19 @@ function sanitizeStoragePayload(val: string): string {
     return '';
   }
 
-  // Strip video base64 payloads and blob strings
-  if (val.includes('data:video/') || val.includes('data:application/octet-stream') || val.includes('"blob:http')) {
+  // Strip only massive video base64 payloads to protect quota (keep blob: and https: URLs intact)
+  if (val.includes('data:video/') || val.includes('data:application/octet-stream')) {
     try {
       if (val.startsWith('[') || val.startsWith('{')) {
         const parsed = JSON.parse(val);
         const stripVideoData = (item: any): any => {
           if (!item || typeof item !== 'object') return item;
-          if (typeof item.mediaUrl === 'string' && (item.mediaUrl.startsWith('data:video/') || item.mediaUrl.startsWith('blob:'))) {
-            item.mediaUrl = '';
+          // Only strip huge base64 video payloads (> 1000 chars), never blob: or https: URLs
+          if (typeof item.mediaUrl === 'string' && item.mediaUrl.startsWith('data:video/') && item.mediaUrl.length > 1000) {
+            item.mediaUrl = item.thumbnailUrl || '';
           }
-          if (typeof item.videoUrl === 'string' && (item.videoUrl.startsWith('data:video/') || item.videoUrl.startsWith('blob:'))) {
-            item.videoUrl = '';
+          if (typeof item.videoUrl === 'string' && item.videoUrl.startsWith('data:video/') && item.videoUrl.length > 1000) {
+            item.videoUrl = item.thumbnailUrl || '';
           }
           if (Array.isArray(item.stories)) {
             item.stories = item.stories.map(stripVideoData);

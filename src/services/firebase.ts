@@ -47,6 +47,7 @@ import {
 import rawConfig from '../../firebase-applet-config.json';
 import { Post, User, Comment, Conversation, Message } from '../types';
 import { ADMIN_EMAIL, isSuperAdmin } from '../constants/admin';
+import { getItemTimestamp } from './recommendationEngine';
 
 // Silence Firebase internal logs and connection retry noise completely
 try {
@@ -621,13 +622,29 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
       payload.dailyReelsCount = 0;
       payload.dailyPhotosCount = 0;
       payload.lastUploadDate = today;
-      payload.followersCount = 0;
-      payload.followingCount = 0;
-      payload.postsCount = 0;
-      payload.watchHours = 0;
+      payload.followersCount = userData.followersCount || 0;
+      payload.followingCount = userData.followingCount || 0;
+      payload.postsCount = userData.postsCount || 0;
+      payload.watchHours = userData.watchHours || 0;
       await setDoc(userRef, payload);
     } else {
       const data = existing.data();
+      // Preserve existing profile values if payload has empty/fallback defaults
+      if (!payload.bio && data.bio) payload.bio = data.bio;
+      if (!payload.website && data.website) payload.website = data.website;
+      if (data.avatar && (!payload.avatar || payload.avatar.includes('dicebear'))) payload.avatar = data.avatar;
+      if (data.name && (!payload.name || payload.name === 'User')) payload.name = data.name;
+      if (data.username && (!payload.username || payload.username.startsWith('user_'))) payload.username = data.username;
+      if (data.isVerified !== undefined && payload.isVerified === undefined) payload.isVerified = data.isVerified;
+      if (data.followersCount !== undefined && (payload.followersCount === undefined || payload.followersCount === 0)) {
+        payload.followersCount = data.followersCount;
+      }
+      if (data.followingCount !== undefined && (payload.followingCount === undefined || payload.followingCount === 0)) {
+        payload.followingCount = data.followingCount;
+      }
+      if (data.watchHours !== undefined && (payload.watchHours === undefined || payload.watchHours === 0)) {
+        payload.watchHours = data.watchHours;
+      }
       // Handle day rollover for daily counters
       if (data.lastUploadDate !== today) {
         payload.dailyReelsCount = 0;
@@ -646,23 +663,88 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
 }
 
 /**
- * Get user profile from Firestore /users/{userId}
+ * Get user profile from Firestore /users/{userId} with automatic email fallback lookup
+ * Guarantees restoring profile when app is deleted and reinstalled
  */
-export async function getUserProfile(userId: string): Promise<Partial<User> | null> {
-  const path = `users/${userId}`;
-  try {
-    const userRef = doc(db, 'users', userId);
-    const snap = await getDoc(userRef);
-    if (snap.exists()) {
-      return snap.data() as Partial<User>;
+export async function getUserProfile(userId: string, userEmail?: string): Promise<Partial<User> | null> {
+  const cleanId = (userId || '').trim();
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+
+  if (cleanId) {
+    const path = `users/${cleanId}`;
+    try {
+      const userRef = doc(db, 'users', cleanId);
+      const snap = await getDoc(userRef);
+      if (snap.exists()) {
+        return snap.data() as Partial<User>;
+      }
+    } catch (error) {
+      try {
+        handleFirestoreError(error, OperationType.GET, path);
+      } catch {}
     }
-    return null;
+  }
+
+  // Fallback: search by Firebase Auth email if userId document doesn't exist
+  if (cleanEmail) {
+    try {
+      const colRef = collection(db, 'users');
+      const q = query(colRef, where('email', '==', cleanEmail), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const found = snap.docs[0].data() as Partial<User>;
+        // Mirror to cleanId so subsequent lookups are fast
+        if (cleanId && snap.docs[0].id !== cleanId) {
+          await setDoc(
+            doc(db, 'users', cleanId),
+            {
+              ...found,
+              id: cleanId,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          ).catch(() => {});
+        }
+        return found;
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * Load all registered users & friends from Firestore /users
+ */
+export async function loadUsersFromFirestore(): Promise<User[]> {
+  const path = 'users';
+  try {
+    const colRef = collection(db, 'users');
+    const snap = await getDocs(colRef);
+    const users: User[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data) {
+        users.push({
+          id: data.id || docSnap.id,
+          username: data.username || docSnap.id,
+          name: data.name || data.username || 'User',
+          avatar: data.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400`,
+          bio: data.bio || '',
+          email: data.email || '',
+          followersCount: data.followersCount ?? 0,
+          followingCount: data.followingCount ?? 0,
+          postsCount: data.postsCount ?? 0,
+          isVerified: Boolean(data.isVerified),
+        });
+      }
+    });
+    return users;
   } catch (error) {
     try {
-      handleFirestoreError(error, OperationType.GET, path);
-    } catch {
-      return null;
-    }
+      handleFirestoreError(error, OperationType.LIST, path);
+    } catch {}
+    return [];
   }
 }
 
@@ -806,8 +888,18 @@ export async function savePostToFirestore(post: Post): Promise<void> {
     const postLikedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
     const mergedLikedBy = Array.from(new Set([...existingLikedBy, ...postLikedBy]));
 
+    // Strictly link post to Firebase Auth user ID and email
+    const fbAuthUser = auth.currentUser;
+    const finalUserId = (fbAuthUser?.uid || post.userId || '').trim();
+    const finalUserEmail = (fbAuthUser?.email || post.userEmail || '').trim().toLowerCase();
+    const finalPrivacy = post.privacy || (post.isPrivate ? 'private' : 'public');
+
     const rawData: Record<string, any> = {
       ...post,
+      userId: finalUserId || post.userId,
+      userEmail: finalUserEmail || post.userEmail || '',
+      privacy: finalPrivacy,
+      isPrivate: finalPrivacy === 'private',
       comments: mergedComments,
       commentsCount: mergedComments.length,
       likedBy: mergedLikedBy,
@@ -832,6 +924,84 @@ export async function savePostToFirestore(post: Post): Promise<void> {
 }
 
 /**
+ * Update Post Privacy (public <-> private) in Firestore /posts/{postId}
+ */
+export async function updatePostPrivacyInFirestore(
+  postId: string,
+  privacy: 'public' | 'private'
+): Promise<void> {
+  const path = `posts/${postId}`;
+  try {
+    const postRef = doc(db, 'posts', postId);
+    await updateDoc(postRef, {
+      privacy,
+      isPrivate: privacy === 'private',
+      updatedAtIso: new Date().toISOString(),
+    });
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    } catch {
+      // Fallback handled
+    }
+  }
+}
+
+/**
+ * Load all uploaded videos and posts strictly belonging to a user from Firestore
+ * Guarantees restoring all user posts and reels after app deletion and reinstall
+ */
+export async function loadUserPostsFromFirestore(
+  userId: string,
+  userEmail?: string,
+  username?: string
+): Promise<Post[]> {
+  const path = 'posts';
+  try {
+    const colRef = collection(db, 'posts');
+    const snapshot = await getDocs(colRef);
+    const targetUid = (userId || '').trim().toLowerCase();
+    const targetEmail = (userEmail || '').trim().toLowerCase();
+    const targetUsername = (username || '').replace(/^@/, '').trim().toLowerCase();
+
+    const userPosts: Post[] = [];
+    snapshot.forEach((docSnap) => {
+      const raw = docSnap.data();
+      if (raw) {
+        const pUserId = (raw.userId || '').trim().toLowerCase();
+        const pEmail = (raw.userEmail || '').trim().toLowerCase();
+        const pUsername = (raw.username || '').replace(/^@/, '').trim().toLowerCase();
+
+        const isMatch =
+          (targetUid && pUserId === targetUid) ||
+          (targetEmail && pEmail && targetEmail === pEmail) ||
+          (targetUsername && pUsername && targetUsername === targetUsername);
+
+        if (isMatch) {
+          const d: Post = {
+            ...(raw as any),
+            id: (raw.id && String(raw.id).trim().length > 0) ? String(raw.id) : docSnap.id,
+            comments: Array.isArray(raw.comments) ? raw.comments : [],
+            likedBy: Array.isArray(raw.likedBy) ? raw.likedBy : [],
+            privacy: raw.privacy || (raw.isPrivate ? 'private' : 'public'),
+            isPrivate: raw.isPrivate ?? raw.privacy === 'private',
+          };
+          userPosts.push(d);
+        }
+      }
+    });
+
+    userPosts.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
+    return userPosts;
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.LIST, path);
+    } catch {}
+    return [];
+  }
+}
+
+/**
  * Subscribe to real-time posts from Firestore /posts
  */
 export function subscribeToFirestorePosts(callback: (posts: Post[]) => void) {
@@ -843,8 +1013,12 @@ export function subscribeToFirestorePosts(callback: (posts: Post[]) => void) {
       (snapshot) => {
         const posts: Post[] = [];
         snapshot.forEach((docSnap) => {
-          const d = docSnap.data() as Post;
-          if (d && d.id) {
+          const raw = docSnap.data();
+          if (raw) {
+            const d: Post = {
+              ...(raw as any),
+              id: (raw.id && String(raw.id).trim().length > 0) ? String(raw.id) : docSnap.id,
+            };
             if (!Array.isArray(d.comments)) {
               d.comments = [];
             }
@@ -855,11 +1029,7 @@ export function subscribeToFirestorePosts(callback: (posts: Post[]) => void) {
           }
         });
         // Sort newest first
-        posts.sort((a, b) => {
-          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return timeB - timeA;
-        });
+        posts.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
         callback(posts);
       },
       () => {
@@ -881,8 +1051,12 @@ export async function loadPostsFromFirestore(): Promise<Post[]> {
     const snapshot = await getDocs(colRef);
     const posts: Post[] = [];
     snapshot.forEach((docSnap) => {
-      const d = docSnap.data() as Post;
-      if (d && d.id) {
+      const raw = docSnap.data();
+      if (raw) {
+        const d: Post = {
+          ...(raw as any),
+          id: (raw.id && String(raw.id).trim().length > 0) ? String(raw.id) : docSnap.id,
+        };
         if (!Array.isArray(d.comments)) {
           d.comments = [];
         }
@@ -892,11 +1066,7 @@ export async function loadPostsFromFirestore(): Promise<Post[]> {
         posts.push(d);
       }
     });
-    posts.sort((a, b) => {
-      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return timeB - timeA;
-    });
+    posts.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
     return posts;
   } catch (error) {
     try {
@@ -1224,6 +1394,12 @@ export async function uploadMediaToStorage(
   onProgress?: (percent: number) => void,
   mediaId?: string
 ): Promise<string> {
+  const MAX_LIMIT = 25 * 1024 * 1024;
+  if (fileOrBlob.size > MAX_LIMIT) {
+    const sizeMb = (fileOrBlob.size / (1024 * 1024)).toFixed(1);
+    throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 25 MB.`);
+  }
+
   const ext = fileOrBlob.type.includes('video') ? 'mp4' : 'jpg';
   const assignedId = mediaId || `${folder}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const fileName = `${folder}/${assignedId}.${ext}`;
