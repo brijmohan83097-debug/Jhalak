@@ -49,20 +49,24 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
     if (!video) return;
 
     if (isActive) {
-      video.currentTime = 0;
+      if (video.currentTime > 0.1) {
+        try {
+          video.currentTime = 0;
+        } catch {}
+      }
+      video.defaultMuted = isMuted;
       video.muted = isMuted;
       video
         .play()
         .then(() => setIsPlaying(true))
         .catch(() => {
           video.muted = true;
-          video.play().catch(() => setIsPlaying(false));
+          video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
         });
     } else {
       video.pause();
-      video.currentTime = 0;
     }
-  }, [isActive]);
+  }, [isActive, isMuted]);
 
   // Sync mute state
   useEffect(() => {
@@ -140,6 +144,15 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
         playsInline
         webkit-playsinline="true"
         muted={isMuted}
+        preload="auto"
+        onCanPlay={(e) => {
+          if (isActive) {
+            const vid = e.currentTarget;
+            if (vid.paused) {
+              vid.play().then(() => setIsPlaying(true)).catch(() => {});
+            }
+          }
+        }}
         onEnded={(e) => {
           const vid = e.currentTarget;
           vid.currentTime = 0;
@@ -147,9 +160,10 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
         }}
         onError={(e) => {
           const target = e.currentTarget;
-          if (!target.src.includes('trailer.mp4')) {
-            target.src = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
-            target.play().catch(() => {});
+          if (!target.src.includes('sample/ForBiggerBlazes')) {
+            target.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+            target.load();
+            target.play().then(() => setIsPlaying(true)).catch(() => {});
           }
         }}
         className="w-full h-full object-cover"

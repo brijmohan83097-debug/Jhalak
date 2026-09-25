@@ -158,10 +158,10 @@ export const storage = getStorage(
     : undefined
 );
 
-// Cap upload and operation retries to 2s to eliminate retry delays
+// Increase upload and operation retries to 120s to prevent premature timeouts during video uploads
 try {
-  storage.maxUploadRetryTime = 2000;
-  storage.maxOperationRetryTime = 2000;
+  storage.maxUploadRetryTime = 120000;
+  storage.maxOperationRetryTime = 120000;
 } catch {
   // safe fallback
 }
@@ -745,6 +745,44 @@ export async function loadUsersFromFirestore(): Promise<User[]> {
       handleFirestoreError(error, OperationType.LIST, path);
     } catch {}
     return [];
+  }
+}
+
+/**
+ * Subscribe to real-time updates for all registered users & friends from Firestore /users
+ */
+export function subscribeToFirestoreUsers(callback: (users: User[]) => void): () => void {
+  try {
+    const colRef = collection(db, 'users');
+    return onSnapshot(
+      colRef,
+      (snap) => {
+        const users: User[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data) {
+            users.push({
+              id: data.id || docSnap.id,
+              username: data.username || docSnap.id,
+              name: data.name || data.username || 'User',
+              avatar: data.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400`,
+              bio: data.bio || '',
+              email: data.email || '',
+              followersCount: data.followersCount ?? 0,
+              followingCount: data.followingCount ?? 0,
+              postsCount: data.postsCount ?? 0,
+              isVerified: Boolean(data.isVerified),
+            });
+          }
+        });
+        callback(users);
+      },
+      (err) => {
+        console.warn('[Firestore] Users real-time listener notice:', err.message);
+      }
+    );
+  } catch {
+    return () => {};
   }
 }
 
@@ -1394,22 +1432,45 @@ export async function uploadMediaToStorage(
   onProgress?: (percent: number) => void,
   mediaId?: string
 ): Promise<string> {
-  const MAX_LIMIT = 25 * 1024 * 1024;
+  const MAX_LIMIT = 35 * 1024 * 1024;
   if (fileOrBlob.size > MAX_LIMIT) {
     const sizeMb = (fileOrBlob.size / (1024 * 1024)).toFixed(1);
-    throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 25 MB.`);
+    throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 35 MB.`);
   }
 
   const ext = fileOrBlob.type.includes('video') ? 'mp4' : 'jpg';
   const assignedId = mediaId || `${folder}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const fileName = `${folder}/${assignedId}.${ext}`;
-  const fileRef = ref(storage, fileName);
 
+  // Resilient fallback: Upload directly to permanent streaming backend
+  const uploadViaServer = async (): Promise<string> => {
+    try {
+      const formData = new FormData();
+      formData.append('media', fileOrBlob, `${assignedId}.${ext}`);
+      const res = await fetch('/api/media/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          if (onProgress) onProgress(100);
+          return data.url;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Storage] Server fallback upload notice:', err?.message);
+    }
+    throw new Error('Cloud storage media upload failed.');
+  };
+
+  // Primary attempt: Upload to Firebase Cloud Storage
   return new Promise<string>((resolve, reject) => {
     let uploadTask: ReturnType<typeof uploadBytesResumable> | null = null;
     let finished = false;
 
     try {
+      const fileRef = ref(storage, fileName);
       const contentType = fileOrBlob.type || (ext === 'mp4' ? 'video/mp4' : 'image/jpeg');
       uploadTask = uploadBytesResumable(fileRef, fileOrBlob, { contentType });
 
@@ -1425,30 +1486,16 @@ export async function uploadMediaToStorage(
             }
           }
         },
-        (uploadError: any) => {
+        async (uploadError: any) => {
           if (finished) return;
           finished = true;
-
-          const code = uploadError?.code || 'unknown';
-          const is404 =
-            String(uploadError?.status_) === '404' ||
-            code === 'storage/bucket-not-found' ||
-            (uploadError?.serverResponse && uploadError.serverResponse.includes('404'));
-
-          let message = `Firebase Storage upload failed (${code}).`;
-          if (is404) {
-            message = `Firebase Storage bucket "${firebaseConfig.storageBucket}" was not found (404).`;
-          } else if (code === 'storage/unauthorized') {
-            message = `Firebase Storage permission denied (403).`;
-          } else {
-            message = `Firebase Storage notice (${code}: ${uploadError.message || 'error'}).`;
+          console.warn('[Firebase Storage] Primary upload notice, using persistent media server:', uploadError?.code || uploadError?.message);
+          try {
+            const serverUrl = await uploadViaServer();
+            resolve(serverUrl);
+          } catch (fallbackErr: any) {
+            reject(fallbackErr);
           }
-
-          const error = new Error(message);
-          (error as any).code = code;
-          (error as any).status = uploadError?.status_;
-          (error as any).bucket = firebaseConfig.storageBucket;
-          reject(error);
         },
         async () => {
           if (finished) return;
@@ -1459,22 +1506,23 @@ export async function uploadMediaToStorage(
             const downloadUrl = await getDownloadURL(uploadTask!.snapshot.ref);
             resolve(downloadUrl);
           } catch (urlErr: any) {
-            reject(
-              new Error(
-                `File uploaded to bucket "${firebaseConfig.storageBucket}" but public URL could not be retrieved: ${urlErr.message}`
-              )
-            );
+            console.warn('[Firebase Storage] URL fetch fallback to server:', urlErr?.message);
+            try {
+              const serverUrl = await uploadViaServer();
+              resolve(serverUrl);
+            } catch (fallbackErr: any) {
+              reject(fallbackErr);
+            }
           }
         }
       );
     } catch (initErr: any) {
       if (finished) return;
       finished = true;
-      reject(
-        new Error(
-          `Could not connect to Firebase Storage bucket "${firebaseConfig.storageBucket}": ${initErr.message}`
-        )
-      );
+      console.warn('[Firebase Storage] Init fallback to server:', initErr?.message);
+      uploadViaServer()
+        .then(resolve)
+        .catch(reject);
     }
   });
 }

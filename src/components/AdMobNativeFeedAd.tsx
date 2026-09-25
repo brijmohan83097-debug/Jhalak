@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Heart,
   Send,
@@ -12,6 +12,11 @@ import {
   Check,
   X,
   Star,
+  Volume2,
+  VolumeX,
+  Play,
+  Pause,
+  Loader2,
 } from 'lucide-react';
 import { AdMobNativeAd, ADMOB_CONFIG } from '../services/adMobService';
 
@@ -33,6 +38,58 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
   const [showMenu, setShowMenu] = useState(false);
   const [showAdInfo, setShowAdInfo] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Video Autoplay & IntersectionObserver states
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  const isVideo = ad.mediaType === 'video' || (ad.mediaUrl && ad.mediaUrl.includes('.mp4'));
+
+  // Auto-play when scrolled into view using IntersectionObserver
+  useEffect(() => {
+    if (!isVideo) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const video = videoRef.current;
+          if (!video) return;
+
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.4) {
+            video.muted = isMuted;
+            video
+              .play()
+              .then(() => {
+                setIsPlaying(true);
+                setIsBuffering(false);
+              })
+              .catch(() => {
+                video.muted = true;
+                video
+                  .play()
+                  .then(() => setIsPlaying(true))
+                  .catch(() => setIsPlaying(false));
+              });
+          } else {
+            video.pause();
+            setIsPlaying(false);
+          }
+        });
+      },
+      {
+        threshold: [0, 0.4, 0.8],
+      }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isVideo, isMuted]);
 
   useEffect(() => {
     try {
@@ -66,6 +123,18 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
       onAdClick(ad);
     } else {
       window.open(ad.destinationUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleVideoClick = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.paused) {
+      video.play().then(() => setIsPlaying(true)).catch(() => {});
+    } else {
+      video.pause();
+      setIsPlaying(false);
     }
   };
 
@@ -181,17 +250,95 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
         </div>
       </div>
 
-      {/* Ad Media Creative */}
+      {/* Ad Media Creative: Auto-playing Video Ad or High-Res Image */}
       <div
-        className="relative w-full aspect-square bg-neutral-100 dark:bg-neutral-900 cursor-pointer overflow-hidden group"
-        onClick={handleCtaClick}
+        ref={containerRef}
+        className="relative w-full aspect-square bg-neutral-950 cursor-pointer overflow-hidden group select-none flex items-center justify-center"
+        onClick={handleVideoClick}
       >
-        <img
-          src={ad.mediaUrl}
-          alt={ad.headline}
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
-        />
+        {isVideo ? (
+          <>
+            <video
+              ref={videoRef}
+              src={ad.mediaUrl}
+              poster={ad.posterUrl}
+              autoPlay
+              loop
+              playsInline
+              webkit-playsinline="true"
+              muted={isMuted}
+              preload="auto"
+              onCanPlay={(e) => {
+                const vid = e.currentTarget;
+                if (vid.paused) {
+                  vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                }
+              }}
+              onWaiting={() => setIsBuffering(true)}
+              onPlaying={() => {
+                setIsPlaying(true);
+                setIsBuffering(false);
+              }}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onError={(e) => {
+                const vid = e.currentTarget;
+                if (!vid.src.includes('sample/ForBiggerBlazes')) {
+                  vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+                  vid.load();
+                  vid.play().then(() => setIsPlaying(true)).catch(() => setVideoError(true));
+                } else {
+                  setVideoError(true);
+                }
+              }}
+              className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
+            />
+
+            {/* Buffering Indicator */}
+            {isBuffering && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                <div className="p-2.5 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/20">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                </div>
+              </div>
+            )}
+
+            {/* Video Controls: Mute/Unmute & Sponsored Video Badge */}
+            <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+              <button
+                type="button"
+                id={`ad-mute-btn-${ad.id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextMuted = !isMuted;
+                  setIsMuted(nextMuted);
+                  if (videoRef.current) {
+                    videoRef.current.muted = nextMuted;
+                    if (videoRef.current.paused) {
+                      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                    }
+                  }
+                  showToast(nextMuted ? '🔇 Video Muted' : '🔊 Video Unmuted');
+                }}
+                className="p-2 rounded-full bg-black/65 hover:bg-black/85 backdrop-blur-md text-white transition active:scale-95 shadow-md border border-white/20 cursor-pointer"
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+              </button>
+              <span className="px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-md text-white text-[10px] font-bold border border-white/20 tracking-wider uppercase flex items-center gap-1.5 shadow-md">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                Sponsored Video
+              </span>
+            </div>
+          </>
+        ) : (
+          <img
+            src={ad.mediaUrl}
+            alt={ad.headline}
+            referrerPolicy="no-referrer"
+            className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
+          />
+        )}
 
         {/* Floating Google AdChoices Tag */}
         <div
@@ -199,7 +346,7 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
             e.stopPropagation();
             setShowAdInfo(true);
           }}
-          className="absolute top-3 right-3 bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition"
+          className="absolute top-3 right-3 z-20 bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition border border-white/20"
           title="Google AdChoices"
         >
           <span className="text-blue-400 font-bold">AdChoices</span>
@@ -214,12 +361,15 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
         )}
 
         {/* Bottom Interactive CTA Strip on Media */}
-        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-center justify-between">
+        <div className="absolute inset-x-0 bottom-0 p-3 z-20 bg-gradient-to-t from-black/85 via-black/45 to-transparent flex items-center justify-between pointer-events-auto">
           <span className="text-white text-xs font-semibold drop-shadow-md truncate max-w-[70%]">
             {ad.headline}
           </span>
-          <span className="px-3 py-1 rounded-full bg-white text-neutral-900 text-xs font-bold shadow-md group-hover:bg-blue-600 group-hover:text-white transition flex items-center gap-1">
-            <span>Install</span>
+          <span
+            onClick={handleCtaClick}
+            className="px-3 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition flex items-center gap-1 cursor-pointer active:scale-95"
+          >
+            <span>{ad.callToAction}</span>
             <ExternalLink className="w-3 h-3 stroke-[2.5]" />
           </span>
         </div>

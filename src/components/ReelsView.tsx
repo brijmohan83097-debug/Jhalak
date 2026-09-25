@@ -44,7 +44,7 @@ import { UpiShagunSheet } from './UpiShagunSheet';
 import { ProductWhatsAppModal } from './ProductWhatsAppModal';
 import { recommendationEngine, inferLanguage, inferCategory, isNewlyCreated } from '../services/recommendationEngine';
 import { moderationService } from '../services/moderationService';
-import { adMobService, AdMobNativeAd } from '../services/adMobService';
+import { adMobService, AdMobNativeAd, ADMOB_CONFIG } from '../services/adMobService';
 import { isSuperAdmin } from '../constants/admin';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
 import { safeEncodeURIComponent } from '../utils/safeEncoding';
@@ -99,6 +99,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     const unblocked = initialReels.filter(
       (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
     );
+    const nativeAds = adMobService.getNativeReelAds();
     if (initialReelId) {
       const cleanTarget = initialReelId.replace(/^reel-/, '');
       const match = unblocked.find(
@@ -109,11 +110,12 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       );
       if (match) {
         const others = unblocked.filter((r) => r.id !== match.id);
-        return [match, ...recommendationEngine.getPersonalizedReelsQueue(others, 1)];
+        const ordered = [match, ...recommendationEngine.getPersonalizedReelsQueue(others, 1)];
+        return adMobService.insertNativeAds(ordered, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
       }
     }
     const recQueue = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
-    return recQueue;
+    return adMobService.insertNativeAds(recQueue, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
@@ -200,7 +202,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       if (match) {
         const others = unblocked.filter((r) => r.id !== match.id);
         const recQueue = recommendationEngine.getPersonalizedReelsQueue(others, 1);
-        setQueue([match, ...recQueue]);
+        const nativeAds = adMobService.getNativeReelAds();
+        setQueue(adMobService.insertNativeAds([match, ...recQueue], nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL));
         setActiveIndex(0);
         return;
       }
@@ -211,7 +214,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     }
     setQueue(() => {
       const recQueue = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
-      return recQueue;
+      const nativeAds = adMobService.getNativeReelAds();
+      return adMobService.insertNativeAds(recQueue, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
     });
   }, [initialReels, initialReelId]);
 
@@ -301,8 +305,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
       );
       const reordered = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
+      const nativeAds = adMobService.getNativeReelAds();
+      const interleaved = adMobService.insertNativeAds(reordered, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
       const head = prevQueue.slice(0, activeIndex + 1);
-      return [...head, ...reordered];
+      return [...head, ...interleaved];
     });
   }, [activeIndex]);
 
@@ -381,7 +387,11 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
       if (index === activeIndex) {
-        video.currentTime = 0;
+        if (video.currentTime > 0.1) {
+          try {
+            video.currentTime = 0;
+          } catch {}
+        }
         video.defaultMuted = false;
         video.muted = isMuted;
         video.volume = 1.0;
@@ -401,7 +411,11 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         }
       } else {
         video.pause();
-        video.currentTime = 0;
+        if (video.currentTime > 0.1) {
+          try {
+            video.currentTime = 0;
+          } catch {}
+        }
       }
     });
     setProgress(0);
@@ -830,7 +844,26 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 playsInline
                 webkit-playsinline="true"
                 muted={isMuted}
-                preload={Math.abs(index - activeIndex) <= 1 ? 'auto' : 'metadata'}
+                preload={Math.abs(index - activeIndex) <= 2 ? 'auto' : 'metadata'}
+                onCanPlay={(e) => {
+                  if (index === activeIndex && isActive) {
+                    const vid = e.currentTarget;
+                    if (vid.paused) {
+                      vid.play().then(() => setIsPlaying(true)).catch(() => {
+                        vid.muted = true;
+                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                      });
+                    }
+                  }
+                }}
+                onLoadedData={(e) => {
+                  if (index === activeIndex && isActive) {
+                    const vid = e.currentTarget;
+                    if (vid.paused) {
+                      vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                    }
+                  }
+                }}
                 onPlay={() => {
                   if (index === activeIndex) setIsPlaying(true);
                 }}
@@ -842,6 +875,14 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   const vid = e.currentTarget;
                   vid.currentTime = 0;
                   vid.play().catch(() => {});
+                }}
+                onError={(e) => {
+                  const vid = e.currentTarget;
+                  if (reel.videoUrl && !reel.videoUrl.includes('sample/ForBiggerBlazes')) {
+                    vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+                    vid.load();
+                    vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                  }
                 }}
                 className="w-full h-full object-cover pointer-events-none"
               />

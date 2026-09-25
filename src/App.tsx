@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { NavTab, Post, StoryGroup, User, Conversation, Comment, Message, Reel, ContentCategory } from './types';
 import {
   currentUser as initialCurrentUser,
@@ -9,7 +9,7 @@ import { StoriesBar } from './components/StoriesBar';
 import { FeedPostCard } from './components/FeedPostCard';
 import { AdMobBannerAd } from './components/AdMobBannerAd';
 import { AdMobNativeFeedAd } from './components/AdMobNativeFeedAd';
-import { adMobService } from './services/adMobService';
+import { adMobService, ADMOB_CONFIG } from './services/adMobService';
 import { StoryViewerModal } from './components/StoryViewerModal';
 import { CreatePostModal } from './components/CreatePostModal';
 import { ExploreView } from './components/ExploreView';
@@ -32,7 +32,7 @@ import { AccountDeletionModal } from './components/AccountDeletionModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
-import { CheckCircle, Plus, Search, ArrowLeft, Check, RefreshCw, BadgeCheck } from 'lucide-react';
+import { CheckCircle, Plus, Search, ArrowLeft, Check, RefreshCw, BadgeCheck, Bell, Sparkles, UserCheck } from 'lucide-react';
 import { SupportedLanguage, translations } from './translations';
 import { recommendationEngine, inferCategory, inferLanguage, getItemTimestamp } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
@@ -50,6 +50,7 @@ import {
 import {
   subscribeToAuthState,
   subscribeToFirestorePosts,
+  subscribeToFirestoreUsers,
   loadPostsFromFirestore,
   loadUsersFromFirestore,
   syncUserProfile,
@@ -371,6 +372,30 @@ export default function App() {
     }
   }, [currentUser?.id]);
 
+  // Home Feed Filter: 'all' (Personalized / For You) vs 'following' (Posts from followed friends)
+  const [homeFeedFilter, setHomeFeedFilter] = useState<'all' | 'following'>('all');
+
+  // Top Notification Alerts Unread Count
+  const [unreadAlertsCount, setUnreadAlertsCount] = useState<number>(3);
+
+  // Check if a given creator/friend is followed
+  const isUserFollowed = useCallback(
+    (targetUsername?: string, targetUserId?: string) => {
+      if (!targetUsername && !targetUserId) return false;
+      const clean = (targetUsername || '').toLowerCase().replace(/^@/, '').trim();
+      return Boolean(
+        (clean && followedUsers[clean]) ||
+        (clean && followedUsers[`@${clean}`]) ||
+        (targetUserId && followedUsers[targetUserId])
+      );
+    },
+    [followedUsers]
+  );
+
+  const followedFriendsCount = useMemo(() => {
+    return Object.keys(followedUsers).filter((k) => !k.startsWith('@') && followedUsers[k]).length;
+  }, [followedUsers]);
+
   const handleToggleFollow = (targetUsername: string, targetUserId?: string) => {
     if (!isAuthenticated) {
       setIsGoogleAuthModalOpen(true);
@@ -500,16 +525,19 @@ export default function App() {
           setIsAuthenticated(true);
           setIsGuestMode(false);
 
-          // If stored Firestore profile has legacy user_xxxx or lacks real Google avatar, sync with real data
-          if (realDisplayName && (profile?.username?.startsWith('user_') || profile?.username?.startsWith('creator_') || !profile?.avatar || fbUser.photoURL)) {
-            syncUserProfile({
-              id: fbUser.uid,
-              name: rawName,
-              username: cleanUsername,
-              avatar: avatar,
-              email: email,
-            }).catch(() => {});
-          }
+          // Always ensure the user profile is synced to Cloud Firestore /users/{uid} so they appear globally for all users
+          syncUserProfile({
+            id: fbUser.uid,
+            name: rawName,
+            username: cleanUsername,
+            avatar: avatar,
+            email: email,
+            followersCount: profile?.followersCount ?? 0,
+            followingCount: profile?.followingCount ?? 0,
+            postsCount: profile?.postsCount ?? 0,
+            watchHours: profile?.watchHours ?? 0,
+            isVerified: profile?.isVerified ?? false,
+          }).catch(() => {});
         } catch {
           // Handled
         }
@@ -530,9 +558,17 @@ export default function App() {
       syncPostsAndReels(livePosts);
     });
 
+    // 4. Subscribe to Real-Time Cloud Firestore Users & Friends
+    const unsubscribeUsers = subscribeToFirestoreUsers((liveUsers) => {
+      if (liveUsers && liveUsers.length > 0) {
+        setSearchableUsers(liveUsers);
+      }
+    });
+
     return () => {
       if (unsubscribeAuth) unsubscribeAuth();
       if (unsubscribePosts) unsubscribePosts();
+      if (unsubscribeUsers) unsubscribeUsers();
     };
   }, []);
 
@@ -1183,7 +1219,7 @@ export default function App() {
     }
   };
 
-  // Sort Feed Posts automatically based on Watch-Time, Language Engagement, and Moderation Filters
+  // Sort Feed Posts automatically based on Watch-Time, Followed Friends, Language Engagement, and Moderation Filters
   const sortedFeedPosts = useMemo(() => {
     const cleanPosts = posts.filter((p) => {
       if (moderationService.isUserBlocked(p.username) || moderationService.isItemReported(p.id)) {
@@ -1202,13 +1238,61 @@ export default function App() {
       }
       return true;
     });
-    return recommendationEngine.sortPosts(cleanPosts, currentLanguage);
-  }, [posts, currentUser, blockedVersion, currentLanguage, recsVersion]);
 
-  // Interleave Google AdMob / AdSense Native Ads (Unit ca-app-pub-7598643408736998/9251607358) between feed posts
+    // 1. "Following" feed: strictly show posts from followed friends or currentUser
+    if (homeFeedFilter === 'following') {
+      const followingPosts = cleanPosts.filter((p) => {
+        const isSelf =
+          (currentUser?.id && p.userId && currentUser.id === p.userId) ||
+          (currentUser?.username && p.username &&
+            currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+              p.username.toLowerCase().replace(/^@/, '').trim());
+        return isSelf || isUserFollowed(p.username, p.userId);
+      });
+      return recommendationEngine.sortPosts(followingPosts, currentLanguage);
+    }
+
+    // 2. "For You" (all) feed: sort with recommendation engine, while prioritizing posts from followed friends at the top
+    const recSorted = recommendationEngine.sortPosts(cleanPosts, currentLanguage);
+    const followedList: Post[] = [];
+    const restList: Post[] = [];
+
+    recSorted.forEach((p) => {
+      if (isUserFollowed(p.username, p.userId)) {
+        followedList.push(p);
+      } else {
+        restList.push(p);
+      }
+    });
+
+    if (followedList.length > 0) {
+      const merged: Post[] = [];
+      let fIndex = 0;
+      let rIndex = 0;
+
+      // Start with a post from a followed friend
+      if (fIndex < followedList.length) {
+        merged.push(followedList[fIndex++]);
+      }
+
+      while (fIndex < followedList.length || rIndex < restList.length) {
+        for (let i = 0; i < 2 && rIndex < restList.length; i++) {
+          merged.push(restList[rIndex++]);
+        }
+        if (fIndex < followedList.length) {
+          merged.push(followedList[fIndex++]);
+        }
+      }
+      return merged;
+    }
+
+    return recSorted;
+  }, [posts, currentUser, blockedVersion, currentLanguage, recsVersion, homeFeedFilter, isUserFollowed]);
+
+  // Interleave Google AdMob / AdSense Native Video Ads between feed posts (rotating every 3-4 posts)
   const feedItemsWithAds = useMemo(() => {
     const nativeAds = adMobService.getNativeFeedAds();
-    return adMobService.insertNativeAds(sortedFeedPosts, nativeAds, 2);
+    return adMobService.insertNativeAds(sortedFeedPosts, nativeAds, ADMOB_CONFIG.FEED_AD_INTERVAL);
   }, [sortedFeedPosts, blockedVersion]);
 
   // Comprehensive searchable users list (friends from Firestore + creators from posts & reels)
@@ -1264,15 +1348,36 @@ export default function App() {
     return Array.from(map.values());
   }, [currentUser, searchableUsers, posts, reels]);
 
-  // Derive real suggested creators from posts (no mock users)
+  // Derive real suggested creators & friends from registered users & posts (no mock users)
   const suggestedCreators = useMemo(() => {
     const creatorMap = new Map<
       string,
       { id: string; username: string; name?: string; avatar: string; subtitle?: string }
     >();
+
+    const currentClean = (currentUser?.username || '').toLowerCase().replace(/^@/, '').trim();
+
+    // 1. Primary: Display registered users from Cloud Firestore
+    (searchableUsers || []).forEach((u) => {
+      const uname = (u.username || '').toLowerCase().replace(/^@/, '').trim();
+      if (!uname || uname === currentClean) return;
+      if (!creatorMap.has(uname)) {
+        creatorMap.set(uname, {
+          id: u.id || uname,
+          username: u.username,
+          name: u.name || u.username,
+          avatar: u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          subtitle: u.followersCount ? `${u.followersCount} followers` : 'Friend on Jhalak',
+        });
+      }
+    });
+
+    // 2. Creators from posts & reels
     posts.forEach((p) => {
-      if (p.username && p.username !== currentUser.username && !creatorMap.has(p.username)) {
-        creatorMap.set(p.username, {
+      const uname = (p.username || '').toLowerCase().replace(/^@/, '').trim();
+      if (!uname || uname === currentClean) return;
+      if (!creatorMap.has(uname)) {
+        creatorMap.set(uname, {
           id: p.userId || p.username,
           username: p.username,
           name: p.username,
@@ -1281,8 +1386,9 @@ export default function App() {
         });
       }
     });
-    return Array.from(creatorMap.values()).slice(0, 5);
-  }, [posts, currentUser.username]);
+
+    return Array.from(creatorMap.values()).slice(0, 10);
+  }, [searchableUsers, posts, currentUser.username]);
 
   // Clean Reels filtered against Blocked creators, Reported content, and Private reels
   const unblockedReels = useMemo(() => {
@@ -2766,10 +2872,14 @@ export default function App() {
           onTabChange={handleTabChange}
           currentUser={currentUser}
           unreadMessagesCount={totalUnreadMessages}
+          unreadAlertsCount={unreadAlertsCount}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
           onOpenCreateModal={handleOpenCreateModal}
-          onOpenNotifications={() => setIsNotificationsModalOpen(true)}
+          onOpenNotifications={() => {
+            setIsNotificationsModalOpen(true);
+            setUnreadAlertsCount(0);
+          }}
           onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
           onOpenLegalPolicies={() => {
@@ -2796,10 +2906,14 @@ export default function App() {
               onTabChange={handleTabChange}
               currentUser={currentUser}
               unreadMessagesCount={totalUnreadMessages}
+              unreadAlertsCount={unreadAlertsCount}
               darkMode={darkMode}
               onToggleDarkMode={() => setDarkMode((d) => !d)}
               onOpenCreateModal={handleOpenCreateModal}
-              onShowNotifications={() => setIsNotificationsModalOpen(true)}
+              onShowNotifications={() => {
+                setIsNotificationsModalOpen(true);
+                setUnreadAlertsCount(0);
+              }}
               onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
               onOpenLegalPolicies={() => {
@@ -2832,31 +2946,100 @@ export default function App() {
             >
               {/* Feed Column */}
               <div className="w-full max-w-[470px] sm:max-w-[540px] flex flex-col">
+                {/* Home Feed Mode Switcher: "For You" vs "Following" */}
+                <div className="flex items-center justify-between px-3 sm:px-1 pt-1.5 pb-1 select-none">
+                  <div className="flex items-center gap-1.5 p-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/70 dark:border-neutral-700/60 shadow-xs">
+                    <button
+                      id="feed-tab-all-btn"
+                      type="button"
+                      onClick={() => setHomeFeedFilter('all')}
+                      className={`px-3.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        homeFeedFilter === 'all'
+                          ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-xs'
+                          : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>For You</span>
+                    </button>
+
+                    <button
+                      id="feed-tab-following-btn"
+                      type="button"
+                      onClick={() => setHomeFeedFilter('following')}
+                      className={`px-3.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        homeFeedFilter === 'following'
+                          ? 'bg-neutral-900 text-white dark:bg-white dark:text-black shadow-xs'
+                          : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Following</span>
+                      {followedFriendsCount > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-500 font-extrabold">
+                          {followedFriendsCount}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  <span className="text-[11px] font-semibold text-neutral-400 hidden sm:inline-flex items-center gap-1">
+                    {homeFeedFilter === 'following'
+                      ? 'Showing posts from followed friends'
+                      : 'Personalized For You'}
+                  </span>
+                </div>
+
                 {/* Posts Feed */}
                 <div className="mt-2 md:mt-4 space-y-2">
                   {sortedFeedPosts.length === 0 ? (
-                    <div
-                      id="feed-empty-state"
-                      className="flex flex-col items-center justify-center p-8 py-14 text-center bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl my-3 shadow-xs"
-                    >
-                      <div className="w-16 h-16 rounded-full bg-neutral-100 dark:bg-neutral-800/90 flex items-center justify-center mb-4 text-neutral-400">
-                        <Plus className="w-8 h-8 text-neutral-400 stroke-[1.8]" />
-                      </div>
-                      <h3 className="text-base font-bold text-neutral-900 dark:text-white mb-1.5">
-                        Abhi koi reel ya post nahi hai. Pehli post karein!
-                      </h3>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
-                        Database me abhi koi posts nahi hain. Niche diye gaye button par click karke apni pehli photo ya video upload karein!
-                      </p>
-                      <button
-                        id="empty-feed-create-post-btn"
-                        onClick={handleOpenCreateModal}
-                        className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
+                    homeFeedFilter === 'following' ? (
+                      <div
+                        id="feed-following-empty-state"
+                        className="flex flex-col items-center justify-center p-8 py-14 text-center bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl my-3 shadow-xs"
                       >
-                        <Plus className="w-4 h-4 stroke-[3]" />
-                        <span>Upload First Post</span>
-                      </button>
-                    </div>
+                        <div className="w-16 h-16 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mb-4 border border-rose-200 dark:border-rose-900/60 shadow-xs">
+                          <UserCheck className="w-8 h-8 stroke-[1.8]" />
+                        </div>
+                        <h3 className="text-base font-bold text-neutral-900 dark:text-white mb-1.5">
+                          Followed friends ki koi nayi post nahi mili
+                        </h3>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
+                          Aap jin creators aur dosto ko follow karte hain unke posts yahan dikhenge.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setHomeFeedFilter('all')}
+                          className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>Browse "For You" Feed</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        id="feed-empty-state"
+                        className="flex flex-col items-center justify-center p-8 py-14 text-center bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl my-3 shadow-xs"
+                      >
+                        <div className="w-16 h-16 rounded-full bg-neutral-100 dark:bg-neutral-800/90 flex items-center justify-center mb-4 text-neutral-400">
+                          <Plus className="w-8 h-8 text-neutral-400 stroke-[1.8]" />
+                        </div>
+                        <h3 className="text-base font-bold text-neutral-900 dark:text-white mb-1.5">
+                          Abhi koi reel ya post nahi hai. Pehli post karein!
+                        </h3>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
+                          Database me abhi koi posts nahi hain. Niche diye gaye button par click karke apni pehli photo ya video upload karein!
+                        </p>
+                        <button
+                          id="empty-feed-create-post-btn"
+                          onClick={handleOpenCreateModal}
+                          className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4 stroke-[3]" />
+                          <span>Upload First Post</span>
+                        </button>
+                      </div>
+                    )
                   ) : (
                     feedItemsWithAds.map((item) => {
                       if (adMobService.isAdItem(item)) {
@@ -3375,6 +3558,10 @@ export default function App() {
       <NotificationsModal
         isOpen={isNotificationsModalOpen}
         onClose={() => setIsNotificationsModalOpen(false)}
+        unreadCount={unreadAlertsCount}
+        onMarkAllAsRead={() => setUnreadAlertsCount(0)}
+        onSelectUser={(u) => handleViewUser(u)}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
       />
 
       {/* MODAL 13: Admin Moderation Dashboard (Auto-flagged & Multi-Report Queue, Super Admin strictly for Brijmohan83097@gmail.com) */}

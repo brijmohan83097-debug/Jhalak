@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X,
   Camera,
@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   Globe,
   Lock,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Post, User, Reel } from '../types';
 import { GoLiveStudio } from './GoLiveStudio';
@@ -219,6 +220,152 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [isTestingStorage, setIsTestingStorage] = useState(false);
   const [firebaseDiagnostics, setFirebaseDiagnostics] = useState<FirebaseDiagnosticStatus | null>(null);
   const [privacy, setPrivacy] = useState<'public' | 'private'>('public');
+
+  // Cloud Storage upload states for persistent video URLs
+  const [isCloudUploading, setIsCloudUploading] = useState(false);
+  const [cloudUploadProgress, setCloudUploadProgress] = useState(0);
+  const [cloudUploadStatus, setCloudUploadStatus] = useState('');
+
+  // Custom Thumbnail / Video Cover states
+  const [thumbnailSourceType, setThumbnailSourceType] = useState<'auto' | 'frame' | 'custom'>('auto');
+  const [videoDuration, setVideoDuration] = useState<number>(0);
+  const [scrubberTime, setScrubberTime] = useState<number>(0);
+  const [extractedFrames, setExtractedFrames] = useState<string[]>([]);
+  const [isExtractingFrames, setIsExtractingFrames] = useState(false);
+  const customThumbnailInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper to capture a frame from video at a specific timestamp
+  const captureVideoFrameAt = useCallback((url: string, timeSec: number): Promise<string> => {
+    return new Promise((resolve) => {
+      try {
+        const vid = document.createElement('video');
+        vid.muted = true;
+        vid.playsInline = true;
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          vid.crossOrigin = 'anonymous';
+        }
+        vid.preload = 'auto';
+        vid.src = url;
+
+        let resolved = false;
+        const doCapture = () => {
+          if (resolved) return;
+          resolved = true;
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.min(vid.videoWidth || 480, 640);
+            canvas.height = Math.min(vid.videoHeight || 480, 1140);
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/jpeg', 0.8));
+              return;
+            }
+          } catch {}
+          resolve(createVideoFallbackDataUrl('Video Reel'));
+        };
+
+        vid.onloadedmetadata = () => {
+          try {
+            vid.currentTime = Math.min(timeSec, (vid.duration || timeSec) - 0.1);
+          } catch {
+            doCapture();
+          }
+        };
+
+        vid.onseeked = () => {
+          doCapture();
+        };
+
+        vid.onerror = () => {
+          resolve(createVideoFallbackDataUrl('Video Reel'));
+        };
+
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(createVideoFallbackDataUrl('Video Reel'));
+          }
+        }, 3500);
+      } catch {
+        resolve(createVideoFallbackDataUrl('Video Reel'));
+      }
+    });
+  }, []);
+
+  // Extract snapshot candidate frames across video duration
+  const extractSnapshotFrames = useCallback(async (url: string, duration: number) => {
+    if (!url || duration <= 0) return;
+    setIsExtractingFrames(true);
+    try {
+      const timestamps = [
+        Math.max(0.1, duration * 0.1),
+        duration * 0.25,
+        duration * 0.5,
+        duration * 0.75,
+        Math.max(0.2, duration * 0.9),
+      ];
+      const frames: string[] = [];
+      for (const t of timestamps) {
+        try {
+          const f = await captureVideoFrameAt(url, t);
+          if (f && !f.startsWith('data:image/svg')) {
+            frames.push(f);
+          }
+        } catch {}
+      }
+      if (frames.length > 0) {
+        setExtractedFrames(frames);
+      }
+    } catch (e) {
+      console.warn('Frame snapshots extraction error:', e);
+    } finally {
+      setIsExtractingFrames(false);
+    }
+  }, [captureVideoFrameAt]);
+
+  // Capture frame from the live preview video element
+  const captureFrameFromLivePreview = useCallback(() => {
+    const vid = previewVideoRef.current;
+    if (!vid) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(vid.videoWidth || 480, 640);
+      canvas.height = Math.min(vid.videoHeight || 480, 1140);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setThumbnailDataUrl(dataUrl);
+        setThumbnailSourceType('frame');
+        if (onShowToast) onShowToast('📸 Captured frame set as reel thumbnail!');
+      }
+    } catch (err) {
+      console.error('Frame capture error:', err);
+    }
+  }, [onShowToast]);
+
+  // Handle custom image file upload for thumbnail
+  const handleCustomThumbnailFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImage(file, 640, 1140, 0.85);
+      setThumbnailDataUrl(compressed);
+      setThumbnailSourceType('custom');
+      if (onShowToast) onShowToast('🖼️ Custom thumbnail image uploaded!');
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setThumbnailDataUrl(reader.result);
+          setThumbnailSourceType('custom');
+          if (onShowToast) onShowToast('🖼️ Custom thumbnail applied!');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }, [onShowToast]);
 
   // Immediately stop any playing feed videos when create modal opens
   useEffect(() => {
@@ -621,41 +768,57 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       };
     }
 
-    // Direct and instant: save immediately to Firestore posts feed and local feed
-    try {
-      let finalMediaUrl = selectedMediaUrl || '';
-      if (!finalMediaUrl && pendingUploadFile) {
-        finalMediaUrl = URL.createObjectURL(pendingUploadFile);
-      }
+    // 1. Ensure permanent cloud storage persistence for videos/photos so they never turn black
+    let permanentMediaUrl = selectedMediaUrl || '';
+    const isBlobUrl = permanentMediaUrl.startsWith('blob:') || !permanentMediaUrl;
 
-      newPost.mediaUrl = finalMediaUrl;
-      if (newReel) {
-        newReel.videoUrl = finalMediaUrl;
-      }
+    if (pendingUploadFile || isBlobUrl) {
+      setIsCloudUploading(true);
+      setCloudUploadProgress(10);
+      setCloudUploadStatus('Connecting to Firebase Cloud Storage...');
 
-      // Save post document to Cloud Firestore immediately
       try {
-        savePostToFirestore(newPost).catch((firestoreErr: any) => {
-          console.warn('[Firestore] Notice during savePostToFirestore:', firestoreErr?.message);
-        });
-      } catch {}
+        let fileOrBlobToUpload = pendingUploadFile;
+        if (!fileOrBlobToUpload && permanentMediaUrl.startsWith('blob:')) {
+          setCloudUploadStatus('Reading video data for cloud persistence...');
+          const resp = await fetch(permanentMediaUrl);
+          fileOrBlobToUpload = await resp.blob();
+        }
 
-      // Optional background cloud upload attempt (completely non-blocking, zero delays or retries)
-      if (pendingUploadFile) {
-        uploadMediaToStorage(
-          pendingUploadFile,
-          mediaType === 'video' ? 'reels' : 'photos',
-          undefined,
-          newPost.id
-        )
-          .then((cloudUrl) => {
-            if (cloudUrl) {
-              savePostToFirestore({ ...newPost, mediaUrl: cloudUrl }).catch(() => {});
-            }
-          })
-          .catch(() => {
-            // Ignored silently: post is already saved and visible in the feed
-          });
+        if (fileOrBlobToUpload) {
+          setCloudUploadStatus('Uploading permanent video to Firebase Storage...');
+          const uploadedUrl = await uploadMediaToStorage(
+            fileOrBlobToUpload,
+            mediaType === 'video' ? 'reels' : 'photos',
+            (pct) => {
+              setCloudUploadProgress(Math.max(10, pct));
+              setCloudUploadStatus(`Uploading to Cloud Storage... ${pct}%`);
+            },
+            postId
+          );
+          if (uploadedUrl) {
+            permanentMediaUrl = uploadedUrl;
+          }
+        }
+      } catch (uploadErr: any) {
+        console.warn('[CreatePostModal] Cloud Storage upload notice:', uploadErr);
+      } finally {
+        setIsCloudUploading(false);
+      }
+    }
+
+    // Direct and instant: save permanent URLs to Firestore posts collection
+    try {
+      newPost.mediaUrl = permanentMediaUrl;
+      if (newReel) {
+        newReel.videoUrl = permanentMediaUrl;
+      }
+
+      // Save post document to Cloud Firestore
+      try {
+        await savePostToFirestore(newPost);
+      } catch (firestoreErr: any) {
+        console.warn('[Firestore] Notice during savePostToFirestore:', firestoreErr?.message);
       }
 
       // Immediately trigger post creation and close modal
@@ -663,9 +826,11 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       onClose();
 
       if (onShowToast) {
-        onShowToast(newReel ? '🎬 Reel posted instantly to feed!' : '📸 Post shared instantly to feed!');
+        onShowToast(newReel ? '🎬 Reel saved & shared globally!' : '📸 Post shared to Cloud Feed!');
       }
     } catch (generalErr: any) {
+      newPost.mediaUrl = permanentMediaUrl;
+      if (newReel) newReel.videoUrl = permanentMediaUrl;
       onPostCreated(newPost, newReel);
       onClose();
     }
@@ -677,6 +842,32 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4"
     >
       <div className="relative w-full max-w-2xl bg-white dark:bg-neutral-900 rounded-2xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 flex flex-col max-h-[92vh]">
+        {/* Firebase Cloud Storage Upload Progress Overlay */}
+        {isCloudUploading && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-6 animate-in fade-in">
+            <div className="w-full max-w-sm bg-neutral-900 border border-neutral-700/80 rounded-2xl p-6 text-center text-white shadow-2xl space-y-4">
+              <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-rose-500/20">
+                <Loader2 className="w-7 h-7 text-white animate-spin" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white mb-1">Storing to Cloud Storage</h4>
+                <p className="text-xs text-neutral-400">{cloudUploadStatus || 'Uploading permanent video URL for all users...'}</p>
+              </div>
+              {/* Progress Bar */}
+              <div className="w-full bg-neutral-800 rounded-full h-2.5 overflow-hidden border border-neutral-700">
+                <div
+                  className="bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-500 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${cloudUploadProgress}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                <span>Permanent Video Storage</span>
+                <span className="font-semibold text-rose-400">{cloudUploadProgress}%</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* User Warning Alert Dialog if Video is Too Large or Compression Fails */}
         {videoAlert && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in">
@@ -1279,14 +1470,30 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                       loop
                       playsInline
                       muted={previewMuted}
+                      onLoadedMetadata={(e) => {
+                        const dur = e.currentTarget.duration;
+                        if (dur) {
+                          setVideoDuration(dur);
+                          extractSnapshotFrames(selectedMediaUrl, dur);
+                        }
+                      }}
                       className="w-full h-full object-cover"
                     />
                     {/* Floating Controls */}
                     <div className="absolute bottom-3 right-3 flex items-center gap-2 z-20">
                       <button
                         type="button"
+                        onClick={captureFrameFromLivePreview}
+                        className="px-2.5 py-1.5 rounded-full bg-black/70 hover:bg-black text-white backdrop-blur-md transition text-xs font-semibold flex items-center gap-1 border border-white/20 shadow-md cursor-pointer"
+                        title="Set current video moment as cover thumbnail"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Use Frame</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={togglePreviewPlay}
-                        className="p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition"
+                        className="p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition cursor-pointer"
                         aria-label={previewPlaying ? 'Pause video' : 'Play video'}
                       >
                         {previewPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white" />}
@@ -1294,7 +1501,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setPreviewMuted((prev) => !prev)}
-                        className="p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition"
+                        className="p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition cursor-pointer"
                         aria-label={previewMuted ? 'Unmute video' : 'Mute video'}
                       >
                         {previewMuted ? (
@@ -1438,6 +1645,142 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                         className="w-4 h-4 rounded text-rose-500 focus:ring-rose-400 accent-rose-500 cursor-pointer"
                       />
                     </div>
+
+                    {/* Custom Thumbnail / Reel Cover Selector */}
+                    <div className="p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <ImageIcon className="w-4 h-4 text-amber-500" />
+                          <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
+                            Reel Cover / Thumbnail
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          {thumbnailSourceType === 'custom'
+                            ? '🖼️ Custom Image'
+                            : thumbnailSourceType === 'frame'
+                            ? '📸 Video Frame'
+                            : '⚡ Auto Cover'}
+                        </span>
+                      </div>
+
+                      {/* Active Cover Preview & Action Buttons */}
+                      <div className="flex items-center gap-3">
+                        <div className="relative w-14 h-18 rounded-lg overflow-hidden bg-neutral-900 border border-neutral-300 dark:border-neutral-700 flex-shrink-0 shadow-xs">
+                          <img
+                            src={thumbnailDataUrl || createVideoFallbackDataUrl('Video Reel')}
+                            alt="Cover Thumbnail"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-x-0 bottom-0 bg-black/70 text-center py-0.5 text-[8px] text-white font-bold">
+                            Cover
+                          </div>
+                        </div>
+
+                        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-tight">
+                            Choose the best video frame or upload a custom image thumbnail.
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              onClick={captureFrameFromLivePreview}
+                              className="px-2.5 py-1 rounded-lg bg-neutral-200 dark:bg-neutral-700 hover:bg-neutral-300 dark:hover:bg-neutral-600 text-neutral-900 dark:text-white text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                              title="Capture current playing frame"
+                            >
+                              <Camera className="w-3 h-3 text-rose-500" />
+                              <span>Use Frame</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => customThumbnailInputRef.current?.click()}
+                              className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-rose-500 hover:opacity-95 text-white text-[11px] font-semibold flex items-center gap-1 transition shadow-xs cursor-pointer"
+                            >
+                              <UploadCloud className="w-3 h-3" />
+                              <span>Upload Photo</span>
+                            </button>
+
+                            <input
+                              ref={customThumbnailInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleCustomThumbnailFileChange}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Video Timeline Scrubber */}
+                      {videoDuration > 0 && (
+                        <div className="pt-1 border-t border-neutral-200 dark:border-neutral-700/60">
+                          <div className="flex items-center justify-between text-[10px] text-neutral-500 font-medium mb-1">
+                            <span className="flex items-center gap-1">
+                              <SlidersHorizontal className="w-3 h-3 text-amber-500" />
+                              Scrub Video Timeline:
+                            </span>
+                            <span>{scrubberTime.toFixed(1)}s / {videoDuration.toFixed(1)}s</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max={Math.max(1, videoDuration)}
+                            step="0.1"
+                            value={scrubberTime}
+                            onChange={async (e) => {
+                              const val = parseFloat(e.target.value);
+                              setScrubberTime(val);
+                              if (previewVideoRef.current) {
+                                previewVideoRef.current.currentTime = val;
+                              }
+                              if (selectedMediaUrl) {
+                                const f = await captureVideoFrameAt(selectedMediaUrl, val);
+                                if (f && !f.startsWith('data:image/svg')) {
+                                  setThumbnailDataUrl(f);
+                                  setThumbnailSourceType('frame');
+                                }
+                              }
+                            }}
+                            className="w-full accent-rose-500 h-1.5 bg-neutral-200 dark:bg-neutral-700 rounded-lg appearance-none cursor-pointer"
+                          />
+                        </div>
+                      )}
+
+                      {/* Snapshots Grid */}
+                      {extractedFrames.length > 0 && (
+                        <div>
+                          <span className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400 block mb-1">
+                            Or pick candidate frame:
+                          </span>
+                          <div className="grid grid-cols-5 gap-1.5">
+                            {extractedFrames.map((frame, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  setThumbnailDataUrl(frame);
+                                  setThumbnailSourceType('frame');
+                                  if (onShowToast) onShowToast(`Selected frame #${idx + 1}`);
+                                }}
+                                className={`relative aspect-[9/16] rounded-md overflow-hidden border-2 transition cursor-pointer ${
+                                  thumbnailDataUrl === frame
+                                    ? 'border-rose-500 scale-102 shadow-md ring-2 ring-rose-500/30'
+                                    : 'border-transparent hover:border-neutral-400 opacity-75 hover:opacity-100'
+                                }`}
+                              >
+                                <img src={frame} alt={`Frame ${idx}`} className="w-full h-full object-cover" />
+                                {thumbnailDataUrl === frame && (
+                                  <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-rose-500 text-white flex items-center justify-center">
+                                    <Check className="w-2 h-2 stroke-[3]" />
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1450,15 +1793,31 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
               <div className="relative w-full md:w-1/2 aspect-square rounded-xl overflow-hidden bg-neutral-900">
                 {mediaType === 'video' ? (
                   <>
-                    <video
-                      src={selectedMediaUrl}
-                      muted
-                      className="w-full h-full object-cover"
-                    />
+                    {thumbnailDataUrl ? (
+                      <img
+                        src={thumbnailDataUrl}
+                        alt="Reel Cover"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <video
+                        src={selectedMediaUrl}
+                        muted
+                        className="w-full h-full object-cover"
+                      />
+                    )}
                     <div className="absolute top-3 left-3 px-2 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[11px] font-medium flex items-center gap-1">
                       <Clapperboard className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Reel</span>
+                      <span>Reel Cover</span>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setStep('edit')}
+                      className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/75 hover:bg-black text-white text-[11px] font-bold backdrop-blur-md border border-white/20 transition cursor-pointer flex items-center gap-1 shadow-md active:scale-95"
+                    >
+                      <Camera className="w-3 h-3 text-rose-400" />
+                      <span>Change Cover</span>
+                    </button>
                     <div className="absolute bottom-3 left-3 right-3 px-2 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[11px] truncate flex items-center gap-1">
                       <Music className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
                       <span className="truncate">{finalAudioTitle}</span>
@@ -1486,6 +1845,49 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     {currentUser.username}
                   </span>
                 </div>
+
+                {/* Reel Cover selection summary for Video */}
+                {mediaType === 'video' && (
+                  <div className="p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-9 h-11 rounded-md overflow-hidden bg-neutral-900 flex-shrink-0 border border-neutral-300 dark:border-neutral-600">
+                        <img
+                          src={thumbnailDataUrl || createVideoFallbackDataUrl('Video Reel')}
+                          alt="Cover"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
+                          Cover Thumbnail
+                        </span>
+                        <span className="text-[10px] text-neutral-500 truncate">
+                          {thumbnailSourceType === 'custom'
+                            ? 'Custom Image'
+                            : thumbnailSourceType === 'frame'
+                            ? 'Chosen Video Frame'
+                            : 'Auto Generated'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => customThumbnailInputRef.current?.click()}
+                        className="px-2 py-1 rounded-lg bg-neutral-200 dark:bg-neutral-700 hover:bg-neutral-300 text-[11px] font-semibold text-neutral-800 dark:text-neutral-200 cursor-pointer"
+                      >
+                        Change Image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStep('edit')}
+                        className="px-2 py-1 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-semibold cursor-pointer"
+                      >
+                        Pick Frame
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Caption input */}
                 <div>

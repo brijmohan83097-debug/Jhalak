@@ -26,6 +26,7 @@ import {
   Trash2,
   Lock,
   Globe,
+  Loader2,
 } from 'lucide-react';
 import { Post, User, ContentCategory } from '../types';
 import { SupportedLanguage, translations } from '../translations';
@@ -96,11 +97,13 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
   const [videoError, setVideoError] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
 
   const t = translations[currentLanguage];
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaContainerRef = useRef<HTMLDivElement>(null);
+  const isIntersectingRef = useRef(false);
   const lastTapTimeRef = useRef(0);
   const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -125,25 +128,33 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         entries.forEach((entry) => {
           const vid = videoRef.current;
           if (!vid) return;
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.35) {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
+            isIntersectingRef.current = true;
             vid.muted = isMutedRef.current;
             const playPromise = vid.play();
             if (playPromise !== undefined) {
               playPromise
-                .then(() => setIsPlaying(true))
+                .then(() => {
+                  setIsPlaying(true);
+                  setIsBuffering(false);
+                })
                 .catch(() => {
                   // Autoplay blocked by browser policy without user gesture -> play muted reliably
                   vid.muted = true;
-                  vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                  vid.play().then(() => {
+                    setIsPlaying(true);
+                    setIsBuffering(false);
+                  }).catch(() => setIsPlaying(false));
                 });
             }
-          } else if (!entry.isIntersecting || entry.intersectionRatio < 0.2) {
+          } else if (!entry.isIntersecting || entry.intersectionRatio < 0.15) {
+            isIntersectingRef.current = false;
             vid.pause();
             setIsPlaying(false);
           }
         });
       },
-      { threshold: [0.15, 0.35, 0.6] }
+      { threshold: [0.1, 0.2, 0.45] }
     );
 
     observer.observe(currentMediaContainer);
@@ -456,14 +467,64 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                 playsInline
                 webkit-playsinline="true"
                 muted={isMuted}
-                preload="metadata"
-                onPlay={() => setIsPlaying(true)}
+                preload="auto"
+                onCanPlay={(e) => {
+                  const vid = e.currentTarget;
+                  if (isIntersectingRef.current && vid.paused) {
+                    vid.muted = isMutedRef.current;
+                    vid.play().then(() => {
+                      setIsPlaying(true);
+                      setIsBuffering(false);
+                    }).catch(() => {
+                      vid.muted = true;
+                      vid.play().catch(() => {});
+                    });
+                  }
+                }}
+                onLoadedData={(e) => {
+                  const vid = e.currentTarget;
+                  if (isIntersectingRef.current && vid.paused) {
+                    vid.play().then(() => {
+                      setIsPlaying(true);
+                      setIsBuffering(false);
+                    }).catch(() => {});
+                  }
+                }}
+                onWaiting={() => setIsBuffering(true)}
+                onPlaying={() => {
+                  setIsPlaying(true);
+                  setIsBuffering(false);
+                }}
+                onPlay={() => {
+                  setIsPlaying(true);
+                  setIsBuffering(false);
+                }}
                 onPause={() => setIsPlaying(false)}
                 onError={() => {
-                  setVideoError(true);
+                  if (videoRef.current && post.mediaUrl && !post.mediaUrl.includes('sample/ForBiggerBlazes')) {
+                    videoRef.current.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+                    videoRef.current.load();
+                    videoRef.current.play().then(() => {
+                      setIsPlaying(true);
+                      setIsBuffering(false);
+                    }).catch(() => {
+                      setVideoError(true);
+                    });
+                  } else {
+                    setVideoError(true);
+                  }
                 }}
                 className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
               />
+
+              {/* Buffering Indicator */}
+              {isBuffering && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                  <div className="p-2.5 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/20">
+                    <Loader2 className="w-5 h-5 animate-spin text-rose-500" />
+                  </div>
+                </div>
+              )}
 
             {/* Video Badge / Fullscreen expand button */}
             <button

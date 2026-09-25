@@ -14,6 +14,7 @@ import {
   Scale,
   Heart,
   ShieldAlert,
+  Bell,
 } from 'lucide-react';
 import { NavTab, User } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
@@ -26,6 +27,7 @@ interface SidebarProps {
   onTabChange: (tab: NavTab) => void;
   currentUser: User;
   unreadMessagesCount: number;
+  unreadAlertsCount?: number;
   darkMode: boolean;
   onToggleDarkMode: () => void;
   onOpenCreateModal: () => void;
@@ -45,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   currentUser,
   unreadMessagesCount,
+  unreadAlertsCount = 3,
   darkMode,
   onToggleDarkMode,
   onOpenCreateModal,
@@ -174,9 +177,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               id="sidebar-notifications-btn"
               onClick={onOpenNotifications}
-              className="flex items-center gap-4 p-3 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition group"
+              className="flex items-center gap-4 p-3 rounded-xl text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition group relative cursor-pointer"
+              title="Notifications & Alerts"
             >
-              <Heart className="w-6 h-6 mx-auto xl:mx-0 stroke-[1.8] group-hover:scale-105 transition-transform" />
+              <div className="relative mx-auto xl:mx-0">
+                <Bell className="w-6 h-6 stroke-[1.8] text-amber-500 dark:text-amber-400 group-hover:scale-105 transition-transform" />
+                {unreadAlertsCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 bg-gradient-to-r from-rose-500 to-pink-500 text-white text-[10px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center border border-white dark:border-black shadow-xs animate-pulse">
+                    {unreadAlertsCount > 9 ? '9+' : unreadAlertsCount}
+                  </span>
+                )}
+              </div>
               <span className="hidden xl:inline text-sm font-medium">{t.notifications}</span>
             </button>
           )}

@@ -18,6 +18,7 @@ import {
   BadgeCheck,
   Film,
   User as UserIcon,
+  Bell,
 } from 'lucide-react';
 import { NavTab, User } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
@@ -29,6 +30,7 @@ interface MobileNavProps {
   onTabChange: (tab: NavTab) => void;
   currentUser: User;
   unreadMessagesCount: number;
+  unreadAlertsCount?: number;
   darkMode: boolean;
   onToggleDarkMode: () => void;
   onOpenCreateModal: () => void;
@@ -46,6 +48,8 @@ interface MobileNavProps {
 export const MobileHeader: React.FC<MobileNavProps> = ({
   onTabChange,
   onOpenSearch,
+  onShowNotifications,
+  unreadAlertsCount = 3,
   searchableUsers = [],
   onViewUser,
 }) => {
@@ -54,17 +58,19 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Filter friends & creators by name or username
+  // Filter friends & creators by name or username; if search is empty, display all signed-up friends as recommendations
   const matchingUsers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase().replace(/^@/, '');
-    if (!q) return [];
+    if (!q) {
+      return (searchableUsers || []).slice(0, 8);
+    }
     return (searchableUsers || [])
       .filter((u) => {
         const nameMatch = (u.name || '').toLowerCase().includes(q);
         const usernameMatch = (u.username || '').toLowerCase().includes(q);
         return nameMatch || usernameMatch;
       })
-      .slice(0, 7);
+      .slice(0, 10);
   }, [searchableUsers, searchQuery]);
 
   // Click outside to dismiss search suggestions
@@ -159,7 +165,7 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
         </div>
 
         {/* Live Search Friends Dropdown */}
-        {isDropdownOpen && searchQuery.trim().length > 0 && (
+        {isDropdownOpen && matchingUsers.length > 0 && (
           <div
             id="top-search-friends-dropdown"
             className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200/90 dark:border-neutral-800 overflow-hidden z-50 animate-fade-in"
@@ -167,11 +173,11 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
             <div className="px-3 py-2 bg-neutral-50 dark:bg-neutral-800/60 border-b border-neutral-200/60 dark:border-neutral-800 flex items-center justify-between text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">
               <span className="flex items-center gap-1.5">
                 <UserIcon className="w-3.5 h-3.5 text-rose-500" />
-                Friends & Creators ({matchingUsers.length})
+                {searchQuery.trim() ? `Search Results (${matchingUsers.length})` : `Friend Recommendations (${matchingUsers.length})`}
               </span>
               <button
                 onClick={() => setIsDropdownOpen(false)}
-                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -241,6 +247,23 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
           </div>
         )}
       </div>
+
+      {/* 3. Top Notification Bell icon for new alerts */}
+      <button
+        id="top-header-notifications-btn"
+        type="button"
+        onClick={onShowNotifications}
+        className="relative flex-shrink-0 p-2 rounded-full text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition active:scale-95 cursor-pointer ml-1"
+        aria-label="View notifications & new alerts"
+        title="Notifications & Alerts"
+      >
+        <Bell className="w-5 h-5 text-neutral-800 dark:text-neutral-100 hover:text-rose-500 transition-colors" />
+        {unreadAlertsCount && unreadAlertsCount > 0 ? (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 bg-gradient-to-r from-rose-500 to-pink-500 text-white text-[10px] font-extrabold rounded-full flex items-center justify-center border-2 border-white dark:border-black shadow-xs animate-pulse">
+            {unreadAlertsCount > 9 ? '9+' : unreadAlertsCount}
+          </span>
+        ) : null}
+      </button>
 
     </header>
   );
