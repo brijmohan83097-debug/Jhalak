@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { X, Check, Camera, Sparkles, Upload, RefreshCw, Loader2 } from 'lucide-react';
+import { X, Check, Camera, Sparkles, Upload, RefreshCw, Loader2, UserX, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { User } from '../types';
 import { SupportedLanguage, translations } from '../translations';
 import { compressImage } from '../utils/imageCompressor';
+import { moderationService } from '../services/moderationService';
 
 interface EditProfileModalProps {
   user: User;
@@ -23,6 +24,17 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [website, setWebsite] = useState(user.website);
   const [avatar, setAvatar] = useState(user.avatar);
   const [showSavedToast, setShowSavedToast] = useState(false);
+  const [showBlockedSection, setShowBlockedSection] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<string[]>(() => moderationService.getBlockedUsers());
+  const [unblockMessage, setUnblockMessage] = useState<string | null>(null);
+
+  const handleUnblockUser = (rawUsername: string) => {
+    moderationService.unblockUser(rawUsername);
+    const updated = moderationService.getBlockedUsers();
+    setBlockedUsers(updated);
+    setUnblockMessage(`Unblocked @${rawUsername.replace(/^@/, '')}`);
+    setTimeout(() => setUnblockMessage(null), 2500);
+  };
 
   const t = translations[currentLanguage];
 
@@ -228,6 +240,83 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <span className="text-[10px] text-neutral-400 block text-right mt-0.5 font-mono">
               {bio.length}/150
             </span>
+          </div>
+
+          {/* Blocked Accounts Management */}
+          <div className="bg-neutral-50 dark:bg-neutral-800/50 rounded-xl border border-neutral-200/80 dark:border-neutral-800 p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-rose-500/10 text-rose-500 flex items-center justify-center">
+                  <UserX className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-neutral-900 dark:text-white block">
+                    Blocked Accounts ({blockedUsers.length})
+                  </span>
+                  <span className="text-[11px] text-neutral-500">
+                    Accounts you blocked cannot interact with your profile
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="edit-profile-toggle-blocked-btn"
+                onClick={() => setShowBlockedSection(!showBlockedSection)}
+                className="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-500 dark:text-neutral-400 transition cursor-pointer"
+                title={showBlockedSection ? 'Collapse blocked accounts' : 'Expand blocked accounts'}
+              >
+                {showBlockedSection ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            {unblockMessage && (
+              <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold animate-in fade-in">
+                {unblockMessage}
+              </div>
+            )}
+
+            {showBlockedSection && (
+              <div className="pt-2 border-t border-neutral-200/60 dark:border-neutral-700/60 space-y-2 max-h-48 overflow-y-auto">
+                {blockedUsers.length === 0 ? (
+                  <p className="text-xs text-neutral-500 text-center py-3">
+                    No blocked accounts found.
+                  </p>
+                ) : (
+                  blockedUsers.map((rawUsername) => {
+                    const clean = rawUsername.replace(/^@/, '').trim();
+                    return (
+                      <div
+                        key={clean}
+                        className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <img
+                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${clean}`}
+                            alt={clean}
+                            className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                          />
+                          <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate">
+                            @{clean}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          id={`edit-profile-unblock-${clean}`}
+                          onClick={() => handleUnblockUser(rawUsername)}
+                          className="px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer border border-neutral-300 dark:border-neutral-700"
+                        >
+                          Unblock
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
 
           {/* Action buttons */}

@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Radio,
-  Video,
-  VideoOff,
   Mic,
   MicOff,
   RotateCcw,
@@ -10,13 +8,9 @@ import {
   Users,
   Heart,
   Send,
-  X,
   Gift,
-  Share2,
   CheckCircle2,
-  AlertCircle,
   Eye,
-  MessageCircle,
 } from 'lucide-react';
 import { User } from '../types';
 import confetti from 'canvas-confetti';
@@ -53,17 +47,15 @@ export const GoLiveStudio: React.FC<GoLiveStudioProps> = ({
   const [streamStage, setStreamStage] = useState<'preview' | 'live' | 'ended'>('preview');
   const [streamTitle, setStreamTitle] = useState('Chit-Chat with Fans & Q&A ✨');
   const [isMicMuted, setIsMicMuted] = useState(false);
-  const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [beautyFilter, setBeautyFilter] = useState(true);
 
   // Live broadcast stats - Real counters starting at 0
   const [durationSeconds, setDurationSeconds] = useState(0);
-  const [viewerCount, setViewerCount] = useState(1);
-  const [peakViewers, setPeakViewers] = useState(1);
+  const [viewerCount] = useState(1);
+  const [peakViewers] = useState(1);
   const [heartsCount, setHeartsCount] = useState(0);
-  const [totalShagun, setTotalShagun] = useState(0);
-  const [showTipModal, setShowTipModal] = useState(false);
+  const [totalShagun] = useState(0);
 
   // Real user and audience comments only
   const [comments, setComments] = useState<LiveComment[]>([
@@ -304,7 +296,7 @@ export const GoLiveStudio: React.FC<GoLiveStudioProps> = ({
               className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-rose-600 via-red-500 to-amber-500 text-white font-extrabold text-sm uppercase tracking-wider shadow-lg shadow-rose-600/40 hover:opacity-95 active:scale-[0.99] transition flex items-center justify-center gap-2.5 cursor-pointer"
             >
               <Radio className="w-5 h-5 animate-pulse" />
-              <span>Go Live (लाइव शुरू करें)</span>
+              <span>Go Live</span>
             </button>
           </div>
         </div>
@@ -497,7 +489,7 @@ export const GoLiveStudio: React.FC<GoLiveStudioProps> = ({
               onClick={onClose}
               className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-amber-500 text-white font-bold text-xs shadow-lg transition active:scale-98"
             >
-              Done (वापस जाएं)
+              Done
             </button>
           </div>
         </div>

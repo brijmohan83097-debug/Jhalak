@@ -16,7 +16,6 @@ import {
   ChevronDown,
   Sparkles,
   MapPin,
-  Maximize2,
   Check,
   UserPlus,
   MoreVertical,
@@ -545,56 +544,68 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                     </div>
                   ) : (
                     <div className="relative w-full h-full flex items-center justify-center">
-                      <video
-                        ref={(el) => {
-                          videoRefs.current[index] = el;
-                          if (el && isCurrent) {
-                            el.defaultMuted = isMuted;
-                            el.muted = isMuted;
-                            const p = el.play();
-                            if (p !== undefined) {
-                              p.then(() => setIsPlaying(true)).catch(() => {
-                                el.muted = true;
-                                setIsMuted(true);
-                                el.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-                              });
-                            }
-                          }
-                        }}
-                        src={resolvedMediaUrls[post.id] || post.mediaUrl}
-                        poster={post.thumbnailUrl}
-                        autoPlay
-                        loop
-                        playsInline
-                        webkit-playsinline="true"
-                        muted={isMuted}
-                        preload="auto"
-                        onCanPlay={(e) => {
-                          if (isCurrent) {
-                            const vid = e.currentTarget;
-                            const p = vid.play();
-                            if (p !== undefined) {
-                              p.then(() => setIsPlaying(true)).catch(() => {
-                                vid.muted = true;
-                                setIsMuted(true);
-                                vid.play().catch(() => {});
-                              });
-                            }
-                          }
-                        }}
-                        onError={async () => {
-                          try {
-                            const live = await resolvePlayableMediaUrl(post.id, post.mediaUrl);
-                            if (live && live !== (resolvedMediaUrls[post.id] || post.mediaUrl)) {
-                              setResolvedMediaUrls((prev) => ({ ...prev, [post.id]: live }));
-                              return;
-                            }
-                          } catch {}
-                          setMediaErrors((prev) => ({ ...prev, [post.id]: true }));
-                        }}
-                        onTimeUpdate={() => handleTimeUpdate(index)}
-                        className={`w-full h-full object-cover ${post.filter || ''}`}
-                      />
+                        {(() => {
+                          const videoSrc = (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
+                            ? post.mediaUrl
+                            : (post.downloadURL || (post as any).videoUrl || resolvedMediaUrls[post.id]);
+
+                          return (
+                            <video
+                              ref={(el) => {
+                                videoRefs.current[index] = el;
+                                if (el && isCurrent) {
+                                  el.defaultMuted = isMuted;
+                                  el.muted = isMuted;
+                                  const p = el.play();
+                                  if (p !== undefined) {
+                                    p.then(() => setIsPlaying(true)).catch(() => {
+                                      el.muted = true;
+                                      el.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                                    });
+                                  }
+                                }
+                              }}
+                              src={videoSrc}
+                              controls
+                              playsInline
+                              webkit-playsinline="true"
+                              preload="auto"
+                              autoPlay
+                              loop
+                              poster={post.thumbnailUrl || ''}
+                              muted={isMuted}
+                              onCanPlay={(e) => {
+                                if (isCurrent) {
+                                  const vid = e.currentTarget;
+                                  const p = vid.play();
+                                  if (p !== undefined) {
+                                    p.then(() => setIsPlaying(true)).catch(() => {
+                                      vid.muted = true;
+                                      vid.play().catch(() => {});
+                                    });
+                                  }
+                                }
+                              }}
+                              onError={async (e) => {
+                                console.warn("Video failed, attempting storage URL fallback", post.downloadURL);
+                                if (post.downloadURL && e.currentTarget.src !== post.downloadURL) {
+                                  e.currentTarget.src = post.downloadURL;
+                                  return;
+                                }
+                                try {
+                                  const live = await resolvePlayableMediaUrl(post.id, post.mediaUrl);
+                                  if (live && live !== (resolvedMediaUrls[post.id] || post.mediaUrl)) {
+                                    setResolvedMediaUrls((prev) => ({ ...prev, [post.id]: live }));
+                                    return;
+                                  }
+                                } catch {}
+                                setMediaErrors((prev) => ({ ...prev, [post.id]: true }));
+                              }}
+                              onTimeUpdate={() => handleTimeUpdate(index)}
+                              className={`w-full h-full object-cover ${post.filter || ''}`}
+                            />
+                          );
+                        })()}
                       {/* Play overlay indicator when paused */}
                       {!isPlaying && isCurrent && (
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
@@ -987,7 +998,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold">Post Privacy / प्राइवेसी</p>
+                      <p className="text-xs font-semibold">Post Privacy</p>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                           currentPost.privacy === 'private' || currentPost.isPrivate

@@ -13,27 +13,27 @@ import {
   ToggleRight,
   Lock,
   Sparkles,
-  HelpCircle,
-  FileText,
   Trash2,
   UserCog,
   AlertTriangle,
   Scale,
   Database,
-  ExternalLink,
   ShieldAlert,
   Moon,
   Sun,
   HardDrive,
   RefreshCw,
   CheckCircle2,
+  UserX,
+  Search,
 } from 'lucide-react';
 import { SupportedLanguage, SUPPORTED_LANGUAGES, translations } from '../translations';
 import { User } from '../types';
-import { isSuperAdmin, ADMIN_EMAIL } from '../constants/admin';
+import { isSuperAdmin } from '../constants/admin';
 import { AccountDeletionModal } from './AccountDeletionModal';
 import { verifyFirebaseConfig, FirebaseDiagnosticStatus } from '../services/firebase';
 import { purgeOfflineMediaStorage } from '../utils/persistentMediaStore';
+import { moderationService } from '../services/moderationService';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -54,7 +54,7 @@ interface ProfileSettingsModalProps {
   commentsCount?: number;
 }
 
-type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications' | 'account' | 'firebase';
+type SettingsSubView = 'main' | 'privacy' | 'language' | 'notifications' | 'account' | 'firebase' | 'blocked';
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   isOpen,
@@ -83,6 +83,23 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [firebaseDiagnostics, setFirebaseDiagnostics] = useState<FirebaseDiagnosticStatus | null>(null);
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
   const [purgeNotice, setPurgeNotice] = useState<string | null>(null);
+  const [blockedUsers, setBlockedUsers] = useState<string[]>(() => moderationService.getBlockedUsers());
+  const [blockedSearchQuery, setBlockedSearchQuery] = useState('');
+  const [unblockToast, setUnblockToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setBlockedUsers(moderationService.getBlockedUsers());
+    }
+  }, [isOpen]);
+
+  const handleUnblock = (username: string) => {
+    moderationService.unblockUser(username);
+    const updated = moderationService.getBlockedUsers();
+    setBlockedUsers(updated);
+    setUnblockToast(`Unblocked @${username.replace(/^@/, '')}`);
+    setTimeout(() => setUnblockToast(null), 2500);
+  };
 
   if (!isOpen) return null;
 
@@ -118,6 +135,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               {subView === 'language' && t.switchLanguage}
               {subView === 'privacy' && t.accountPrivacy}
               {subView === 'notifications' && t.notifications}
+              {subView === 'blocked' && 'Blocked Accounts'}
             </h2>
           </div>
 
@@ -218,7 +236,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     </div>
                     <div>
                       <span className="text-sm font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
-                        Appearance (थीम)
+                        Appearance
                         <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                           {darkMode ? 'Dark Mode 🌙' : 'Light Mode ☀️'}
                         </span>
@@ -249,6 +267,31 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       {t.accountPrivacy}
                     </span>
                     <span className="text-xs text-neutral-500">{t.privacySubtitle}</span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 3b. Blocked Accounts / Users */}
+              <button
+                id="settings-blocked-users-btn"
+                onClick={() => {
+                  setBlockedUsers(moderationService.getBlockedUsers());
+                  setSubView('blocked');
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center">
+                    <UserX className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-neutral-900 dark:text-white block">
+                      Blocked Accounts
+                    </span>
+                    <span className="text-xs text-neutral-500">
+                      Manage blocked creators ({blockedUsers.length})
+                    </span>
                   </div>
                 </div>
                 <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
@@ -569,6 +612,28 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   <span>Currently Active</span>
                 </div>
               </div>
+
+              {/* Blocked Accounts entry point from Privacy */}
+              <div className="p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 block">
+                    Blocked Accounts
+                  </span>
+                  <p className="text-xs text-neutral-500">
+                    {blockedUsers.length} creator{blockedUsers.length === 1 ? '' : 's'} currently blocked
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBlockedUsers(moderationService.getBlockedUsers());
+                    setSubView('blocked');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-semibold text-neutral-900 dark:text-white transition cursor-pointer"
+                >
+                  Manage
+                </button>
+              </div>
             </div>
           )}
 
@@ -846,6 +911,97 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* VIEW: Blocked Accounts Management */}
+          {subView === 'blocked' && (
+            <div className="space-y-4 p-1 animate-in fade-in duration-200">
+              <div className="p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-800">
+                <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+                  Accounts you have blocked cannot view your profile, posts, or reels, and cannot send you messages on Jhalak.
+                </p>
+              </div>
+
+              {/* Search blocked accounts */}
+              {blockedUsers.length > 2 && (
+                <div className="relative">
+                  <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={blockedSearchQuery}
+                    onChange={(e) => setBlockedSearchQuery(e.target.value)}
+                    placeholder="Search blocked accounts..."
+                    className="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl pl-9 pr-3.5 py-2 text-xs text-neutral-900 dark:text-white focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+              )}
+
+              {/* Unblock feedback toast */}
+              {unblockToast && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-2">
+                  <Check className="w-4 h-4" />
+                  <span>{unblockToast}</span>
+                </div>
+              )}
+
+              {/* Blocked accounts list */}
+              {blockedUsers.length === 0 ? (
+                <div className="py-12 flex flex-col items-center justify-center text-center px-4">
+                  <div className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mb-3 text-neutral-400">
+                    <Shield className="w-6 h-6 text-emerald-500" />
+                  </div>
+                  <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                    No Blocked Accounts
+                  </h4>
+                  <p className="text-xs text-neutral-500 mt-1 max-w-xs">
+                    You haven't blocked anyone. Users you block will be listed here and can be unblocked anytime.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1 divide-y divide-neutral-100 dark:divide-neutral-800/60">
+                  {blockedUsers
+                    .filter((u) =>
+                      blockedSearchQuery.trim()
+                        ? u.toLowerCase().includes(blockedSearchQuery.toLowerCase().replace(/^@/, ''))
+                        : true
+                    )
+                    .map((rawUsername) => {
+                      const clean = rawUsername.replace(/^@/, '').trim();
+                      return (
+                        <div
+                          key={clean}
+                          className="pt-2.5 pb-1 flex items-center justify-between gap-3"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <img
+                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${clean}`}
+                              alt={clean}
+                              className="w-10 h-10 rounded-full object-cover border border-neutral-200 dark:border-neutral-700 flex-shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white block truncate">
+                                @{clean}
+                              </span>
+                              <span className="text-[11px] text-neutral-500 truncate block">
+                                Blocked User
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            id={`unblock-btn-${clean}`}
+                            onClick={() => handleUnblock(rawUsername)}
+                            className="px-3.5 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white border border-neutral-300 dark:border-neutral-700 text-xs font-bold transition active:scale-95 cursor-pointer flex-shrink-0"
+                          >
+                            Unblock
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
           )}
         </div>

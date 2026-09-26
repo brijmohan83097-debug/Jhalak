@@ -17,12 +17,23 @@ import {
   ArrowLeft,
   Lock,
   Globe,
+  X,
+  Users,
+  UserCheck,
+  UserPlus,
+  Search,
+  Loader2,
 } from 'lucide-react';
 import { User, Post } from '../types';
 import { SupportedLanguage, translations, SUPPORTED_LANGUAGES } from '../translations';
 import { safeSetItem } from '../utils/safeStorage';
 import { isSuperAdmin } from '../constants/admin';
 import { moderationService } from '../services/moderationService';
+import {
+  loadFollowersListFromFirestore,
+  loadFollowingListFromFirestore,
+  toggleFollowUserInFirestore,
+} from '../services/firebase';
 import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
@@ -33,7 +44,9 @@ interface ProfileViewProps {
   currentUser?: User;
   isOwnProfile?: boolean;
   isFollowing?: boolean;
+  followedUsers?: Record<string, boolean>;
   onToggleFollow?: (username: string, userId?: string) => void;
+  onSelectUser?: (username: string, userId?: string, userObj?: User) => void;
   onBack?: () => void;
   onStartChat?: (user: User) => void;
   userPosts: Post[];
@@ -57,7 +70,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   currentUser,
   isOwnProfile = true,
   isFollowing = false,
+  followedUsers,
   onToggleFollow,
+  onSelectUser,
   onBack,
   onStartChat,
   userPosts,
@@ -71,11 +86,125 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenGoogleLogin,
   onOpenLegalPolicies,
   onOpenAdminPanel,
-  onDeleteAccount,
+  onDeleteAccount: _onDeleteAccount,
   onLogout,
   currentLanguage = 'en',
 }) => {
   const [activeTab, setActiveTab] = useState<'posts' | 'reels' | 'videos' | 'saved' | 'tagged'>('posts');
+  // Follower & Following Modal List state
+  const [activeListModal, setActiveListModal] = useState<'followers' | 'following' | null>(null);
+  const [modalUsers, setModalUsers] = useState<User[]>([]);
+  const [isLoadingModalList, setIsLoadingModalList] = useState(false);
+  const [listSearchQuery, setListSearchQuery] = useState('');
+  const [localFollowedMap, setLocalFollowedMap] = useState<Record<string, boolean>>({});
+
+  // Load followers/following list when modal opens or tab changes
+  useEffect(() => {
+    if (!activeListModal) {
+      setModalUsers([]);
+      setListSearchQuery('');
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingModalList(true);
+    setListSearchQuery('');
+
+    const targetUserId = user?.id || '';
+    const targetUsername = user?.username || '';
+
+    const fetchPromise =
+      activeListModal === 'followers'
+        ? loadFollowersListFromFirestore(targetUserId, targetUsername)
+        : loadFollowingListFromFirestore(targetUserId, targetUsername);
+
+    fetchPromise
+      .then((users) => {
+        if (!isMounted) return;
+        setModalUsers(users || []);
+        // Seed local followed map from parent followedUsers or defaults
+        const initialMap: Record<string, boolean> = {};
+        (users || []).forEach((u) => {
+          const clean = (u.username || '').replace(/^@/, '').toLowerCase().trim();
+          if (followedUsers) {
+            initialMap[u.username] = Boolean(
+              followedUsers[u.username] ||
+                (clean && followedUsers[clean]) ||
+                (clean && followedUsers[`@${clean}`]) ||
+                (u.id && followedUsers[u.id])
+            );
+          } else if (activeListModal === 'following' && isOwnProfile) {
+            initialMap[u.username] = true;
+          }
+        });
+        setLocalFollowedMap((prev) => ({ ...prev, ...initialMap }));
+      })
+      .catch((err) => {
+        console.warn('Error loading followers/following list:', err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingModalList(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeListModal, user?.id, user?.username, isOwnProfile, followedUsers]);
+
+  const filteredModalUsers = React.useMemo(() => {
+    if (!listSearchQuery.trim()) return modalUsers;
+    const q = listSearchQuery.trim().toLowerCase().replace(/^@/, '');
+    return modalUsers.filter(
+      (u) =>
+        (u.username || '').toLowerCase().includes(q) ||
+        (u.name || '').toLowerCase().includes(q)
+    );
+  }, [modalUsers, listSearchQuery]);
+
+  const handleToggleFollowInModal = (targetUser: User) => {
+    const clean = (targetUser.username || '').replace(/^@/, '').toLowerCase().trim();
+    const isCurrentlyFollowing = Boolean(
+      localFollowedMap[targetUser.username] ??
+        (clean && localFollowedMap[clean]) ??
+        (followedUsers &&
+          (followedUsers[targetUser.username] ||
+            (clean && followedUsers[clean]) ||
+            (clean && followedUsers[`@${clean}`]) ||
+            (targetUser.id && followedUsers[targetUser.id])))
+    );
+
+    const nextFollowing = !isCurrentlyFollowing;
+
+    setLocalFollowedMap((prev) => ({
+      ...prev,
+      [targetUser.username]: nextFollowing,
+      [clean]: nextFollowing,
+      ...(targetUser.id ? { [targetUser.id]: nextFollowing } : {}),
+    }));
+
+    if (onToggleFollow) {
+      onToggleFollow(targetUser.username, targetUser.id);
+    } else if (currentUser?.id) {
+      toggleFollowUserInFirestore(
+        currentUser.id,
+        currentUser.username || 'creator',
+        targetUser.username,
+        targetUser.id,
+        nextFollowing
+      ).catch(() => {});
+    }
+
+    setToastMsg(nextFollowing ? `Following @${clean}` : `Unfollowed @${clean}`);
+    setTimeout(() => setToastMsg(null), 2500);
+  };
+
+  const handleViewUserFromList = (targetUser: User) => {
+    setActiveListModal(null);
+    if (onSelectUser) {
+      onSelectUser(targetUser.username, targetUser.id, targetUser);
+    }
+  };
+
   const [highlights, setHighlights] = useState<any[]>(() => {
     try {
       const userKey = user?.id ? `ig_profile_highlights_${user.id}` : 'ig_profile_highlights';
@@ -200,7 +329,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     // 3. Posts directly attached to profile user object
     (user.userPosts || user.posts || []).forEach(addIfMatching);
 
-    return Array.from(postMap.values());
+    const allPosts = Array.from(postMap.values());
+    const uniquePosts = Array.from(new Map(allPosts.map((p) => [p.id, p])).values());
+    return uniquePosts;
   }, [userPosts, user, isOwnProfile]);
 
   const [deletedPostIds, setDeletedPostIds] = useState<string[]>([]);
@@ -252,19 +383,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  const safeResolvedPosts = (Array.isArray(resolvedUserPosts) ? resolvedUserPosts : []).filter(
-    (p) => !deletedPostIds.includes(p.id) && !moderationService.isPermanentlyDeleted(p.id)
-  );
-  const safeSavedPosts = (Array.isArray(savedPosts) ? savedPosts : []).filter(
-    (p) => !deletedPostIds.includes(p.id) && !moderationService.isPermanentlyDeleted(p.id)
+  const safeResolvedPosts = React.useMemo(() => {
+    const list = (Array.isArray(resolvedUserPosts) ? resolvedUserPosts : []).filter(
+      (p) => !deletedPostIds.includes(p.id) && !moderationService.isPermanentlyDeleted(p.id)
+    );
+    return Array.from(new Map(list.map((p) => [p.id, p])).values());
+  }, [resolvedUserPosts, deletedPostIds]);
+
+  const safeSavedPosts = React.useMemo(() => {
+    const list = (Array.isArray(savedPosts) ? savedPosts : []).filter(
+      (p) => !deletedPostIds.includes(p.id) && !moderationService.isPermanentlyDeleted(p.id)
+    );
+    return Array.from(new Map(list.map((p) => [p.id, p])).values());
+  }, [savedPosts, deletedPostIds]);
+
+  const isActuallyFollowing = Boolean(
+    isFollowing ||
+      (followedUsers &&
+        ((user?.username &&
+          (followedUsers[user.username] ||
+            followedUsers[`@${user.username}`] ||
+            followedUsers[user.username.replace(/^@/, '')])) ||
+          (user?.id && followedUsers[user.id])))
   );
 
   const effectivePostsCount = safeResolvedPosts.length;
   const effectiveFollowersCount =
-    (user?.followersCount || 0) + (!isOwnProfile && isFollowing ? 1 : 0);
+    (user?.followersCount || 0) + (!isOwnProfile && isActuallyFollowing ? 1 : 0);
 
   const videoPosts = React.useMemo(() => {
-    return safeResolvedPosts.filter((p) => p.mediaType === 'video');
+    const list = safeResolvedPosts.filter((p) => p.mediaType === 'video');
+    return Array.from(new Map(list.map((p) => [p.id, p])).values());
   }, [safeResolvedPosts]);
 
   const displayPosts =
@@ -413,12 +562,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   id={`profile-follow-btn-${user?.username}`}
                   onClick={() => onToggleFollow && onToggleFollow(user.username, user.id)}
                   className={`px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition active:scale-95 cursor-pointer shadow-sm flex items-center gap-1.5 ${
-                    isFollowing
+                    isActuallyFollowing
                       ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'
                       : 'bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-rose-500/20'
                   }`}
                 >
-                  <span>{isFollowing ? (t.following || 'Following') : (t.follow || 'Follow')}</span>
+                  <span>{isActuallyFollowing ? (t.following || 'Following') : (t.follow || 'Follow')}</span>
                 </button>
 
                 {/* Message Button */}
@@ -448,7 +597,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   id="profile-settings-btn"
                   onClick={onOpenSettings}
                   aria-label="Settings"
-                  title="Settings & Language (सेटिंग्स और भाषा)"
+                  title="Settings & Language"
                   className="p-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-neutral-800 dark:text-neutral-200 hover:rotate-45 transition duration-300 relative group flex items-center gap-1 cursor-pointer"
                 >
                   <Settings className="w-4 h-4" />
@@ -458,7 +607,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 {/* Language quick badge */}
                 <button
                   onClick={onOpenSettings}
-                  title="Change language / भाषा बदलें"
+                  title="Change language"
                   className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Globe2 className="w-3.5 h-3.5" />
@@ -514,18 +663,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </span>{' '}
               <span className="text-neutral-500 dark:text-neutral-400">{t.posts}</span>
             </div>
-            <div>
-              <span className="font-bold text-neutral-900 dark:text-white">
+            <button
+              type="button"
+              id="profile-desktop-followers-btn"
+              onClick={() => setActiveListModal('followers')}
+              className="text-left hover:opacity-75 transition cursor-pointer group"
+            >
+              <span className="font-bold text-neutral-900 dark:text-white group-hover:underline">
                 {effectiveFollowersCount.toLocaleString()}
               </span>{' '}
               <span className="text-neutral-500 dark:text-neutral-400">{t.followers}</span>
-            </div>
-            <div>
-              <span className="font-bold text-neutral-900 dark:text-white">
+            </button>
+            <button
+              type="button"
+              id="profile-desktop-following-btn"
+              onClick={() => setActiveListModal('following')}
+              className="text-left hover:opacity-75 transition cursor-pointer group"
+            >
+              <span className="font-bold text-neutral-900 dark:text-white group-hover:underline">
                 {(user?.followingCount || 0).toLocaleString()}
               </span>{' '}
               <span className="text-neutral-500 dark:text-neutral-400">{t.following}</span>
-            </div>
+            </button>
           </div>
 
           {/* Bio & Links */}
@@ -557,18 +716,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="font-bold text-neutral-900 dark:text-white">{effectivePostsCount}</div>
           <div className="text-xs text-neutral-500">{t.posts}</div>
         </div>
-        <div>
+        <button
+          type="button"
+          id="profile-mobile-followers-btn"
+          onClick={() => setActiveListModal('followers')}
+          className="cursor-pointer active:scale-95 transition text-center"
+        >
           <div className="font-bold text-neutral-900 dark:text-white">
             {effectiveFollowersCount.toLocaleString()}
           </div>
           <div className="text-xs text-neutral-500">{t.followers}</div>
-        </div>
-        <div>
+        </button>
+        <button
+          type="button"
+          id="profile-mobile-following-btn"
+          onClick={() => setActiveListModal('following')}
+          className="cursor-pointer active:scale-95 transition text-center"
+        >
           <div className="font-bold text-neutral-900 dark:text-white">
             {(user?.followingCount || 0).toLocaleString()}
           </div>
           <div className="text-xs text-neutral-500">{t.following}</div>
-        </div>
+        </button>
       </div>
 
       {/* Story Highlights */}
@@ -849,6 +1018,182 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Follower & Following Modal List */}
+      {activeListModal && (
+        <div
+          id="followers-following-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+          onClick={() => setActiveListModal(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-neutral-200 dark:border-neutral-800">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveListModal('followers')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold transition cursor-pointer ${
+                    activeListModal === 'followers'
+                      ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white'
+                      : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-white'
+                  }`}
+                >
+                  Followers ({effectiveFollowersCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveListModal('following')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold transition cursor-pointer ${
+                    activeListModal === 'following'
+                      ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white'
+                      : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-white'
+                  }`}
+                >
+                  Following ({user?.followingCount || 0})
+                </button>
+              </div>
+              <button
+                type="button"
+                id="close-followers-modal-btn"
+                onClick={() => setActiveListModal(null)}
+                aria-label="Close modal"
+                className="p-1 rounded-full text-neutral-500 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="p-3 border-b border-neutral-200 dark:border-neutral-800">
+              <div className="relative">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={listSearchQuery}
+                  onChange={(e) => setListSearchQuery(e.target.value)}
+                  placeholder={`Search ${activeListModal}...`}
+                  className="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl pl-9 pr-3.5 py-2 text-xs text-neutral-900 dark:text-white focus:outline-none focus:border-rose-500"
+                />
+              </div>
+            </div>
+
+            {/* List Body */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-1 divide-y divide-neutral-100 dark:divide-neutral-800/60">
+              {isLoadingModalList ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2 text-neutral-400">
+                  <Loader2 className="w-6 h-6 animate-spin text-rose-500" />
+                  <span className="text-xs">Loading {activeListModal}...</span>
+                </div>
+              ) : filteredModalUsers.length === 0 ? (
+                <div className="py-12 flex flex-col items-center justify-center text-center px-4">
+                  <div className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mb-3 text-neutral-400">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                    {listSearchQuery
+                      ? 'No matching users found'
+                      : activeListModal === 'followers'
+                      ? 'No followers yet'
+                      : 'Not following anyone yet'}
+                  </h4>
+                  <p className="text-xs text-neutral-500 mt-1 max-w-xs">
+                    {listSearchQuery
+                      ? 'Try searching for another name or username.'
+                      : activeListModal === 'followers'
+                      ? 'When people follow this profile, they will appear here.'
+                      : 'Follow other creators to see their reels in your feed.'}
+                  </p>
+                </div>
+              ) : (
+                filteredModalUsers.map((u) => {
+                  const isCurrentSelf =
+                    currentUser &&
+                    ((currentUser.id && u.id && currentUser.id === u.id) ||
+                      (currentUser.username &&
+                        u.username &&
+                        currentUser.username.replace(/^@/, '').toLowerCase() ===
+                          u.username.replace(/^@/, '').toLowerCase()));
+
+                  const isFollowed = Boolean(
+                    localFollowedMap[u.username] ??
+                      (followedUsers &&
+                        (followedUsers[u.username] ||
+                          followedUsers[`@${u.username}`] ||
+                          (u.id && followedUsers[u.id]))) ??
+                      (activeListModal === 'following' && isOwnProfile)
+                  );
+
+                  return (
+                    <div
+                      key={u.id || u.username}
+                      className="p-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition flex items-center justify-between gap-3"
+                    >
+                      {/* User Info clickable to view profile */}
+                      <button
+                        type="button"
+                        onClick={() => handleViewUserFromList(u)}
+                        className="flex items-center gap-3 text-left min-w-0 flex-1 cursor-pointer group"
+                      >
+                        <img
+                          src={u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}`}
+                          alt={u.name || u.username}
+                          className="w-11 h-11 rounded-full object-cover border border-neutral-200 dark:border-neutral-700 flex-shrink-0 group-hover:scale-105 transition"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white truncate group-hover:underline">
+                              {u.username.replace(/^@/, '')}
+                            </span>
+                            {u.isVerified && (
+                              <BadgeCheck className="w-3.5 h-3.5 text-sky-500 fill-sky-500 flex-shrink-0" />
+                            )}
+                          </div>
+                          <p className="text-xs text-neutral-500 truncate">{u.name || u.username}</p>
+                          {u.bio && (
+                            <p className="text-[11px] text-neutral-400 truncate max-w-[200px] mt-0.5">
+                              {u.bio}
+                            </p>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Follow / Unfollow button */}
+                      {!isCurrentSelf && (
+                        <button
+                          type="button"
+                          id={`modal-user-follow-btn-${u.username}`}
+                          onClick={() => handleToggleFollowInModal(u)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1 ${
+                            isFollowed
+                              ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30 dark:hover:text-rose-400'
+                              : 'bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:opacity-90'
+                          }`}
+                        >
+                          {isFollowed ? (
+                            <>
+                              <UserCheck className="w-3.5 h-3.5" />
+                              <span>Following</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserPlus className="w-3.5 h-3.5" />
+                              <span>Follow</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

@@ -4,7 +4,6 @@ import {
   Heart,
   MessageCircle,
   Send,
-  Bookmark,
   Volume2,
   VolumeX,
   Music,
@@ -14,7 +13,6 @@ import {
   Play,
   Pause,
   BadgeCheck,
-  Phone,
   EyeOff,
   Sparkles,
   HelpCircle,
@@ -87,9 +85,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   initialReelId,
   onBack,
   onToggleLike,
-  onToggleSave,
+  onToggleSave: _onToggleSave,
   onAddComment,
-  onShare,
+  onShare: _onShare,
   onViewUser,
   onToggleFollow,
   followedUsers = {},
@@ -519,9 +517,41 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       clearTimeout(tapTimeoutRef.current);
     }
 
-    // Single screen tap cleanly toggles audio ON/OFF smoothly with synchronized speaker icon
+    // Single tap toggles play/pause reliably or smoothly unmutes if currently muted
     tapTimeoutRef.current = setTimeout(() => {
-      toggleSoundAndPlay();
+      const currentVideo = videoRefs.current[activeIndex];
+      if (currentVideo) {
+        if (currentVideo.paused) {
+          currentVideo.muted = isMuted;
+          currentVideo
+            .play()
+            .then(() => {
+              setIsPlaying(true);
+              setShowPlayPauseIcon('play');
+              setTimeout(() => setShowPlayPauseIcon(null), 600);
+            })
+            .catch(() => {
+              currentVideo.muted = true;
+              currentVideo
+                .play()
+                .then(() => {
+                  setIsPlaying(true);
+                  setShowPlayPauseIcon('play');
+                  setTimeout(() => setShowPlayPauseIcon(null), 600);
+                })
+                .catch(() => {});
+            });
+        } else if (isMuted) {
+          // If video is playing but currently muted, tapping anywhere smoothly un-mutes
+          toggleSoundAndPlay();
+        } else {
+          // If video is playing with sound, tapping anywhere smoothly pauses
+          currentVideo.pause();
+          setIsPlaying(false);
+          setShowPlayPauseIcon('pause');
+          setTimeout(() => setShowPlayPauseIcon(null), 600);
+        }
+      }
       tapTimeoutRef.current = null;
     }, DOUBLE_TAP_GAP);
   };
@@ -853,63 +883,80 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 loading={Math.abs(index - activeIndex) <= 1 ? 'eager' : 'lazy'}
               />
             ) : (
-              <video
-                ref={(el) => {
-                  videoRefs.current[index] = el;
-                  if (el) {
-                    el.defaultMuted = isMuted;
-                    el.muted = isMuted;
-                  }
-                }}
-                src={reel.videoUrl}
-                poster={reel.thumbnailUrl}
-                autoPlay
-                loop
-                playsInline
-                webkit-playsinline="true"
-                muted={isMuted}
-                preload={Math.abs(index - activeIndex) <= 2 ? 'auto' : 'metadata'}
-                onCanPlay={(e) => {
-                  if (index === activeIndex && isActive) {
-                    const vid = e.currentTarget;
-                    if (vid.paused) {
-                      vid.play().then(() => setIsPlaying(true)).catch(() => {
-                        vid.muted = true;
-                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                      });
-                    }
-                  }
-                }}
-                onLoadedData={(e) => {
-                  if (index === activeIndex && isActive) {
-                    const vid = e.currentTarget;
-                    if (vid.paused) {
-                      vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                    }
-                  }
-                }}
-                onPlay={() => {
-                  if (index === activeIndex) setIsPlaying(true);
-                }}
-                onPause={() => {
-                  if (index === activeIndex) setIsPlaying(false);
-                }}
-                onTimeUpdate={() => handleTimeUpdate(index)}
-                onEnded={(e) => {
-                  const vid = e.currentTarget;
-                  vid.currentTime = 0;
-                  vid.play().catch(() => {});
-                }}
-                onError={(e) => {
-                  const vid = e.currentTarget;
-                  if (reel.videoUrl && !reel.videoUrl.includes('sample/ForBiggerBlazes')) {
-                    vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-                    vid.load();
-                    vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                  }
-                }}
-                className="w-full h-full object-cover pointer-events-none"
-              />
+              (() => {
+                const videoSrc = ((reel as any).mediaUrl && !(reel as any).mediaUrl.startsWith('blob:'))
+                  ? (reel as any).mediaUrl
+                  : (reel.videoUrl && !reel.videoUrl.startsWith('blob:'))
+                  ? reel.videoUrl
+                  : (reel.downloadURL || reel.videoUrl || (reel as any).mediaUrl);
+
+                return (
+                  <video
+                    ref={(el) => {
+                      videoRefs.current[index] = el;
+                      if (el) {
+                        el.defaultMuted = isMuted;
+                        el.muted = isMuted;
+                      }
+                    }}
+                    src={videoSrc}
+                    controls
+                    playsInline
+                    webkit-playsinline="true"
+                    preload="auto"
+                    autoPlay
+                    loop
+                    poster={reel.thumbnailUrl || ''}
+                    className="w-full h-full object-cover pointer-events-none"
+                    muted={isMuted}
+                    onCanPlay={(e) => {
+                      if (index === activeIndex && isActive) {
+                        const vid = e.currentTarget;
+                        if (vid.paused) {
+                          vid.play().then(() => setIsPlaying(true)).catch(() => {
+                            vid.muted = true;
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                          });
+                        }
+                      }
+                    }}
+                    onLoadedData={(e) => {
+                      if (index === activeIndex && isActive) {
+                        const vid = e.currentTarget;
+                        if (vid.paused) {
+                          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                        }
+                      }
+                    }}
+                    onPlay={() => {
+                      if (index === activeIndex) setIsPlaying(true);
+                    }}
+                    onPause={() => {
+                      if (index === activeIndex) setIsPlaying(false);
+                    }}
+                    onTimeUpdate={() => handleTimeUpdate(index)}
+                    onEnded={(e) => {
+                      const vid = e.currentTarget;
+                      vid.currentTime = 0;
+                      vid.play().catch(() => {});
+                    }}
+                    onError={(e) => {
+                      console.warn("Video failed, attempting storage URL fallback", reel.downloadURL);
+                      const vid = e.currentTarget;
+                      if (reel.downloadURL && vid.src !== reel.downloadURL) {
+                        vid.src = reel.downloadURL;
+                      } else {
+                        const currentSrc = reel.downloadURL || reel.videoUrl || (reel as any).mediaUrl;
+                        if (currentSrc && !currentSrc.includes('sample/ForBiggerBlazes')) {
+                          vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+                          vid.load();
+                          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                        }
+                      }
+                    }}
+                  />
+                );
+              })()
             )}
 
             {/* Vignette Gradients for Legibility */}
@@ -957,8 +1004,35 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
             {/* Persistent Center Play Icon when Reel is Paused */}
             {isCurrent && !isPlaying && !showPlayPauseIcon && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 animate-in zoom-in-90 duration-150">
-                <div className="w-20 h-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/25 shadow-2xl">
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const currentVideo = videoRefs.current[activeIndex];
+                  if (currentVideo) {
+                    currentVideo.muted = isMuted;
+                    currentVideo
+                      .play()
+                      .then(() => {
+                        setIsPlaying(true);
+                        setShowPlayPauseIcon('play');
+                        setTimeout(() => setShowPlayPauseIcon(null), 600);
+                      })
+                      .catch(() => {
+                        currentVideo.muted = true;
+                        currentVideo
+                          .play()
+                          .then(() => {
+                            setIsPlaying(true);
+                            setShowPlayPauseIcon('play');
+                            setTimeout(() => setShowPlayPauseIcon(null), 600);
+                          })
+                          .catch(() => {});
+                      });
+                  }
+                }}
+                className="absolute inset-0 flex items-center justify-center cursor-pointer z-30 animate-in zoom-in-90 duration-150"
+              >
+                <div className="w-20 h-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/25 shadow-2xl hover:scale-110 active:scale-95 transition">
                   <Play className="w-9 h-9 fill-white ml-1 text-white" />
                 </div>
               </div>
@@ -1563,7 +1637,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       )}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-white">Reel Privacy / प्राइवेसी</p>
+                      <p className="text-sm font-semibold text-white">Reel Privacy</p>
                       <p className="text-xs text-neutral-400">
                         {currentReel.privacy === 'private' || currentReel.isPrivate
                           ? 'Only visible to you. Tap to make Public'
@@ -1984,7 +2058,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             name: currentReel.username,
             avatar: currentReel.userAvatar,
           }}
-          onTipSent={(amount, app, note) => {
+          onTipSent={(amount) => {
             setToastMessage(`Sent ₹${amount} Shagun to @${currentReel.username}! 🎁✨`);
             setTimeout(() => setToastMessage(null), 4000);
           }}

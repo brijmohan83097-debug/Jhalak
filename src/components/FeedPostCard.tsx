@@ -17,7 +17,6 @@ import {
   EyeOff,
   Sparkles,
   X,
-  Check,
   Flag,
   Ban,
   Gift,
@@ -203,7 +202,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     }
   }, [isPlaying, post]);
 
-  const handleMediaClick = (e: React.MouseEvent) => {
+  const handleMediaClick = () => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 260;
 
@@ -230,19 +229,41 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       tapTimeoutRef.current = null;
     }
 
-    // Video posts: When user taps anywhere on the video post, immediately open and redirect to full-screen ReelsView
+    // Video posts: Tapping anywhere on the video or center play button toggles play/pause reliably
     if (post.mediaType === 'video') {
       tapTimeoutRef.current = setTimeout(() => {
-        if (onOpenReel) {
-          onOpenReel(post);
-        } else if (onOpenFullScreen) {
-          onOpenFullScreen({
-            ...post,
-            mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
-          });
+        if (videoRef.current) {
+          if (videoRef.current.paused) {
+            videoRef.current.muted = isMuted;
+            videoRef.current
+              .play()
+              .then(() => {
+                setIsPlaying(true);
+                setShowPlayPauseIcon('play');
+                setTimeout(() => setShowPlayPauseIcon(null), 600);
+              })
+              .catch(() => {
+                if (videoRef.current) {
+                  videoRef.current.muted = true;
+                  videoRef.current
+                    .play()
+                    .then(() => {
+                      setIsPlaying(true);
+                      setShowPlayPauseIcon('play');
+                      setTimeout(() => setShowPlayPauseIcon(null), 600);
+                    })
+                    .catch(() => {});
+                }
+              });
+          } else {
+            videoRef.current.pause();
+            setIsPlaying(false);
+            setShowPlayPauseIcon('pause');
+            setTimeout(() => setShowPlayPauseIcon(null), 600);
+          }
         }
         tapTimeoutRef.current = null;
-      }, 160);
+      }, 200);
       return;
     }
 
@@ -468,70 +489,82 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
             </div>
           ) : (
             <>
-              <video
-                ref={(el) => {
-                  (videoRef as any).current = el;
-                  if (el) {
-                    el.defaultMuted = isMuted;
-                    el.muted = isMuted;
-                  }
-                }}
-                src={post.mediaUrl}
-                poster={post.thumbnailUrl}
-                autoPlay
-                loop
-                playsInline
-                webkit-playsinline="true"
-                muted={isMuted}
-                preload="auto"
-                onCanPlay={(e) => {
-                  const vid = e.currentTarget;
-                  if (isIntersectingRef.current && vid.paused) {
-                    vid.muted = isMutedRef.current;
-                    vid.play().then(() => {
+              {(() => {
+                const videoSrc = (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
+                  ? post.mediaUrl
+                  : (post.downloadURL || (post as any).videoUrl);
+
+                return (
+                  <video
+                    ref={(el) => {
+                      (videoRef as any).current = el;
+                      if (el) {
+                        el.defaultMuted = isMuted;
+                        el.muted = isMuted;
+                      }
+                    }}
+                    src={videoSrc}
+                    controls
+                    playsInline
+                    webkit-playsinline="true"
+                    preload="auto"
+                    autoPlay
+                    loop
+                    poster={post.thumbnailUrl || ''}
+                    className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
+                    muted={isMuted}
+                    onCanPlay={(e) => {
+                      const vid = e.currentTarget;
+                      if (isIntersectingRef.current && vid.paused) {
+                        vid.muted = isMutedRef.current;
+                        vid.play().then(() => {
+                          setIsPlaying(true);
+                          setIsBuffering(false);
+                        }).catch(() => {
+                          vid.muted = true;
+                          vid.play().catch(() => {});
+                        });
+                      }
+                    }}
+                    onLoadedData={(e) => {
+                      const vid = e.currentTarget;
+                      if (isIntersectingRef.current && vid.paused) {
+                        vid.play().then(() => {
+                          setIsPlaying(true);
+                          setIsBuffering(false);
+                        }).catch(() => {});
+                      }
+                    }}
+                    onWaiting={() => setIsBuffering(true)}
+                    onPlaying={() => {
                       setIsPlaying(true);
                       setIsBuffering(false);
-                    }).catch(() => {
-                      vid.muted = true;
-                      vid.play().catch(() => {});
-                    });
-                  }
-                }}
-                onLoadedData={(e) => {
-                  const vid = e.currentTarget;
-                  if (isIntersectingRef.current && vid.paused) {
-                    vid.play().then(() => {
+                    }}
+                    onPlay={() => {
                       setIsPlaying(true);
                       setIsBuffering(false);
-                    }).catch(() => {});
-                  }
-                }}
-                onWaiting={() => setIsBuffering(true)}
-                onPlaying={() => {
-                  setIsPlaying(true);
-                  setIsBuffering(false);
-                }}
-                onPlay={() => {
-                  setIsPlaying(true);
-                  setIsBuffering(false);
-                }}
-                onPause={() => setIsPlaying(false)}
-                onError={() => {
-                  if (videoRef.current && post.mediaUrl && !post.mediaUrl.includes('sample/ForBiggerBlazes')) {
-                    videoRef.current.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-                    videoRef.current.load();
-                    videoRef.current.play().then(() => {
-                      setIsPlaying(true);
-                      setIsBuffering(false);
-                    }).catch(() => {
-                      setVideoError(true);
-                    });
-                  } else {
-                    setVideoError(true);
-                  }
-                }}
-                className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
-              />
+                    }}
+                    onPause={() => setIsPlaying(false)}
+                    onError={(e) => {
+                      console.warn("Video failed, attempting storage URL fallback", post.downloadURL);
+                      if (post.downloadURL && e.currentTarget.src !== post.downloadURL) {
+                        e.currentTarget.src = post.downloadURL;
+                      } else if (videoRef.current && (!videoRef.current.src || !videoRef.current.src.includes('sample/ForBiggerBlazes'))) {
+                        videoRef.current.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+                        videoRef.current.load();
+                        videoRef.current.play().then(() => {
+                          setIsPlaying(true);
+                          setIsBuffering(false);
+                        }).catch(() => {
+                          setVideoError(true);
+                        });
+                      } else {
+                        setVideoError(true);
+                      }
+                    }}
+                  />
+                );
+              })()}
 
               {/* Buffering Indicator */}
               {isBuffering && (
@@ -624,8 +657,36 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
             {/* Persistent Center Play Icon when Paused */}
             {!isPlaying && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-xl transition-all">
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (videoRef.current) {
+                    videoRef.current.muted = isMuted;
+                    videoRef.current
+                      .play()
+                      .then(() => {
+                        setIsPlaying(true);
+                        setShowPlayPauseIcon('play');
+                        setTimeout(() => setShowPlayPauseIcon(null), 600);
+                      })
+                      .catch(() => {
+                        if (videoRef.current) {
+                          videoRef.current.muted = true;
+                          videoRef.current
+                            .play()
+                            .then(() => {
+                              setIsPlaying(true);
+                              setShowPlayPauseIcon('play');
+                              setTimeout(() => setShowPlayPauseIcon(null), 600);
+                            })
+                            .catch(() => {});
+                        }
+                      });
+                  }
+                }}
+                className="absolute inset-0 flex items-center justify-center cursor-pointer z-20"
+              >
+                <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-xl transition-all hover:scale-110 active:scale-95">
                   <Play className="w-7 h-7 fill-white ml-1 text-white" />
                 </div>
               </div>
@@ -1071,7 +1132,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold">Post Privacy / प्राइवेसी</p>
+                      <p className="text-xs font-semibold">Post Privacy</p>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                           post.privacy === 'private' || post.isPrivate

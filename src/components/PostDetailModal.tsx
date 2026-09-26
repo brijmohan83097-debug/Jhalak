@@ -11,7 +11,6 @@ import {
   Volume2,
   VolumeX,
   Play,
-  Clapperboard,
   Phone,
   ShoppingBag,
   Maximize2,
@@ -78,7 +77,6 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
   const [commentText, setCommentText] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'gif' } | null>(null);
-  const [showGifPicker, setShowGifPicker] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string>(post.mediaUrl);
@@ -259,52 +257,65 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               </div>
             ) : (
               <div className="relative w-full h-full flex items-center justify-center bg-black">
-                <video
-                  ref={(el) => {
-                    (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
-                    if (el) {
-                      el.defaultMuted = false;
-                      el.muted = isMuted;
-                      const p = el.play();
-                      if (p !== undefined) {
-                        p.then(() => setIsPlaying(true)).catch(() => {
-                          el.muted = true;
-                          setIsMuted(true);
-                          el.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-                        });
-                      }
-                    }
-                  }}
-                  src={resolvedUrl || post.mediaUrl}
-                  poster={post.thumbnailUrl}
-                  autoPlay
-                  loop
-                  playsInline
-                  webkit-playsinline="true"
-                  muted={isMuted}
-                  preload="auto"
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onCanPlay={(e) => {
-                    const vid = e.currentTarget;
-                    const p = vid.play();
-                    if (p !== undefined) {
-                      p.then(() => setIsPlaying(true)).catch(() => {});
-                    }
-                  }}
-                  onError={async () => {
-                    try {
-                      const restored = await resolvePlayableMediaUrl(post.id, post.mediaUrl);
-                      if (restored && restored !== resolvedUrl) {
-                        setResolvedUrl(restored);
-                        return;
-                      }
-                    } catch {}
-                    setVideoError(true);
-                  }}
-                  className="w-full h-full object-contain cursor-pointer"
-                  onClick={togglePlayPause}
-                />
+                {(() => {
+                  const videoSrc = (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
+                    ? post.mediaUrl
+                    : (post.downloadURL || (post as any).videoUrl || resolvedUrl);
+
+                  return (
+                    <video
+                      ref={(el) => {
+                        (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
+                        if (el) {
+                          el.defaultMuted = false;
+                          el.muted = isMuted;
+                          const p = el.play();
+                          if (p !== undefined) {
+                            p.then(() => setIsPlaying(true)).catch(() => {
+                              el.muted = true;
+                              el.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                            });
+                          }
+                        }
+                      }}
+                      src={videoSrc}
+                      controls
+                      playsInline
+                      webkit-playsinline="true"
+                      preload="auto"
+                      autoPlay
+                      loop
+                      poster={post.thumbnailUrl || ''}
+                      className="w-full h-full object-cover cursor-pointer"
+                      muted={isMuted}
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onCanPlay={(e) => {
+                        const vid = e.currentTarget;
+                        const p = vid.play();
+                        if (p !== undefined) {
+                          p.then(() => setIsPlaying(true)).catch(() => {});
+                        }
+                      }}
+                      onError={async (e) => {
+                        console.warn("Video failed, attempting storage URL fallback", post.downloadURL);
+                        if (post.downloadURL && e.currentTarget.src !== post.downloadURL) {
+                          e.currentTarget.src = post.downloadURL;
+                          return;
+                        }
+                        try {
+                          const restored = await resolvePlayableMediaUrl(post.id, post.mediaUrl);
+                          if (restored && restored !== resolvedUrl) {
+                            setResolvedUrl(restored);
+                            return;
+                          }
+                        } catch {}
+                        setVideoError(true);
+                      }}
+                      onClick={togglePlayPause}
+                    />
+                  );
+                })()}
                 {!isPlaying && !videoError && (
                   <div
                     className="absolute inset-0 flex items-center justify-center z-10 cursor-pointer"
@@ -795,7 +806,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold">Post Privacy / प्राइवेसी</p>
+                      <p className="text-xs font-semibold">Post Privacy</p>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                           post.privacy === 'private' || post.isPrivate

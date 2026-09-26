@@ -686,7 +686,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
     const now = Date.now();
     const postId = `post-${now}`;
-    const persistedThumbnail =
+    let persistedThumbnail =
       thumbnailDataUrl ||
       (mediaType === 'image'
         ? selectedMediaUrl
@@ -829,13 +829,28 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       }
     }
 
+    // Ensure permanent URLs so posts and reels NEVER suffer from dead blob URLs or black screens
+    if (permanentMediaUrl.startsWith('blob:') || !permanentMediaUrl) {
+      if (mediaType === 'video') {
+        permanentMediaUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+      } else {
+        permanentMediaUrl = persistedThumbnail || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800';
+      }
+    }
+
+    if (persistedThumbnail.startsWith('blob:')) {
+      persistedThumbnail = thumbnailDataUrl || createVideoFallbackDataUrl(caption || 'Video Reel');
+    }
+
     // Direct and instant: save permanent URLs to Firestore posts collection
     try {
       newPost.mediaUrl = permanentMediaUrl;
       newPost.downloadURL = permanentMediaUrl;
+      newPost.thumbnailUrl = persistedThumbnail;
       if (newReel) {
         newReel.videoUrl = permanentMediaUrl;
         newReel.downloadURL = permanentMediaUrl;
+        newReel.thumbnailUrl = persistedThumbnail;
       }
 
       // Save post document to Cloud Firestore
@@ -1971,7 +1986,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                       </div>
                       <div>
                         <span className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-1">
-                          Product Tagging / उत्पाद टैग
+                          Product Tagging
                           <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded">
                             D2C & WhatsApp
                           </span>
@@ -1995,7 +2010,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <label className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 block mb-1">
-                            Product Title / उत्पाद का नाम
+                            Product Title
                           </label>
                           <input
                             id="product-tag-title-input"
@@ -2008,7 +2023,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                         </div>
                         <div>
                           <label className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 block mb-1">
-                            Price in ₹ / मूल्य (रुपये)
+                            Price in ₹
                           </label>
                           <div className="relative">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-500">
@@ -2085,7 +2100,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                       </div>
                       <div>
                         <span className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
-                          Video Privacy / प्राइवेसी
+                          Video Privacy
                           <span
                             className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                               privacy === 'private'

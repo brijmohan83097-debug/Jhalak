@@ -179,7 +179,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               </div>
               <div>
                 <span className="text-[11px] font-medium text-neutral-300 block uppercase tracking-wider">
-                  Available Balance (कुल शेष राशि)
+                  Available Balance
                 </span>
                 <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -309,7 +309,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
                 ) : (
                   <>
                     <ArrowUpRight className="w-4 h-4" />
-                    <span>Instant UPI Payout (तुरंत बैंक खाते में निकालें)</span>
+                    <span>Instant UPI Payout</span>
                   </>
                 )}
               </button>
@@ -332,7 +332,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
           <div>
             <h3 className="font-bold text-sm text-neutral-900 dark:text-white flex items-center gap-1.5">
               <TrendingUp className="w-4 h-4 text-emerald-500" />
-              Monetization Eligibility (पात्रता स्थिति)
+              Monetization Eligibility
             </h3>
             <p className="text-[11px] text-neutral-500">
               Policy Target: 2,000 Followers & 2,000 Watch Hours
@@ -372,7 +372,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
-                    Target 1: 2,000 Followers (फॉलोअर्स)
+                    Target 1: 2,000 Followers
                   </h4>
                   {effectiveFollowers >= TARGET_FOLLOWERS ? (
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
@@ -447,7 +447,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
-                    Target 2: 2,000 Watch Hours (वॉच आवर्स)
+                    Target 2: 2,000 Watch Hours
                   </h4>
                   {effectiveWatchHours >= TARGET_WATCH_HOURS ? (
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
@@ -539,7 +539,7 @@ export const CreatorMonetizationView: React.FC<CreatorMonetizationViewProps> = (
         <div className="flex items-center justify-between px-1">
           <h3 className="font-bold text-xs text-neutral-900 dark:text-white flex items-center gap-1.5">
             <Gift className="w-3.5 h-3.5 text-amber-500" />
-            Recent Tip Transactions (हालिया शगुन व आय)
+            Recent Tip Transactions
           </h3>
           <span className="text-[10px] text-neutral-400">
             {transactions.length} transactions

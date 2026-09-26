@@ -202,10 +202,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
 
     editProfile: 'Edit Profile',
     accountPrivacy: 'Account Privacy',
-    language: 'Language (भाषा)',
+    language: 'Language',
     notifications: 'Notifications',
     savedPosts: 'Saved Items',
-    switchLanguage: 'Change Language / भाषा बदलें',
+    switchLanguage: 'Change Language',
     selectLanguage: 'Select your preferred language',
     privacySubtitle: 'Manage who can see your photos, reels & stories',
     notificationsSubtitle: 'Control alerts for likes, comments and DMs',

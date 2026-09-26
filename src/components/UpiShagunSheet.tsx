@@ -5,15 +5,11 @@ import {
   CheckCircle2,
   Sparkles,
   ShieldCheck,
-  ChevronRight,
-  Send,
-  Heart,
   Smartphone,
   PlayCircle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { AdMobRewardedAdModal } from './AdMobRewardedAdModal';
-import { ADMOB_CONFIG } from '../services/adMobService';
 
 interface UpiShagunSheetProps {
   isOpen: boolean;
@@ -100,7 +96,7 @@ export const UpiShagunSheet: React.FC<UpiShagunSheetProps> = ({
 
   const currentAmount = isCustomMode ? Math.max(1, Number(customAmount) || 0) : selectedAmount;
 
-  const handleRewardEarned = (rewardText: string, amount: number) => {
+  const handleRewardEarned = (_rewardText: string, amount: number) => {
     setShowRewardedAd(false);
     setSelectedAmount(amount || 10);
     setIsCustomMode(false);
@@ -267,7 +263,7 @@ export const UpiShagunSheet: React.FC<UpiShagunSheetProps> = ({
                   onClick={handleReset}
                   className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 text-white font-bold text-sm shadow-md hover:opacity-95 transition"
                 >
-                  Done (धन्यवाद)
+                  Done
                 </button>
               </div>
             </div>
@@ -424,7 +420,7 @@ export const UpiShagunSheet: React.FC<UpiShagunSheetProps> = ({
               {/* Shagun Note & Quick Chips */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1.5">
-                  Shagun Note (शुभकामनाएं)
+                  Greeting Note & Wishes
                 </label>
                 <div className="relative">
                   <input
@@ -485,7 +481,7 @@ export const UpiShagunSheet: React.FC<UpiShagunSheetProps> = ({
                             {app.id === 'gpay'
                               ? 'GPay'
                               : app.id === 'phonepe'
-                              ? 'पे'
+                              ? 'Pe'
                               : 'Paytm'}
                           </div>
                           <div>

@@ -3,7 +3,6 @@ import {
   Sparkles,
   Lock,
   CheckCircle2,
-  TrendingUp,
   Clock,
   Users,
   ArrowUpRight,
@@ -86,7 +85,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
           </div>
           <div>
             <h3 className="font-bold text-sm sm:text-base text-neutral-900 dark:text-white flex items-center gap-2">
-              Creator Dashboard (क्रिएटर डैशबोर्ड)
+              Creator Dashboard
             </h3>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Policy: Target 2,000 Followers & 2,000 Watch Hours
@@ -115,7 +114,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
           <div className="flex items-center justify-between text-xs font-semibold">
             <span className="text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-sky-500" />
-              Followers Target (फॉलोअर्स):
+              Followers Target:
             </span>
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-neutral-900 dark:text-white font-bold">
@@ -160,7 +159,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
           <div className="flex items-center justify-between text-xs font-semibold">
             <span className="text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-amber-500" />
-              Watch Hours Target (व्यू वॉच आवर्स):
+              Watch Hours Target:
             </span>
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-neutral-900 dark:text-white font-bold">
@@ -214,7 +213,7 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
             <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-emerald-700 dark:text-emerald-400">
-                UPI Payouts Application Unlocked (पात्रता स्वीकृत)
+                UPI Payouts Application Unlocked
               </p>
               <p className="text-[11px] text-neutral-600 dark:text-neutral-400 mt-0.5">
                 Both 2,000 followers and 2,000 watch hours criteria are 100% satisfied. You can apply for direct UPI settlement.
@@ -241,11 +240,11 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-neutral-100/80 dark:bg-neutral-800/40 border border-neutral-200 dark:border-neutral-800 text-xs">
         <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 flex items-center gap-1">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-          Daily Uploads (दैनिक अपलोड):
+          Daily Uploads:
         </span>
         <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
           <Sparkles className="w-3 h-3 text-amber-500" />
-          <span>Unlimited (असीमित)</span>
+          <span>Unlimited</span>
         </div>
       </div>
 
@@ -263,8 +262,8 @@ export const CreatorDashboardCard: React.FC<CreatorDashboardCardProps> = ({
         <IndianRupee className="w-4 h-4" />
         <span>
           {stats.isUnlocked
-            ? 'Open UPI Payouts & Monetization (पेआउट निकालें)'
-            : 'View Monetization Details & Status (मोनेटाइजेशन देखें)'}
+            ? 'Open UPI Payouts & Monetization'
+            : 'View Monetization Details & Status'}
         </span>
         <ArrowUpRight className="w-4 h-4" />
       </button>

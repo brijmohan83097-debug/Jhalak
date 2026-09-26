@@ -14,6 +14,8 @@
         "website": { "type": "string", "maxLength": 150 },
         "followersCount": { "type": "number" },
         "followingCount": { "type": "number" },
+        "followers": { "type": "array" },
+        "following": { "type": "array" },
         "postsCount": { "type": "number" },
         "watchHours": { "type": "number" },
         "isVerified": { "type": "boolean" },

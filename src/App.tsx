@@ -5,7 +5,6 @@ import {
 } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
 import { MobileHeader, MobileBottomNav } from './components/MobileNav';
-import { StoriesBar } from './components/StoriesBar';
 import { FeedPostCard } from './components/FeedPostCard';
 import { AdMobBannerAd } from './components/AdMobBannerAd';
 import { AdMobNativeFeedAd } from './components/AdMobNativeFeedAd';
@@ -32,7 +31,7 @@ import { AccountDeletionModal } from './components/AccountDeletionModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { CreateStoryModal } from './components/CreateStoryModal';
 import { AdminModerationDashboard } from './components/AdminModerationDashboard';
-import { CheckCircle, Plus, Search, ArrowLeft, Check, RefreshCw, BadgeCheck, Bell, Sparkles, UserCheck } from 'lucide-react';
+import { CheckCircle, Plus, Search, ArrowLeft, Check, BadgeCheck, Sparkles, UserCheck } from 'lucide-react';
 import { SupportedLanguage, translations } from './translations';
 import { recommendationEngine, inferCategory, inferLanguage, getItemTimestamp } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
@@ -43,9 +42,6 @@ import {
 } from './components/UGCCommunityGuidelinesModal';
 import {
   safeSetItem,
-  registerStorageWarningToast,
-  STORAGE_QUOTA_EVENT,
-  StorageQuotaDetail,
 } from './utils/safeStorage';
 import {
   subscribeToAuthState,
@@ -176,7 +172,8 @@ export default function App() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          return parsed.filter(isRealPost);
+          const valid = parsed.filter(isRealPost);
+          return Array.from(new Map(valid.map((p) => [p.id, p])).values());
         }
       }
     } catch {
@@ -192,7 +189,8 @@ export default function App() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          return parsed.filter(isRealReel);
+          const valid = parsed.filter(isRealReel);
+          return Array.from(new Map(valid.map((r) => [r.id, r])).values());
         }
       }
     } catch {
@@ -242,7 +240,6 @@ export default function App() {
 
   // Pull-to-refresh and swipe gesture states
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
-  const [pullProgress, setPullProgress] = useState(0);
   const touchStartPosRef = React.useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
 
   const [reportTarget, setReportTarget] = useState<{
@@ -651,7 +648,7 @@ export default function App() {
       }
     });
 
-    const finalPosts = Array.from(postMap.values());
+    const finalPosts = Array.from(new Map(Array.from(postMap.values()).map((p) => [p.id, p])).values());
     finalPosts.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
     setPosts(finalPosts);
 
@@ -715,7 +712,7 @@ export default function App() {
       if (!reelMap.has(lr.id)) reelMap.set(lr.id, lr);
     });
 
-    const finalReels = Array.from(reelMap.values());
+    const finalReels = Array.from(new Map(Array.from(reelMap.values()).map((r) => [r.id, r])).values());
     finalReels.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
     setReels(finalReels);
   };
@@ -1198,7 +1195,8 @@ export default function App() {
 
   // Sort Feed Posts automatically based on Watch-Time, Followed Friends, Language Engagement, and Moderation Filters
   const sortedFeedPosts = useMemo(() => {
-    const cleanPosts = posts.filter((p) => {
+    const uniquePosts = Array.from(new Map(posts.map((p) => [p.id, p])).values());
+    const cleanPosts = uniquePosts.filter((p) => {
       if (moderationService.isUserBlocked(p.username) || moderationService.isItemReported(p.id)) {
         return false;
       }
@@ -1226,7 +1224,8 @@ export default function App() {
               p.username.toLowerCase().replace(/^@/, '').trim());
         return isSelf || isUserFollowed(p.username, p.userId);
       });
-      return recommendationEngine.sortPosts(followingPosts, currentLanguage);
+      const sorted = recommendationEngine.sortPosts(followingPosts, currentLanguage);
+      return Array.from(new Map(sorted.map((p) => [p.id, p])).values());
     }
 
     // 2. "For You" (all) feed: sort with recommendation engine, while prioritizing posts from followed friends at the top
@@ -1260,10 +1259,10 @@ export default function App() {
           merged.push(followedList[fIndex++]);
         }
       }
-      return merged;
+      return Array.from(new Map(merged.map((p) => [p.id, p])).values());
     }
 
-    return recSorted;
+    return Array.from(new Map(recSorted.map((p) => [p.id, p])).values());
   }, [posts, currentUser, blockedVersion, currentLanguage, recsVersion, homeFeedFilter, isUserFollowed]);
 
   // Interleave Google AdMob / AdSense Native Video Ads between feed posts (rotating every 3-4 posts)
@@ -3243,6 +3242,9 @@ export default function App() {
               user={currentUser}
               currentUser={currentUser}
               isOwnProfile={true}
+              followedUsers={followedUsers}
+              onToggleFollow={handleToggleFollow}
+              onSelectUser={(u, _id, userObj) => handleViewUser(u, userObj)}
               userPosts={userPosts}
               savedPosts={savedPosts}
               onOpenEditProfile={() => setIsEditProfileOpen(true)}
@@ -3691,7 +3693,9 @@ export default function App() {
                   followedUsers[`@${selectedProfileUser.username}`] ||
                   (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
               )}
+              followedUsers={followedUsers}
               onToggleFollow={(u, id) => handleToggleFollow(u, id)}
+              onSelectUser={(u, _id, userObj) => handleViewUser(u, userObj)}
               onBack={() => setSelectedProfileUser(null)}
               onStartChat={(targetUser) => {
                 setSelectedProfileUser(null);

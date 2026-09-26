@@ -41,6 +41,14 @@ service cloud.firestore {
       match /private/{docId} {
         allow read, write: if isOwner(userId) || isSuperAdmin();
       }
+
+      // Followers and Following subcollections for social graph
+      match /followers/{followerId} {
+        allow read, write: if true;
+      }
+      match /following/{followingId} {
+        allow read, write: if true;
+      }
     }
 
     // =========================================================================
