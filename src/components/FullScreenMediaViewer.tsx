@@ -35,7 +35,12 @@ import {
 } from '../utils/imageCompressor';
 import { isSuperAdmin } from '../constants/admin';
 import { resolvePlayableMediaUrl } from '../utils/persistentMediaStore';
-import { pauseAllMedia } from '../utils/mediaCoordinator';
+import {
+  pauseAllMedia,
+  getGlobalReelsMuted,
+  setGlobalReelsMuted,
+  subscribeGlobalReelsMuted,
+} from '../utils/mediaCoordinator';
 
 interface FullScreenMediaViewerProps {
   posts: Post[];
@@ -46,7 +51,7 @@ interface FullScreenMediaViewerProps {
   onToggleSave: (postId: string) => void;
   onAddComment: (postId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
   onShare: (post: Post) => void;
-  onViewUser: (username: string) => void;
+  onViewUser: (username: string, userObj?: User) => void;
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
   onDeletePost?: (postId: string) => void;
@@ -78,7 +83,14 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   );
 
   const [activeIndex, setActiveIndex] = useState<number>(initialIndex);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(() => getGlobalReelsMuted());
+
+  // Synchronize audio mute state across all reel views
+  useEffect(() => {
+    return subscribeGlobalReelsMuted((muted) => {
+      setIsMuted(muted);
+    });
+  }, []);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [showHeartBurst, setShowHeartBurst] = useState<boolean>(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState<boolean>(false);
@@ -149,6 +161,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
   // Toggle sound and immediately ensure video playback without getting stuck
   const toggleSoundAndPlay = useCallback(() => {
     const nextMuted = !isMuted;
+    setGlobalReelsMuted(nextMuted);
     setIsMuted(nextMuted);
 
     const currentVid = videoRefs.current[activeIndex];
@@ -224,9 +237,8 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
           playPromise
             .then(() => setIsPlaying(true))
             .catch(() => {
-              // If unmuted autoplay is blocked by browser policy, fallback to muted autoplay
+              // If unmuted autoplay is blocked by browser policy, fallback to muted autoplay for this element ONLY
               vid.muted = true;
-              setIsMuted(true);
               vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
             });
         }
@@ -671,7 +683,13 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
             onClick={() => {
               pauseAllMedia();
               onClose();
-              onViewUser(currentPost.username);
+              onViewUser(currentPost.username, {
+                id: currentPost.userId || currentPost.username,
+                username: currentPost.username,
+                name: currentPost.username,
+                avatar: currentPost.userAvatar,
+                isVerified: currentPost.isVerified,
+              } as User);
             }}
             className="w-12 h-12 rounded-full p-[2px] bg-gradient-to-tr from-amber-400 via-rose-500 to-fuchsia-600 active:scale-95 transition cursor-pointer"
             aria-label={`View profile of ${currentPost.username}`}
@@ -786,7 +804,13 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
             onClick={() => {
               pauseAllMedia();
               onClose();
-              onViewUser(currentPost.username);
+              onViewUser(currentPost.username, {
+                id: currentPost.userId || currentPost.username,
+                username: currentPost.username,
+                name: currentPost.username,
+                avatar: currentPost.userAvatar,
+                isVerified: currentPost.isVerified,
+              } as User);
             }}
             className="font-bold text-sm sm:text-base text-white hover:underline flex items-center gap-1 drop-shadow-md cursor-pointer"
           >

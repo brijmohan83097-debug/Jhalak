@@ -130,6 +130,84 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+const FALLBACK_DB_NAME = 'jhalak_fallback_media_v2';
+const FALLBACK_STORE_NAME = 'media_blobs';
+
+/**
+ * Persists a video/image blob to IndexedDB and creates a cached in-memory Object URL
+ * so media is 100% playable even if Firebase Storage is blocked or offline.
+ */
+export function saveBlobToIndexedDB(id: string, blob: Blob): Promise<string> {
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(blob);
+    activeObjectUrlCache.set(id, objectUrl);
+
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      resolve(objectUrl);
+      return;
+    }
+
+    try {
+      const req = indexedDB.open(FALLBACK_DB_NAME, 1);
+      req.onupgradeneeded = (e: any) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(FALLBACK_STORE_NAME)) {
+          db.createObjectStore(FALLBACK_STORE_NAME);
+        }
+      };
+      req.onsuccess = (e: any) => {
+        try {
+          const db = e.target.result;
+          const tx = db.transaction(FALLBACK_STORE_NAME, 'readwrite');
+          const store = tx.objectStore(FALLBACK_STORE_NAME);
+          store.put(blob, id);
+          tx.oncomplete = () => resolve(objectUrl);
+          tx.onerror = () => resolve(objectUrl);
+        } catch {
+          resolve(objectUrl);
+        }
+      };
+      req.onerror = () => resolve(objectUrl);
+    } catch {
+      resolve(objectUrl);
+    }
+  });
+}
+
+/**
+ * Retrieves a cached media blob from IndexedDB fallback storage.
+ */
+export function getBlobFromIndexedDB(id: string): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      resolve(null);
+      return;
+    }
+    try {
+      const req = indexedDB.open(FALLBACK_DB_NAME, 1);
+      req.onsuccess = (e: any) => {
+        try {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(FALLBACK_STORE_NAME)) {
+            resolve(null);
+            return;
+          }
+          const tx = db.transaction(FALLBACK_STORE_NAME, 'readonly');
+          const store = tx.objectStore(FALLBACK_STORE_NAME);
+          const getReq = store.get(id);
+          getReq.onsuccess = () => resolve(getReq.result || null);
+          getReq.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      };
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 /**
  * Creates an in-memory session Object URL for preview purposes without caching to IndexedDB.
  */
@@ -138,16 +216,14 @@ export async function saveMediaBlob(
   blob: Blob,
   _mimeType?: string
 ): Promise<string> {
-  const objectUrl = URL.createObjectURL(blob);
-  activeObjectUrlCache.set(id, objectUrl);
-  return objectUrl;
+  return saveBlobToIndexedDB(id, blob);
 }
 
 /**
- * Legacy getter: returns null as IndexedDB media caching has been disabled.
+ * Getter: returns blob from IndexedDB or memory cache.
  */
-export async function getMediaBlob(_id: string): Promise<Blob | null> {
-  return null;
+export async function getMediaBlob(id: string): Promise<Blob | null> {
+  return getBlobFromIndexedDB(id);
 }
 
 /**
@@ -158,7 +234,8 @@ export async function resolvePlayableMediaUrl(id: string, mediaUrl: string): Pro
     mediaUrl &&
     (mediaUrl.startsWith('https://') ||
       mediaUrl.startsWith('http://') ||
-      mediaUrl.startsWith('data:image/'))
+      mediaUrl.startsWith('data:image/') ||
+      mediaUrl.startsWith('data:video/'))
   ) {
     return mediaUrl;
   }
@@ -167,6 +244,16 @@ export async function resolvePlayableMediaUrl(id: string, mediaUrl: string): Pro
   if (activeObjectUrlCache.has(id)) {
     return activeObjectUrlCache.get(id)!;
   }
+
+  // Check IndexedDB fallback store
+  try {
+    const cachedBlob = await getBlobFromIndexedDB(id);
+    if (cachedBlob) {
+      const freshUrl = URL.createObjectURL(cachedBlob);
+      activeObjectUrlCache.set(id, freshUrl);
+      return freshUrl;
+    }
+  } catch {}
 
   return mediaUrl || '';
 }

@@ -4,6 +4,46 @@
  * when navigating away, opening the camera, viewing profiles, or launching modals.
  */
 
+/**
+ * Global Reel Audio State
+ * Tracks mute preference across all reels and full screen viewers.
+ * When the user un-mutes, audio remains un-muted across all subsequent reels during scroll.
+ */
+const REELS_MUTED_STORAGE_KEY = 'jhalak_reels_muted';
+
+let globalReelsMuted: boolean = (() => {
+  try {
+    const val = localStorage.getItem(REELS_MUTED_STORAGE_KEY);
+    if (val !== null) return val === 'true';
+  } catch {}
+  return false; // Default: unmuted for immersive Reels playback
+})();
+
+const reelsAudioListeners = new Set<(muted: boolean) => void>();
+
+export const getGlobalReelsMuted = (): boolean => globalReelsMuted;
+
+export const setGlobalReelsMuted = (muted: boolean) => {
+  globalReelsMuted = muted;
+  try {
+    localStorage.setItem(REELS_MUTED_STORAGE_KEY, String(muted));
+  } catch {}
+  reelsAudioListeners.forEach((fn) => {
+    try {
+      fn(muted);
+    } catch (e) {
+      console.warn('Error in reels audio listener:', e);
+    }
+  });
+};
+
+export const subscribeGlobalReelsMuted = (callback: (muted: boolean) => void) => {
+  reelsAudioListeners.add(callback);
+  return () => {
+    reelsAudioListeners.delete(callback);
+  };
+};
+
 export const pauseAllMedia = (excludeElement?: HTMLMediaElement | null) => {
   try {
     // 1. Immediately pause and mute all video elements in the DOM

@@ -39,7 +39,7 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
   const [showAdInfo, setShowAdInfo] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Video Autoplay & IntersectionObserver states
+  // Video Autoplay & IntersectionObserver states - All sponsored ads are high-performing video ads
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isMuted, setIsMuted] = useState(true);
@@ -47,11 +47,22 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
   const [isBuffering, setIsBuffering] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
-  const isVideo = ad.mediaType === 'video' || (ad.mediaUrl && ad.mediaUrl.includes('.mp4'));
+  // All sponsored ads are video ads (never static photos)
+  const isVideo = true;
+  const videoSource = (ad.mediaUrl && ad.mediaUrl.endsWith('.mp4'))
+    ? ad.mediaUrl
+    : 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+
+  // Ensure muted property is synced to DOM element
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.defaultMuted = isMuted;
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   // Auto-play when scrolled into view using IntersectionObserver
   useEffect(() => {
-    if (!isVideo) return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -61,21 +72,25 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
           const video = videoRef.current;
           if (!video) return;
 
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.4) {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.25) {
             video.muted = isMuted;
-            video
-              .play()
-              .then(() => {
-                setIsPlaying(true);
-                setIsBuffering(false);
-              })
-              .catch(() => {
-                video.muted = true;
-                video
-                  .play()
-                  .then(() => setIsPlaying(true))
-                  .catch(() => setIsPlaying(false));
-              });
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise
+                .then(() => {
+                  setIsPlaying(true);
+                  setIsBuffering(false);
+                })
+                .catch(() => {
+                  // Fallback to muted autoplay to comply with browser autoplay restrictions
+                  video.muted = true;
+                  setIsMuted(true);
+                  video
+                    .play()
+                    .then(() => setIsPlaying(true))
+                    .catch(() => setIsPlaying(false));
+                });
+            }
           } else {
             video.pause();
             setIsPlaying(false);
@@ -83,13 +98,13 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
         });
       },
       {
-        threshold: [0, 0.4, 0.8],
+        threshold: [0, 0.25, 0.6],
       }
     );
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [isVideo, isMuted]);
+  }, [isMuted]);
 
   useEffect(() => {
     try {
@@ -250,95 +265,93 @@ export const AdMobNativeFeedAd: React.FC<AdMobNativeFeedAdProps> = ({
         </div>
       </div>
 
-      {/* Ad Media Creative: Auto-playing Video Ad or High-Res Image */}
+      {/* Ad Media Creative: Auto-playing Video Ad */}
       <div
         ref={containerRef}
         className="relative w-full aspect-square bg-neutral-950 cursor-pointer overflow-hidden group select-none flex items-center justify-center"
         onClick={handleVideoClick}
       >
-        {isVideo ? (
-          <>
-            <video
-              ref={videoRef}
-              src={ad.mediaUrl}
-              poster={ad.posterUrl}
-              autoPlay
-              loop
-              playsInline
-              webkit-playsinline="true"
-              muted={isMuted}
-              preload="auto"
-              onCanPlay={(e) => {
-                const vid = e.currentTarget;
-                if (vid.paused) {
-                  vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                }
-              }}
-              onWaiting={() => setIsBuffering(true)}
-              onPlaying={() => {
-                setIsPlaying(true);
-                setIsBuffering(false);
-              }}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-              onError={(e) => {
-                const vid = e.currentTarget;
-                if (!vid.src.includes('sample/ForBiggerBlazes')) {
-                  vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-                  vid.load();
-                  vid.play().then(() => setIsPlaying(true)).catch(() => setVideoError(true));
-                } else {
-                  setVideoError(true);
-                }
-              }}
-              className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
-            />
+        <video
+          ref={videoRef}
+          src={videoSource}
+          poster={ad.posterUrl}
+          autoPlay
+          loop
+          playsInline
+          webkit-playsinline="true"
+          muted={isMuted}
+          preload="auto"
+          onCanPlay={(e) => {
+            const vid = e.currentTarget;
+            if (vid.paused) {
+              vid.play().then(() => setIsPlaying(true)).catch(() => {});
+            }
+          }}
+          onWaiting={() => setIsBuffering(true)}
+          onPlaying={() => {
+            setIsPlaying(true);
+            setIsBuffering(false);
+          }}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onError={(e) => {
+            const vid = e.currentTarget;
+            if (!vid.src.includes('sample/ForBiggerBlazes')) {
+              vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+              vid.load();
+              vid.play().then(() => setIsPlaying(true)).catch(() => setVideoError(true));
+            } else {
+              setVideoError(true);
+            }
+          }}
+          className="w-full h-full object-cover group-hover:scale-101 transition-transform duration-500"
+        />
 
-            {/* Buffering Indicator */}
-            {isBuffering && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                <div className="p-2.5 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/20">
-                  <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                </div>
-              </div>
-            )}
-
-            {/* Video Controls: Mute/Unmute & Sponsored Video Badge */}
-            <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
-              <button
-                type="button"
-                id={`ad-mute-btn-${ad.id}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const nextMuted = !isMuted;
-                  setIsMuted(nextMuted);
-                  if (videoRef.current) {
-                    videoRef.current.muted = nextMuted;
-                    if (videoRef.current.paused) {
-                      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
-                    }
-                  }
-                  showToast(nextMuted ? '🔇 Video Muted' : '🔊 Video Unmuted');
-                }}
-                className="p-2 rounded-full bg-black/65 hover:bg-black/85 backdrop-blur-md text-white transition active:scale-95 shadow-md border border-white/20 cursor-pointer"
-                title={isMuted ? 'Unmute' : 'Mute'}
-              >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
-              </button>
-              <span className="px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-md text-white text-[10px] font-bold border border-white/20 tracking-wider uppercase flex items-center gap-1.5 shadow-md">
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                Sponsored Video
-              </span>
+        {/* Buffering Indicator */}
+        {isBuffering && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+            <div className="p-2.5 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/20">
+              <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
             </div>
-          </>
-        ) : (
-          <img
-            src={ad.mediaUrl}
-            alt={ad.headline}
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
-          />
+          </div>
         )}
+
+        {/* Play Icon Overlay if paused */}
+        {!isPlaying && !isBuffering && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+            <div className="p-3.5 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/20 shadow-xl transition transform group-hover:scale-110">
+              <Play className="w-6 h-6 text-white fill-white ml-0.5" />
+            </div>
+          </div>
+        )}
+
+        {/* Video Controls: Mute/Unmute & Sponsored Video Badge */}
+        <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+          <button
+            type="button"
+            id={`ad-mute-btn-${ad.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              const nextMuted = !isMuted;
+              setIsMuted(nextMuted);
+              if (videoRef.current) {
+                videoRef.current.muted = nextMuted;
+                if (videoRef.current.paused) {
+                  videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                }
+              }
+              showToast(nextMuted ? '🔇 Video Muted' : '🔊 Video Unmuted');
+            }}
+            className="p-2 rounded-full bg-black/65 hover:bg-black/85 backdrop-blur-md text-white transition active:scale-95 shadow-md border border-white/20 cursor-pointer"
+            title={isMuted ? 'Unmute' : 'Mute'}
+          >
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+          </button>
+          <span className="px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-md text-white text-[10px] font-bold border border-white/20 tracking-wider uppercase flex items-center gap-1.5 shadow-md">
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            Sponsored Video
+          </span>
+        </div>
 
         {/* Floating Google AdChoices Tag */}
         <div

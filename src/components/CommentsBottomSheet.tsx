@@ -18,7 +18,7 @@ interface CommentsBottomSheetProps {
   currentUser: User;
   onAddComment: (text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
   onToggleCommentLike?: (commentId: string) => void;
-  onViewUser?: (username: string) => void;
+  onViewUser?: (username: string, userObj?: User) => void;
   targetAuthorUsername?: string;
   commentsCount?: number;
 }
@@ -278,10 +278,15 @@ export const CommentsBottomSheet: React.FC<CommentsBottomSheetProps> = ({
                     onClick={() => {
                       if (onViewUser) {
                         onClose();
-                        onViewUser(comment.username);
+                        onViewUser(comment.username, {
+                          id: (comment as any).userId || comment.username,
+                          username: comment.username,
+                          name: comment.username,
+                          avatar: comment.avatar,
+                        } as User);
                       }
                     }}
-                    className="flex-shrink-0 focus:outline-none"
+                    className="flex-shrink-0 focus:outline-none cursor-pointer"
                   >
                     <img
                       src={comment.avatar}
@@ -297,10 +302,15 @@ export const CommentsBottomSheet: React.FC<CommentsBottomSheetProps> = ({
                         onClick={() => {
                           if (onViewUser) {
                             onClose();
-                            onViewUser(comment.username);
+                            onViewUser(comment.username, {
+                              id: (comment as any).userId || comment.username,
+                              username: comment.username,
+                              name: comment.username,
+                              avatar: comment.avatar,
+                            } as User);
                           }
                         }}
-                        className="font-bold text-neutral-900 dark:text-neutral-100 mr-1.5 hover:underline inline-flex items-center gap-0.5"
+                        className="font-bold text-neutral-900 dark:text-neutral-100 mr-1.5 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
                       >
                         <span>{comment.username}</span>
                         {comment.username === 'ananya_wanderer' && (

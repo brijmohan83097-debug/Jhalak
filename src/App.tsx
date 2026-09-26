@@ -52,8 +52,10 @@ import {
   subscribeToFirestorePosts,
   subscribeToFirestoreUsers,
   loadPostsFromFirestore,
+  loadUserPostsFromFirestore,
   loadUsersFromFirestore,
   syncUserProfile,
+  updateUserProfileInAuthAndFirestore,
   getUserProfile,
   savePostToFirestore,
   updatePostPrivacyInFirestore,
@@ -72,6 +74,22 @@ import {
 } from './services/firebase';
 import { ADMIN_EMAIL, isSuperAdmin } from './constants/admin';
 import { pauseAllMedia } from './utils/mediaCoordinator';
+
+export const DEFAULT_GUEST_USER: User = {
+  id: 'guest_user',
+  name: 'Guest User',
+  username: 'guest',
+  avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=Guest',
+  bio: 'Exploring Jhalak Reels 🇮🇳',
+  postsCount: 0,
+  followersCount: 0,
+  followingCount: 0,
+  isVerified: false,
+  isGoogleAuth: false,
+  posts: [],
+  userPosts: [],
+  website: '',
+};
 
 export default function App() {
   const [showSplash, setShowSplash] = useState<boolean>(true);
@@ -116,105 +134,27 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // Core Data States
+  // Core Data States - Strict isolation: guest mode defaults to clean DEFAULT_GUEST_USER
   const [currentUser, setCurrentUser] = useState<User>(() => {
     try {
+      const isAuthSaved = localStorage.getItem('jhalak_auth_state') === 'true';
+      const isGuestSaved = localStorage.getItem('jhalak_guest_mode') === 'true';
       const activeUserId = localStorage.getItem('ig_current_user_id');
       const saved = localStorage.getItem('ig_current_user');
-      let user: User = initialCurrentUser;
+
+      if (!isAuthSaved || isGuestSaved || !activeUserId) {
+        return DEFAULT_GUEST_USER;
+      }
+
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object' && parsed.id) {
-          user = parsed;
+        if (parsed && typeof parsed === 'object' && parsed.id && parsed.id === activeUserId) {
+          return parsed;
         }
       }
-      if (activeUserId) {
-        user.id = activeUserId;
-      }
-
-      // Load saved profile data for this specific user ID if available
-      try {
-        const savedProfileRaw = localStorage.getItem(`ig_user_profile_${user.id}`);
-        if (savedProfileRaw) {
-          const parsedProfile = JSON.parse(savedProfileRaw);
-          if (parsedProfile && typeof parsedProfile === 'object') {
-            user = { ...user, ...parsedProfile };
-          }
-        }
-      } catch {}
-
-      // Collect strictly this user's uploaded posts saved by their user ID
-      const profilePostsMap = new Map<string, Post>();
-
-      const isMatchingProfileUser = (p: any): boolean => {
-        if (!p || typeof p !== 'object' || !p.id) return false;
-        const targetId = (user.id || '').trim().toLowerCase();
-        const targetUsername = (user.username || '').trim().toLowerCase();
-        const postUserId = (p.userId || '').trim().toLowerCase();
-        const postUsername = (p.username || '').trim().toLowerCase();
-
-        if (targetId && postUserId && targetId === postUserId) return true;
-        if (targetUsername && postUsername && targetUsername === postUsername) return true;
-        return false;
-      };
-
-      // 1. Check user-specific localStorage key: ig_user_posts_${user.id}
-      try {
-        const userPostsKey = `ig_user_posts_${user.id}`;
-        const raw = localStorage.getItem(userPostsKey);
-        if (raw) {
-          const list = JSON.parse(raw);
-          if (Array.isArray(list)) {
-            list.forEach((p: Post) => {
-              if (p && p.id && isMatchingProfileUser(p)) {
-                profilePostsMap.set(p.id, p);
-              }
-            });
-          }
-        }
-
-        // Legacy fallback exclusively for Super Admin
-        if (isSuperAdmin(user)) {
-          const legacyMe = localStorage.getItem('ig_user_posts_user-me');
-          if (legacyMe) {
-            const list = JSON.parse(legacyMe);
-            if (Array.isArray(list)) {
-              list.forEach((p: Post) => {
-                if (p && p.id && isMatchingProfileUser(p)) profilePostsMap.set(p.id, p);
-              });
-            }
-          }
-        }
-      } catch {
-        // safe
-      }
-
-      // 2. Attach any posts already directly attached to user object if matching
-      (user.userPosts || user.posts || []).forEach((p) => {
-        if (p && p.id && isMatchingProfileUser(p) && !profilePostsMap.has(p.id)) {
-          profilePostsMap.set(p.id, p);
-        }
-      });
-
-      const resolvedPosts = Array.from(profilePostsMap.values());
-      const verifiedPostsCount = resolvedPosts.length;
-
-      const finalizedUser: User = {
-        ...user,
-        postsCount: verifiedPostsCount,
-        posts: resolvedPosts,
-        userPosts: resolvedPosts,
-      };
-
-      try {
-        safeSetItem('ig_current_user', JSON.stringify(finalizedUser));
-        safeSetItem(`ig_user_posts_${finalizedUser.id}`, JSON.stringify(resolvedPosts));
-      } catch {
-        // safe
-      }
-      return finalizedUser;
+      return DEFAULT_GUEST_USER;
     } catch {
-      return initialCurrentUser;
+      return DEFAULT_GUEST_USER;
     }
   });
 
@@ -490,40 +430,77 @@ export default function App() {
           const realDisplayName = (fbUser.displayName || '').trim();
           const email = (fbUser.email || '').trim();
           const emailPrefix = email ? email.split('@')[0] : '';
-          const rawName = realDisplayName || profile?.name || emailPrefix || 'User';
 
-          // Automatically set profile username to the user's real Google displayName
-          // Replace any old placeholder "user_xxxx" or "creator_xxxx" with real Google displayName
-          let cleanUsername = realDisplayName;
-          if (!cleanUsername) {
-            if (profile?.username && !profile.username.startsWith('user_') && !profile.username.startsWith('creator_')) {
-              cleanUsername = profile.username;
-            } else {
-              cleanUsername = emailPrefix || 'User';
-            }
-          }
+          // Firestore profile values take top precedence so custom edited profiles NEVER revert back
+          const rawName = (profile?.name && profile.name.trim().length > 0)
+            ? profile.name.trim()
+            : realDisplayName || (emailPrefix ? emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1) : 'Creator');
 
-          // Display their real Google photoURL instead of "user_xxxx"
+          let cleanUsername = (profile?.username && profile.username.trim().length > 0)
+            ? profile.username.trim()
+            : realDisplayName
+            ? realDisplayName.toLowerCase().replace(/[^a-z0-9_]/g, '')
+            : emailPrefix || 'creator';
+
+          // Strictly use real avatar from Firestore, or fbUser.photoURL, or dynamic initials SVG. Never hardcoded stock photo!
           const avatar =
-            fbUser.photoURL ||
-            (profile?.avatar && !profile.avatar.includes('user_') && !profile.avatar.includes('dicebear') ? profile.avatar : '') ||
-            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
+            (profile?.avatar && profile.avatar.trim().length > 0)
+              ? profile.avatar.trim()
+              : fbUser.photoURL ||
+                `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(rawName)}`;
 
-          setCurrentUser((prev) => ({
-            ...prev,
+          // Load this specific user's posts strictly by authorId / userId
+          const personalPosts = await loadUserPostsFromFirestore(fbUser.uid, email, cleanUsername);
+          const verifiedPostsCount = personalPosts.length;
+
+          // Strictly isolate new user profile state (do not merge previous account fields or posts)
+          const isolatedUser: User = {
             id: fbUser.uid,
             name: rawName,
             username: cleanUsername,
             avatar: avatar,
-            email: email || prev.email,
+            email: email,
             isGoogleAuth: true,
-            followersCount: profile?.followersCount ?? prev.followersCount,
-            watchHours: profile?.watchHours ?? prev.watchHours,
-            dailyReelsCount: profile?.dailyReelsCount ?? prev.dailyReelsCount,
-            dailyPhotosCount: profile?.dailyPhotosCount ?? prev.dailyPhotosCount,
-          }));
+            bio: profile?.bio || 'Creator on Jhalak Reels 🇮🇳',
+            website: profile?.website || '',
+            followersCount: profile?.followersCount ?? 0,
+            followingCount: profile?.followingCount ?? 0,
+            postsCount: verifiedPostsCount,
+            watchHours: profile?.watchHours ?? 0,
+            dailyReelsCount: profile?.dailyReelsCount ?? 0,
+            dailyPhotosCount: profile?.dailyPhotosCount ?? 0,
+            isVerified: profile?.isVerified ?? false,
+            posts: personalPosts,
+            userPosts: personalPosts,
+          };
+
+          setCurrentUser(isolatedUser);
           setIsAuthenticated(true);
           setIsGuestMode(false);
+          setSelectedProfileUser(null);
+
+          // Update active account storage
+          try {
+            safeSetItem('ig_current_user_id', fbUser.uid);
+            safeSetItem('ig_current_user', JSON.stringify(isolatedUser));
+            safeSetItem(`ig_user_posts_${fbUser.uid}`, JSON.stringify(personalPosts));
+            safeSetItem('jhalak_auth_state', 'true');
+            safeSetItem('jhalak_guest_mode', 'false');
+          } catch {}
+
+          // Load this specific user's followed accounts from Firestore
+          loadFollowedUsersFromFirestore(fbUser.uid).then((followedList) => {
+            if (Array.isArray(followedList)) {
+              const map: Record<string, boolean> = {};
+              followedList.forEach((u) => {
+                if (u) {
+                  map[u] = true;
+                  map[`@${u}`] = true;
+                }
+              });
+              setFollowedUsers(map);
+            }
+          }).catch(() => {});
 
           // Always ensure the user profile is synced to Cloud Firestore /users/{uid} so they appear globally for all users
           syncUserProfile({
@@ -534,7 +511,7 @@ export default function App() {
             email: email,
             followersCount: profile?.followersCount ?? 0,
             followingCount: profile?.followingCount ?? 0,
-            postsCount: profile?.postsCount ?? 0,
+            postsCount: verifiedPostsCount,
             watchHours: profile?.watchHours ?? 0,
             isVerified: profile?.isVerified ?? false,
           }).catch(() => {});
@@ -2282,7 +2259,22 @@ export default function App() {
     setCurrentUser(updatedUser);
     setIsAuthenticated(true);
     setIsGuestMode(false);
+    setSelectedProfileUser(null);
     setIsGoogleAuthModalOpen(false);
+
+    // Load this specific account's followed creators from Firestore
+    loadFollowedUsersFromFirestore(newUserId).then((followedList) => {
+      if (Array.isArray(followedList)) {
+        const map: Record<string, boolean> = {};
+        followedList.forEach((u) => {
+          if (u) {
+            map[u] = true;
+            map[`@${u}`] = true;
+          }
+        });
+        setFollowedUsers(map);
+      }
+    }).catch(() => {});
 
     try {
       safeSetItem('jhalak_auth_state', 'true');
@@ -2401,12 +2393,15 @@ export default function App() {
     try {
       localStorage.removeItem('ig_current_user_id');
       localStorage.removeItem('ig_current_user');
+      localStorage.removeItem('ig_followed_users');
       safeSetItem('jhalak_auth_state', 'false');
       safeSetItem('jhalak_guest_mode', 'true');
     } catch {
       // quota handled
     }
-    setCurrentUser(initialCurrentUser);
+    setCurrentUser(DEFAULT_GUEST_USER);
+    setFollowedUsers({});
+    setSelectedProfileUser(null);
     setCurrentTab('home');
     showToast('Signed out. You are now browsing as Guest.');
   };
@@ -2519,6 +2514,20 @@ export default function App() {
       userPosts: verifiedPosts,
     };
     setCurrentUser(finalized);
+
+    // Save directly to Firestore users/{uid} and update Firebase Auth displayName/photoURL
+    if (finalized.id) {
+      updateUserProfileInAuthAndFirestore(finalized.id, {
+        name: finalized.name,
+        username: finalized.username,
+        avatar: finalized.avatar,
+        bio: finalized.bio,
+        website: finalized.website,
+      }).catch((err) => {
+        console.warn('Error syncing profile update to Firestore:', err);
+      });
+    }
+
     try {
       safeSetItem('ig_current_user', JSON.stringify(finalized));
       safeSetItem(`ig_user_profile_${finalized.id}`, JSON.stringify(finalized));
@@ -2536,19 +2545,24 @@ export default function App() {
     showToast(t.profileUpdated || t.profileUpdatedSuccess || 'Profile updated successfully');
   };
 
-  // View User Profile handler - opens Instagram-style profile & videos folder
+  // View User Profile handler - opens Instagram-style profile & videos folder for specific creator
   const handleViewUser = (rawUsername: string, userObj?: User) => {
     pauseAllMedia();
     const cleanUsername = (rawUsername || userObj?.username || '').replace(/^@/, '').trim();
     if (!cleanUsername) return;
 
-    if (cleanUsername.toLowerCase() === (currentUser.username || '').replace(/^@/, '').toLowerCase()) {
+    // Check if user is clicking on their OWN authenticated profile
+    const isCurrentLoggedInUser = Boolean(
+      isAuthenticated &&
+      currentUser &&
+      (
+        (userObj?.id && currentUser.id && userObj.id.toLowerCase() === currentUser.id.toLowerCase()) ||
+        (currentUser.username && cleanUsername.toLowerCase() === (currentUser.username || '').replace(/^@/, '').toLowerCase())
+      )
+    );
+
+    if (isCurrentLoggedInUser) {
       setSelectedProfileUser(null);
-      if (!isAuthenticated) {
-        setIsGoogleAuthModalOpen(true);
-        showToast('Sign in with Google to view your profile 👤');
-        return;
-      }
       setCurrentTab('profile');
       return;
     }
@@ -2568,23 +2582,26 @@ export default function App() {
     );
 
     const avatar =
+      userObj?.avatar ||
       matchingFromList?.avatar ||
       matchingPost?.userAvatar ||
       matchingReel?.userAvatar ||
       `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`;
 
-    const name = matchingFromList?.name || matchingPost?.username || cleanUsername;
-    const isVerified = Boolean(matchingFromList?.isVerified || matchingPost?.isVerified || matchingReel?.isVerified);
+    const name = userObj?.name || matchingFromList?.name || matchingPost?.username || cleanUsername;
+    const isVerified = Boolean(userObj?.isVerified || matchingFromList?.isVerified || matchingPost?.isVerified || matchingReel?.isVerified);
+
+    const targetUserId = userObj?.id || matchingFromList?.id || matchingPost?.userId || matchingReel?.userId || `user-${cleanUsername}`;
 
     const targetUser: User = {
-      id: matchingFromList?.id || matchingPost?.userId || matchingReel?.userId || `user-${cleanUsername}`,
+      id: targetUserId,
       username: cleanUsername,
       name: name,
       avatar: avatar,
       bio: matchingFromList?.bio || `Creator on Jhalak ✨ Bhojpuri & Hindi Reels | @${cleanUsername}`,
       postsCount: matchingFromList?.postsCount || 0,
-      followersCount: matchingFromList?.followersCount || 1420,
-      followingCount: matchingFromList?.followingCount || 88,
+      followersCount: matchingFromList?.followersCount ?? 1420,
+      followingCount: matchingFromList?.followingCount ?? 88,
       isVerified: isVerified,
     };
 
@@ -2595,6 +2612,27 @@ export default function App() {
     setIsSearchOverlayOpen(false);
 
     setSelectedProfileUser(targetUser);
+
+    // Load fresh creator profile details from Firestore
+    if (targetUserId && !targetUserId.startsWith('guest')) {
+      getUserProfile(targetUserId).then((remoteProfile) => {
+        if (remoteProfile) {
+          setSelectedProfileUser((prev) => {
+            if (!prev || (prev.id !== targetUserId && prev.username !== cleanUsername)) return prev;
+            return {
+              ...prev,
+              ...remoteProfile,
+              name: remoteProfile.name || prev.name,
+              avatar: remoteProfile.avatar || prev.avatar,
+              bio: remoteProfile.bio || prev.bio,
+              followersCount: remoteProfile.followersCount ?? prev.followersCount,
+              followingCount: remoteProfile.followingCount ?? prev.followingCount,
+              isVerified: remoteProfile.isVerified ?? prev.isVerified,
+            };
+          });
+        }
+      }).catch(() => {});
+    }
   };
 
   const userPosts = useMemo(() => {
@@ -3170,6 +3208,8 @@ export default function App() {
                   onAddComment={handleAddReelComment}
                   onShare={handleShareReel}
                   onViewUser={handleViewUser}
+                  onToggleFollow={handleToggleFollow}
+                  followedUsers={followedUsers}
                   onUseAudio={handleUseAudio}
                   onReportReel={(r, reason) => handleReportSubmitted(r.id, reason)}
                   onBlockUser={(u) => handleUserBlocked(u)}
@@ -3610,25 +3650,35 @@ export default function App() {
               </div>
             </div>
 
-            <button
-              id={`modal-follow-top-btn-${selectedProfileUser.username}`}
-              onClick={() => {
-                handleToggleFollow(selectedProfileUser.username, selectedProfileUser.id);
-              }}
-              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm ${
-                followedUsers[selectedProfileUser.username] ||
+            {!(
+              currentUser && (
+                (currentUser.id && selectedProfileUser.id && currentUser.id.toLowerCase() === selectedProfileUser.id.toLowerCase()) ||
+                (currentUser.username && selectedProfileUser.username && (
+                  currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+                  selectedProfileUser.username.toLowerCase().replace(/^@/, '').trim()
+                ))
+              )
+            ) && (
+              <button
+                id={`modal-follow-top-btn-${selectedProfileUser.username}`}
+                onClick={() => {
+                  handleToggleFollow(selectedProfileUser.username, selectedProfileUser.id);
+                }}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm ${
+                  followedUsers[selectedProfileUser.username] ||
+                  followedUsers[`@${selectedProfileUser.username}`] ||
+                  (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
+                    ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                    : 'bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-rose-500/20'
+                }`}
+              >
+                {followedUsers[selectedProfileUser.username] ||
                 followedUsers[`@${selectedProfileUser.username}`] ||
                 (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
-                  ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'
-                  : 'bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-rose-500/20'
-              }`}
-            >
-              {followedUsers[selectedProfileUser.username] ||
-              followedUsers[`@${selectedProfileUser.username}`] ||
-              (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
-                ? (t.following || 'Following')
-                : (t.follow || 'Follow')}
-            </button>
+                  ? (t.following || 'Following')
+                  : (t.follow || 'Follow')}
+              </button>
+            )}
           </div>
 
           <div className="pt-2 pb-16">

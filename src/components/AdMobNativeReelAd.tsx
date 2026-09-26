@@ -43,7 +43,7 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
     setTimeout(() => setToastMessage(null), 2800);
   };
 
-  // Play / Pause video based on active status
+  // Play / Pause video based on active status with browser restriction safety
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -56,21 +56,29 @@ export const AdMobNativeReelAd: React.FC<AdMobNativeReelAdProps> = ({
       }
       video.defaultMuted = isMuted;
       video.muted = isMuted;
-      video
-        .play()
-        .then(() => setIsPlaying(true))
-        .catch(() => {
-          video.muted = true;
-          video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-        });
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setIsPlaying(true))
+          .catch(() => {
+            // Browser policy may require muted autoplay until user interacts
+            video.muted = true;
+            video
+              .play()
+              .then(() => setIsPlaying(true))
+              .catch(() => setIsPlaying(false));
+          });
+      }
     } else {
       video.pause();
+      setIsPlaying(false);
     }
   }, [isActive, isMuted]);
 
   // Sync mute state
   useEffect(() => {
     if (videoRef.current) {
+      videoRef.current.defaultMuted = isMuted;
       videoRef.current.muted = isMuted;
     }
   }, [isMuted]);

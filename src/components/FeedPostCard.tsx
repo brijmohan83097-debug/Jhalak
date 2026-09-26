@@ -52,7 +52,7 @@ interface FeedPostCardProps {
   onOpenFullScreen?: (post: Post) => void;
   onOpenReel?: (post: Post) => void;
   onOpenComments?: (post: Post) => void;
-  onViewUser: (username: string) => void;
+  onViewUser: (username: string, userObj?: User) => void;
   onNotInterested?: (postId: string, category?: ContentCategory) => void;
   onShowMore?: (category?: ContentCategory) => void;
   onReportPost?: (post: Post) => void;
@@ -283,14 +283,28 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     }
   };
 
-  const isOwner = Boolean(
-    isSuperAdmin(currentUser) ||
-    (currentUser?.id && post?.userId && currentUser.id === post.userId) ||
-    (currentUser?.username && post?.username && (
-      currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
-      post.username.toLowerCase().replace(/^@/, '').trim()
-    ))
+  const isOwnPost = Boolean(
+    currentUser && (
+      (currentUser?.id && post?.userId && currentUser.id.toLowerCase() === post.userId.toLowerCase()) ||
+      (currentUser?.username && post?.username && (
+        currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+        post.username.toLowerCase().replace(/^@/, '').trim()
+      ))
+    )
   );
+
+  const isOwner = isSuperAdmin(currentUser) || isOwnPost;
+
+  const handleCreatorClick = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    onViewUser(post.username, {
+      id: post.userId || post.username,
+      username: post.username,
+      name: post.username,
+      avatar: post.userAvatar,
+      isVerified: post.isVerified,
+    } as User);
+  };
 
   const handleDeletePostAction = () => {
     setShowOptionsMenu(false);
@@ -324,8 +338,9 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       <div className="flex items-center justify-between p-3.5">
         <div className="flex items-center gap-3">
           <div
-            onClick={() => onViewUser(post.username)}
+            onClick={handleCreatorClick}
             className="cursor-pointer p-[1.5px] rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-fuchsia-600 hover:scale-105 transition"
+            title={`View @${post.username}'s profile`}
           >
             <div className="bg-white dark:bg-black p-[1.5px] rounded-full">
               <img
@@ -341,8 +356,9 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
             <div className="flex items-center gap-1.5 leading-none flex-wrap">
               <button
                 id={`post-user-btn-${post.id}`}
-                onClick={() => onViewUser(post.username)}
-                className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 hover:underline inline-flex items-center gap-1"
+                onClick={handleCreatorClick}
+                className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                title={`View @${post.username}'s profile`}
               >
                 <span>{post.username}</span>
                 {post.isVerified && (
@@ -350,8 +366,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                 )}
               </button>
 
-              {/* Follow / Following Button right next to creator's username */}
-              {!isOwner && (
+              {/* Follow / Following Button right next to creator's username - DISABLED on user's own post */}
+              {!isOwnPost && (
                 <button
                   id={`post-follow-btn-${post.id}`}
                   type="button"
@@ -798,8 +814,9 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         {/* Caption */}
         <div className="text-sm text-neutral-900 dark:text-neutral-100">
           <button
-            onClick={() => onViewUser(post.username)}
-            className="font-semibold mr-1.5 hover:underline"
+            onClick={handleCreatorClick}
+            className="font-semibold mr-1.5 hover:underline cursor-pointer"
+            title={`View @${post.username}'s profile`}
           >
             {post.username}
           </button>

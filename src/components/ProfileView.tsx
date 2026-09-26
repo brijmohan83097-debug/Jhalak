@@ -395,7 +395,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
 
             {/* Top Right Action & Settings Group */}
-            {!isOwnProfile ? (
+            {!(
+              isOwnProfile ||
+              Boolean(
+                currentUser && (
+                  (currentUser.id && user?.id && currentUser.id.toLowerCase() === user.id.toLowerCase()) ||
+                  (currentUser.username && user?.username && (
+                    currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+                    user.username.toLowerCase().replace(/^@/, '').trim()
+                  ))
+                )
+              )
+            ) ? (
               <div className="flex flex-wrap items-center gap-2">
                 {/* Follow / Following Button */}
                 <button

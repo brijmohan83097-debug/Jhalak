@@ -48,7 +48,12 @@ import { adMobService, AdMobNativeAd, ADMOB_CONFIG } from '../services/adMobServ
 import { isSuperAdmin } from '../constants/admin';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
 import { safeEncodeURIComponent } from '../utils/safeEncoding';
-import { pauseAllMedia } from '../utils/mediaCoordinator';
+import {
+  pauseAllMedia,
+  getGlobalReelsMuted,
+  setGlobalReelsMuted,
+  subscribeGlobalReelsMuted,
+} from '../utils/mediaCoordinator';
 
 interface ReelsViewProps {
   reels: Reel[];
@@ -60,7 +65,9 @@ interface ReelsViewProps {
   onToggleSave: (reelId: string) => void;
   onAddComment: (reelId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
   onShare: (reel: Reel) => void;
-  onViewUser: (username: string) => void;
+  onViewUser: (username: string, userObj?: User) => void;
+  onToggleFollow?: (username: string, userId?: string) => void;
+  followedUsers?: Record<string, boolean>;
   onUseAudio?: (audioTitle: string, audioArtist?: string) => void;
   onReportReel?: (reel: Reel, reason: string) => void;
   onBlockUser?: (username: string) => void;
@@ -84,6 +91,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   onAddComment,
   onShare,
   onViewUser,
+  onToggleFollow,
+  followedUsers = {},
   onUseAudio,
   onReportReel,
   onBlockUser,
@@ -118,7 +127,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     return adMobService.insertNativeAds(recQueue, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
   });
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState<boolean>(() => getGlobalReelsMuted());
+  const [showAudioIndicator, setShowAudioIndicator] = useState<'muted' | 'unmuted' | null>(null);
+
+  // Synchronize audio mute state across all reel views & components
+  useEffect(() => {
+    return subscribeGlobalReelsMuted((muted) => {
+      setIsMuted(muted);
+    });
+  }, []);
   const [pullProgress, setPullProgress] = useState(0);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -246,7 +263,6 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           vid.volume = 1.0;
           vid.play().catch(() => {
             vid.muted = true;
-            setIsMuted(true);
             vid.play().catch(() => {});
           });
         }
@@ -346,7 +362,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   // Toggle sound and immediately ensure video playback without getting stuck
   const toggleSoundAndPlay = useCallback(() => {
     const nextMuted = !isMuted;
+    setGlobalReelsMuted(nextMuted);
     setIsMuted(nextMuted);
+    setShowAudioIndicator(nextMuted ? 'muted' : 'unmuted');
+    setTimeout(() => setShowAudioIndicator(null), 800);
 
     const currentVideo = videoRefs.current[activeIndex];
     if (currentVideo) {
@@ -400,9 +419,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           playPromise
             .then(() => setIsPlaying(true))
             .catch(() => {
-              // If unmuted autoplay without prior interaction is restricted by browser, fallback to muted autoplay
+              // If unmuted autoplay without prior interaction is restricted by browser, fallback to muted autoplay for this element ONLY
               video.muted = true;
-              setIsMuted(true);
+              // Never reset user's global audio preference; keep it unmuted for subsequent reels
               video
                 .play()
                 .then(() => setIsPlaying(true))
@@ -420,7 +439,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     });
     setProgress(0);
     setExpandedCaption(false);
-  }, [activeIndex, queue, isActive]);
+  }, [activeIndex, queue, isActive, isMuted]);
 
   // Sync mute across videos without restarting playback
   useEffect(() => {
@@ -500,37 +519,33 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       clearTimeout(tapTimeoutRef.current);
     }
 
-    // Single screen tap cleanly toggles Play / Pause directly with momentary indicator
+    // Single screen tap cleanly toggles audio ON/OFF smoothly with synchronized speaker icon
     tapTimeoutRef.current = setTimeout(() => {
-      const currentVideo = videoRefs.current[activeIndex];
-      if (currentVideo) {
-        if (currentVideo.paused) {
-          currentVideo.play().then(() => {
-            setIsPlaying(true);
-            setShowPlayPauseIcon('play');
-          }).catch(() => {
-            currentVideo.muted = true;
-            currentVideo.play().then(() => {
-              setIsPlaying(true);
-              setShowPlayPauseIcon('play');
-            }).catch(() => {});
-          });
-        } else {
-          currentVideo.pause();
-          setIsPlaying(false);
-          setShowPlayPauseIcon('pause');
-        }
-        setTimeout(() => setShowPlayPauseIcon(null), 700);
-      }
+      toggleSoundAndPlay();
       tapTimeoutRef.current = null;
     }, DOUBLE_TAP_GAP);
   };
 
-  const toggleFollow = (username: string) => {
+  const isFollowingUser = (username: string, userId?: string) => {
+    const clean = (username || '').replace(/^@/, '').toLowerCase().trim();
+    if (followedUsers) {
+      if (clean && (followedUsers[clean] || followedUsers[`@${clean}`])) return true;
+      if (userId && followedUsers[userId]) return true;
+    }
+    return Boolean(followedMap[username] || (clean && followedMap[clean]));
+  };
+
+  const toggleFollow = (username: string, userId?: string) => {
+    const clean = (username || '').replace(/^@/, '').trim();
+    const nextVal = !isFollowingUser(clean, userId);
     setFollowedMap((prev) => ({
       ...prev,
-      [username]: !prev[username],
+      [username]: nextVal,
+      [clean]: nextVal,
     }));
+    if (onToggleFollow) {
+      onToggleFollow(clean, userId);
+    }
   };
 
   const goToNext = useCallback(() => {
@@ -801,6 +816,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         }
 
         const reel = item as Reel;
+        const isThisReelOwn = Boolean(
+          currentUser && (
+            (currentUser.id && reel.userId && currentUser.id.toLowerCase() === reel.userId.toLowerCase()) ||
+            (currentUser.username && reel.username && (
+              currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+              reel.username.toLowerCase().replace(/^@/, '').trim()
+            ))
+          )
+        );
         const isImage = Boolean(
           reel.videoUrl && (
             reel.videoUrl.endsWith('.jpg') ||
@@ -905,6 +929,27 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   <div className="relative flex items-center justify-center">
                     <Heart className="w-32 h-32 text-red-600 fill-red-600 drop-shadow-[0_12px_36px_rgba(220,38,38,0.85)]" />
                     <div className="absolute inset-0 rounded-full bg-red-600/25 blur-2xl pointer-events-none" />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Momentary Speaker Volume Icon Feedback on Tap / Sound Toggle */}
+            <AnimatePresence>
+              {isCurrent && showAudioIndicator && (
+                <motion.div
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 1.25, opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+                >
+                  <div className="p-4 sm:p-5 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center text-white border border-white/25 shadow-2xl">
+                    {showAudioIndicator === 'unmuted' ? (
+                      <Volume2 className="w-10 h-10 text-emerald-400 animate-pulse" />
+                    ) : (
+                      <VolumeX className="w-10 h-10 text-rose-400" />
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -1057,9 +1102,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     pauseAllMedia();
-                    onViewUser(reel.username);
+                    onViewUser(reel.username, {
+                      id: reel.userId || reel.username,
+                      username: reel.username,
+                      name: reel.username,
+                      avatar: reel.userAvatar,
+                      isVerified: reel.isVerified,
+                    } as User);
                   }}
-                  className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/80 hover:scale-105 transition flex-shrink-0"
+                  className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/80 hover:scale-105 transition flex-shrink-0 cursor-pointer"
+                  title={`View @${reel.username}'s profile`}
                 >
                   <img
                     src={reel.userAvatar}
@@ -1072,9 +1124,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     pauseAllMedia();
-                    onViewUser(reel.username);
+                    onViewUser(reel.username, {
+                      id: reel.userId || reel.username,
+                      username: reel.username,
+                      name: reel.username,
+                      avatar: reel.userAvatar,
+                      isVerified: reel.isVerified,
+                    } as User);
                   }}
-                  className="font-bold text-sm hover:underline drop-shadow-md flex items-center gap-1 truncate"
+                  className="font-bold text-sm hover:underline drop-shadow-md flex items-center gap-1 truncate cursor-pointer"
+                  title={`View @${reel.username}'s profile`}
                 >
                   <span>{reel.username}</span>
                   {reel.isVerified && (
@@ -1089,22 +1148,25 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   </span>
                 )}
 
-                {/* Follow / Following Toggle */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleFollow(reel.username);
-                  }}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md transition ${
-                    followedMap[reel.username]
-                      ? 'bg-white/20 text-neutral-200 border border-white/30'
-                      : 'bg-white text-black hover:bg-neutral-200'
-                  }`}
-                >
-                  {followedMap[reel.username]
-                    ? (t.followingBtn || t.following || 'Following')
-                    : (t.follow || 'Follow')}
-                </button>
+                {/* Follow / Following Toggle - DISABLED on user's own reel */}
+                {!isThisReelOwn && (
+                  <button
+                    id={`reel-follow-btn-${reel.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFollow(reel.username, reel.userId);
+                    }}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md transition cursor-pointer active:scale-95 ${
+                      isFollowingUser(reel.username, reel.userId)
+                        ? 'bg-white/20 text-neutral-200 border border-white/30'
+                        : 'bg-white text-black hover:bg-neutral-200 shadow-md'
+                    }`}
+                  >
+                    {isFollowingUser(reel.username, reel.userId)
+                      ? (t.followingBtn || t.following || 'Following')
+                      : (t.follow || 'Follow')}
+                  </button>
+                )}
               </div>
 
               {/* Caption & Location */}

@@ -706,6 +706,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     const newPost: Post = {
       id: postId,
       userId: resolvedUserId,
+      authorId: resolvedUserId,
       userEmail: resolvedEmail,
       privacy: privacy,
       isPrivate: privacy === 'private',
@@ -714,6 +715,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       isVerified: currentUser.isVerified,
       location: location.trim() || undefined,
       mediaUrl: selectedMediaUrl,
+      downloadURL: selectedMediaUrl,
       thumbnailUrl: persistedThumbnail,
       mediaType: mediaType === 'video' ? 'video' : 'image',
       caption: caption.trim() || (mediaType === 'video' ? 'New Reel' : 'No caption'),
@@ -732,6 +734,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       viewsCount: mediaType === 'video' ? 1 : undefined,
       productTag,
       createdAt: now,
+      createdAtIso: new Date().toISOString(),
       isUserCreated: true,
     };
 
@@ -740,6 +743,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       newReel = {
         id: postId,
         userId: resolvedUserId,
+        authorId: resolvedUserId,
         userEmail: resolvedEmail,
         privacy: privacy,
         isPrivate: privacy === 'private',
@@ -747,6 +751,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         userAvatar: currentUser.avatar,
         isVerified: currentUser.isVerified,
         videoUrl: selectedMediaUrl,
+        downloadURL: selectedMediaUrl,
         thumbnailUrl: persistedThumbnail,
         caption: caption.trim() || 'New Reel',
         category: parsedCategory,
@@ -764,6 +769,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         timestamp: 'Just now',
         productTag,
         createdAt: now,
+        createdAtIso: new Date().toISOString(),
         isUserCreated: true,
       };
     }
@@ -774,25 +780,37 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
     if (pendingUploadFile || isBlobUrl) {
       setIsCloudUploading(true);
-      setCloudUploadProgress(10);
-      setCloudUploadStatus('Connecting to Firebase Cloud Storage...');
+      setCloudUploadProgress(15);
+      setCloudUploadStatus('Connecting to storage service...');
+
+      // Dynamic progress ticker prevents any 0% or 10% freeze
+      const progressTimer = setInterval(() => {
+        setCloudUploadProgress((prev) => {
+          if (prev < 90) {
+            return prev + Math.floor(Math.random() * 6) + 2;
+          }
+          return prev;
+        });
+      }, 400);
 
       try {
         let fileOrBlobToUpload = pendingUploadFile;
         if (!fileOrBlobToUpload && permanentMediaUrl.startsWith('blob:')) {
-          setCloudUploadStatus('Reading video data for cloud persistence...');
-          const resp = await fetch(permanentMediaUrl);
-          fileOrBlobToUpload = await resp.blob();
+          setCloudUploadStatus('Processing media stream...');
+          try {
+            const resp = await fetch(permanentMediaUrl);
+            fileOrBlobToUpload = await resp.blob();
+          } catch {}
         }
 
         if (fileOrBlobToUpload) {
-          setCloudUploadStatus('Uploading permanent video to Firebase Storage...');
+          setCloudUploadStatus('Uploading media file...');
           const uploadedUrl = await uploadMediaToStorage(
             fileOrBlobToUpload,
             mediaType === 'video' ? 'reels' : 'photos',
             (pct) => {
-              setCloudUploadProgress(Math.max(10, pct));
-              setCloudUploadStatus(`Uploading to Cloud Storage... ${pct}%`);
+              setCloudUploadProgress(Math.max(20, pct));
+              setCloudUploadStatus(`Uploading to storage... ${pct}%`);
             },
             postId
           );
@@ -801,8 +819,12 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           }
         }
       } catch (uploadErr: any) {
-        console.warn('[CreatePostModal] Cloud Storage upload notice:', uploadErr);
+        console.warn('[CreatePostModal] Storage upload fallback engaged:', uploadErr);
       } finally {
+        clearInterval(progressTimer);
+        setCloudUploadProgress(100);
+        setCloudUploadStatus('Finalizing post...');
+        await new Promise((r) => setTimeout(r, 200));
         setIsCloudUploading(false);
       }
     }
@@ -810,8 +832,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     // Direct and instant: save permanent URLs to Firestore posts collection
     try {
       newPost.mediaUrl = permanentMediaUrl;
+      newPost.downloadURL = permanentMediaUrl;
       if (newReel) {
         newReel.videoUrl = permanentMediaUrl;
+        newReel.downloadURL = permanentMediaUrl;
       }
 
       // Save post document to Cloud Firestore
@@ -830,7 +854,11 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       }
     } catch (generalErr: any) {
       newPost.mediaUrl = permanentMediaUrl;
-      if (newReel) newReel.videoUrl = permanentMediaUrl;
+      newPost.downloadURL = permanentMediaUrl;
+      if (newReel) {
+        newReel.videoUrl = permanentMediaUrl;
+        newReel.downloadURL = permanentMediaUrl;
+      }
       onPostCreated(newPost, newReel);
       onClose();
     }

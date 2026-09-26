@@ -554,13 +554,13 @@ class AdMobService {
     for (let i = 0; i < items.length; i++) {
       result.push(items[i]);
 
-      // Insert 1 AdMob/Native ad card after every `interval` feed posts/videos
-      // When interval = 2, triggers when i % 2 === 1 (i.e. after post 1, post 3, post 5, etc.)
+      // Insert 1 AdMob/Native video ad card after every `interval` feed posts/videos (every 3-4 posts/reels)
       if (i % effectiveInterval === (effectiveInterval - 1)) {
         const baseAd = ads[adIndex % ads.length];
         const uniqueAd: AdMobNativeAd = {
           ...baseAd,
-          id: adIndex >= ads.length ? `${baseAd.id}-feed-${adIndex}` : baseAd.id,
+          id: `${baseAd.id}-adslot-${adIndex}`,
+          mediaType: 'video',
         };
         result.push(uniqueAd);
         adIndex++;

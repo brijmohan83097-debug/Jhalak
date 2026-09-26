@@ -77,6 +77,7 @@ export interface ProductTag {
 export interface Post {
   id: string;
   userId: string;
+  authorId?: string;
   userEmail?: string;
   privacy?: 'public' | 'private';
   isPrivate?: boolean;
@@ -85,6 +86,7 @@ export interface Post {
   isVerified?: boolean;
   location?: string;
   mediaUrl: string;
+  downloadURL?: string;
   thumbnailUrl?: string;
   mediaType: 'image' | 'video';
   caption: string;
@@ -106,12 +108,14 @@ export interface Post {
   language?: string;
   productTag?: ProductTag;
   createdAt?: number;
+  createdAtIso?: string;
   isUserCreated?: boolean;
 }
 
 export interface Reel {
   id: string;
   userId: string;
+  authorId?: string;
   userEmail?: string;
   privacy?: 'public' | 'private';
   isPrivate?: boolean;
@@ -120,6 +124,7 @@ export interface Reel {
   isVerified?: boolean;
   location?: string;
   videoUrl: string;
+  downloadURL?: string;
   thumbnailUrl?: string;
   caption: string;
   category?: ContentCategory;
@@ -139,6 +144,7 @@ export interface Reel {
   language?: string;
   productTag?: ProductTag;
   createdAt?: number;
+  createdAtIso?: string;
   isUserCreated?: boolean;
 }
 

@@ -40,7 +40,7 @@ interface PostDetailModalProps {
   onToggleSave: (postId: string) => void;
   onAddComment: (postId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'gif') => void;
   onShare: (post: Post) => void;
-  onViewUser: (username: string) => void;
+  onViewUser: (username: string, userObj?: User) => void;
   onOpenFullScreen?: (post: Post) => void;
   onReportPost?: (post: Post) => void;
   onBlockUser?: (username: string) => void;
@@ -366,9 +366,15 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
               <button
                 onClick={() => {
                   onClose();
-                  onViewUser(post.username);
+                  onViewUser(post.username, {
+                    id: post.userId || post.username,
+                    username: post.username,
+                    name: post.username,
+                    avatar: post.userAvatar,
+                    isVerified: post.isVerified,
+                  } as User);
                 }}
-                className="p-[1.5px] rounded-full bg-gradient-to-tr from-amber-500 to-rose-500"
+                className="p-[1.5px] rounded-full bg-gradient-to-tr from-amber-500 to-rose-500 cursor-pointer"
               >
                 <img
                   src={post.userAvatar}
@@ -381,9 +387,15 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                   <button
                     onClick={() => {
                       onClose();
-                      onViewUser(post.username);
+                      onViewUser(post.username, {
+                        id: post.userId || post.username,
+                        username: post.username,
+                        name: post.username,
+                        avatar: post.userAvatar,
+                        isVerified: post.isVerified,
+                      } as User);
                     }}
-                    className="font-semibold text-sm text-neutral-900 dark:text-white flex items-center gap-1 hover:underline"
+                    className="font-semibold text-sm text-neutral-900 dark:text-white flex items-center gap-1 hover:underline cursor-pointer"
                   >
                     {post.username}
                     {post.isVerified && (

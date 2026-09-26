@@ -6,10 +6,10 @@ import { User, StoryGroup, Post, Conversation, Reel } from '../types';
  */
 export const defaultGuestUser: User = {
   id: 'guest-user',
-  username: 'user',
-  name: 'User',
+  username: 'guest',
+  name: 'Guest User',
   email: '',
-  avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80',
+  avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=Guest',
   bio: '',
   website: '',
   postsCount: 0,

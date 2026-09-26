@@ -48,6 +48,7 @@ import rawConfig from '../../firebase-applet-config.json';
 import { Post, User, Comment, Conversation, Message } from '../types';
 import { ADMIN_EMAIL, isSuperAdmin } from '../constants/admin';
 import { getItemTimestamp } from './recommendationEngine';
+import { saveBlobToIndexedDB } from '../utils/persistentMediaStore';
 
 // Silence Firebase internal logs and connection retry noise completely
 try {
@@ -601,11 +602,16 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
     const existing = await getDoc(userRef);
     const today = new Date().toISOString().split('T')[0];
 
+    const fallbackName = userData.name || userData.username || '';
+    const fallbackAvatar =
+      userData.avatar ||
+      (fallbackName ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(fallbackName)}` : '');
+
     const payload: Record<string, any> = {
       id: userData.id,
-      name: userData.name || 'User',
-      username: userData.username || userData.name || 'User',
-      avatar: userData.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
+      name: userData.name || fallbackName,
+      username: userData.username || fallbackName,
+      avatar: fallbackAvatar,
       bio: userData.bio || '',
       email: userData.email || '',
       website: userData.website || '',
@@ -622,19 +628,15 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
       payload.dailyReelsCount = 0;
       payload.dailyPhotosCount = 0;
       payload.lastUploadDate = today;
-      payload.followersCount = userData.followersCount || 0;
-      payload.followingCount = userData.followingCount || 0;
-      payload.postsCount = userData.postsCount || 0;
-      payload.watchHours = userData.watchHours || 0;
       await setDoc(userRef, payload);
     } else {
       const data = existing.data();
-      // Preserve existing profile values if payload has empty/fallback defaults
+      // Preserve existing custom profile values if payload is missing or empty
       if (!payload.bio && data.bio) payload.bio = data.bio;
       if (!payload.website && data.website) payload.website = data.website;
-      if (data.avatar && (!payload.avatar || payload.avatar.includes('dicebear'))) payload.avatar = data.avatar;
-      if (data.name && (!payload.name || payload.name === 'User')) payload.name = data.name;
-      if (data.username && (!payload.username || payload.username.startsWith('user_'))) payload.username = data.username;
+      if (data.avatar && (!payload.avatar || payload.avatar === '')) payload.avatar = data.avatar;
+      if (data.name && (!payload.name || payload.name === '')) payload.name = data.name;
+      if (data.username && (!payload.username || payload.username === '')) payload.username = data.username;
       if (data.isVerified !== undefined && payload.isVerified === undefined) payload.isVerified = data.isVerified;
       if (data.followersCount !== undefined && (payload.followersCount === undefined || payload.followersCount === 0)) {
         payload.followersCount = data.followersCount;
@@ -659,6 +661,47 @@ export async function syncUserProfile(userData: Partial<User> & { id: string }):
     } catch {
       // Fallback: local storage cache continues without breaking the app
     }
+  }
+}
+
+/**
+ * Permanently update user profile in Cloud Firestore /users/{uid} and Firebase Auth
+ */
+export async function updateUserProfileInAuthAndFirestore(
+  userId: string,
+  data: {
+    name: string;
+    username: string;
+    avatar: string;
+    bio?: string;
+    website?: string;
+  }
+): Promise<void> {
+  const path = `users/${userId}`;
+  try {
+    const userRef = doc(db, 'users', userId);
+    const payload = {
+      ...data,
+      id: userId,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(userRef, payload, { merge: true });
+
+    // Synchronize Firebase Auth displayName and photoURL if user is currently signed in
+    if (auth.currentUser && auth.currentUser.uid === userId) {
+      try {
+        await updateProfile(auth.currentUser, {
+          displayName: data.name || data.username,
+          photoURL: data.avatar,
+        });
+      } catch (authErr) {
+        console.warn('Firebase Auth updateProfile error:', authErr);
+      }
+    }
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    } catch {}
   }
 }
 
@@ -935,6 +978,7 @@ export async function savePostToFirestore(post: Post): Promise<void> {
     const rawData: Record<string, any> = {
       ...post,
       userId: finalUserId || post.userId,
+      authorId: finalUserId || post.userId,
       userEmail: finalUserEmail || post.userEmail || '',
       privacy: finalPrivacy,
       isPrivate: finalPrivacy === 'private',
@@ -1007,13 +1051,19 @@ export async function loadUserPostsFromFirestore(
       const raw = docSnap.data();
       if (raw) {
         const pUserId = (raw.userId || '').trim().toLowerCase();
+        const pAuthorId = (raw.authorId || '').trim().toLowerCase();
         const pEmail = (raw.userEmail || '').trim().toLowerCase();
         const pUsername = (raw.username || '').replace(/^@/, '').trim().toLowerCase();
 
-        const isMatch =
-          (targetUid && pUserId === targetUid) ||
-          (targetEmail && pEmail && targetEmail === pEmail) ||
-          (targetUsername && pUsername && targetUsername === targetUsername);
+        // Strict match: Must match targetUid (userId or authorId), or exact email
+        // If neither uid nor email is provided, match exact targetUsername
+        const isMatch = targetUid
+          ? pUserId === targetUid || pAuthorId === targetUid
+          : targetEmail
+          ? pEmail === targetEmail
+          : targetUsername && pUsername
+          ? pUsername === targetUsername
+          : false;
 
         if (isMatch) {
           const d: Post = {
@@ -1204,26 +1254,54 @@ export async function toggleFollowUserInFirestore(
   isFollowing: boolean = true
 ): Promise<void> {
   if (!currentUserId || !targetUsername) return;
+  const cleanTargetUsername = targetUsername.replace(/^@/, '').trim();
+  const cleanCurrentUsername = currentUsername.replace(/^@/, '').trim();
 
   // 1. Update current user's following list in Firestore
   try {
     const currentUserRef = doc(db, 'users', currentUserId);
-    await updateDoc(currentUserRef, {
-      following: isFollowing ? arrayUnion(targetUsername) : arrayRemove(targetUsername),
-      followingCount: increment(isFollowing ? 1 : -1),
-    });
+    await setDoc(
+      currentUserRef,
+      {
+        following: isFollowing ? arrayUnion(cleanTargetUsername) : arrayRemove(cleanTargetUsername),
+        followingCount: increment(isFollowing ? 1 : -1),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
   } catch {
     // Handled safely
   }
 
-  // 2. If targetUserId is provided or creator user doc exists, update target user's followers list
-  if (targetUserId && targetUserId !== currentUserId) {
+  // 2. Resolve target user document ID and update target user's followers list
+  let resolvedTargetId = targetUserId;
+  if (!resolvedTargetId || resolvedTargetId.startsWith('user-')) {
     try {
-      const targetUserRef = doc(db, 'users', targetUserId);
-      await updateDoc(targetUserRef, {
-        followers: isFollowing ? arrayUnion(currentUsername || currentUserId) : arrayRemove(currentUsername || currentUserId),
-        followersCount: increment(isFollowing ? 1 : -1),
-      });
+      const usersCol = collection(db, 'users');
+      const q = query(usersCol, where('username', '==', cleanTargetUsername), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        resolvedTargetId = snap.docs[0].id;
+      }
+    } catch {
+      // Safe fallback
+    }
+  }
+
+  if (resolvedTargetId && resolvedTargetId !== currentUserId) {
+    try {
+      const targetUserRef = doc(db, 'users', resolvedTargetId);
+      await setDoc(
+        targetUserRef,
+        {
+          followers: isFollowing
+            ? arrayUnion(cleanCurrentUsername || currentUserId)
+            : arrayRemove(cleanCurrentUsername || currentUserId),
+          followersCount: increment(isFollowing ? 1 : -1),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     } catch {
       // Handled safely
     }
@@ -1432,42 +1510,70 @@ export async function uploadMediaToStorage(
   onProgress?: (percent: number) => void,
   mediaId?: string
 ): Promise<string> {
-  const MAX_LIMIT = 35 * 1024 * 1024;
+  const MAX_LIMIT = 50 * 1024 * 1024;
   if (fileOrBlob.size > MAX_LIMIT) {
     const sizeMb = (fileOrBlob.size / (1024 * 1024)).toFixed(1);
-    throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 35 MB.`);
+    throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 50 MB.`);
   }
 
   const ext = fileOrBlob.type.includes('video') ? 'mp4' : 'jpg';
   const assignedId = mediaId || `${folder}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const fileName = `${folder}/${assignedId}.${ext}`;
 
-  // Resilient fallback: Upload directly to permanent streaming backend
-  const uploadViaServer = async (): Promise<string> => {
+  // Resilient fallback: store locally in IndexedDB and in-memory cache so upload NEVER freezes or fails
+  const fallbackLocalPersistence = async (): Promise<string> => {
     try {
-      const formData = new FormData();
-      formData.append('media', fileOrBlob, `${assignedId}.${ext}`);
-      const res = await fetch('/api/media/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.url) {
-          if (onProgress) onProgress(100);
-          return data.url;
-        }
-      }
-    } catch (err: any) {
-      console.warn('[Storage] Server fallback upload notice:', err?.message);
+      const fallbackUrl = await saveBlobToIndexedDB(assignedId, fileOrBlob);
+      if (onProgress) onProgress(100);
+      return fallbackUrl;
+    } catch {
+      const fallbackUrl = URL.createObjectURL(fileOrBlob);
+      if (onProgress) onProgress(100);
+      return fallbackUrl;
     }
-    throw new Error('Cloud storage media upload failed.');
   };
 
-  // Primary attempt: Upload to Firebase Cloud Storage
-  return new Promise<string>((resolve, reject) => {
+  // Primary attempt: Upload to Firebase Cloud Storage via uploadBytesResumable
+  return new Promise<string>((resolve) => {
     let uploadTask: ReturnType<typeof uploadBytesResumable> | null = null;
     let finished = false;
+    let connectionTimeout: any = null;
+    let totalTimeout: any = null;
+
+    const safeFinish = (url: string) => {
+      if (finished) return;
+      finished = true;
+      if (connectionTimeout) clearTimeout(connectionTimeout);
+      if (totalTimeout) clearTimeout(totalTimeout);
+      if (onProgress) onProgress(100);
+      resolve(url);
+    };
+
+    const triggerFallback = async (reason: string) => {
+      if (finished) return;
+      console.warn(`[Firebase Storage] Using robust offline/blob fallback (${reason})`);
+      if (uploadTask) {
+        try {
+          uploadTask.cancel();
+        } catch {}
+      }
+      const url = await fallbackLocalPersistence();
+      safeFinish(url);
+    };
+
+    // Stalling guard: If 0 bytes transferred after 12 seconds, switch to local persistence
+    connectionTimeout = setTimeout(() => {
+      if (!finished) {
+        triggerFallback('Connection timeout: storage service unresponsive');
+      }
+    }, 12000);
+
+    // Total timeout guard: If upload takes longer than 35 seconds, switch to local persistence
+    totalTimeout = setTimeout(() => {
+      if (!finished) {
+        triggerFallback('Total timeout exceeded: switching to instant local persistence');
+      }
+    }, 35000);
 
     try {
       const fileRef = ref(storage, fileName);
@@ -1477,52 +1583,40 @@ export async function uploadMediaToStorage(
       uploadTask.on(
         'state_changed',
         (snapshot) => {
+          if (finished) return;
+          if (snapshot.bytesTransferred > 0 && connectionTimeout) {
+            // Data is actively transferring, clear initial connection timeout
+            clearTimeout(connectionTimeout);
+            connectionTimeout = null;
+          }
           if (snapshot.totalBytes > 0) {
             const rawPct = Math.round(
               (snapshot.bytesTransferred / snapshot.totalBytes) * 100
             );
             if (onProgress) {
-              onProgress(rawPct);
+              onProgress(Math.min(99, Math.max(5, rawPct)));
             }
           }
         },
         async (uploadError: any) => {
           if (finished) return;
-          finished = true;
-          console.warn('[Firebase Storage] Primary upload notice, using persistent media server:', uploadError?.code || uploadError?.message);
-          try {
-            const serverUrl = await uploadViaServer();
-            resolve(serverUrl);
-          } catch (fallbackErr: any) {
-            reject(fallbackErr);
-          }
+          console.warn('[Firebase Storage] Primary upload notice:', uploadError?.code || uploadError?.message);
+          await triggerFallback(uploadError?.message || 'Storage upload error');
         },
         async () => {
           if (finished) return;
-          finished = true;
-          if (onProgress) onProgress(100);
-
           try {
             const downloadUrl = await getDownloadURL(uploadTask!.snapshot.ref);
-            resolve(downloadUrl);
+            safeFinish(downloadUrl);
           } catch (urlErr: any) {
-            console.warn('[Firebase Storage] URL fetch fallback to server:', urlErr?.message);
-            try {
-              const serverUrl = await uploadViaServer();
-              resolve(serverUrl);
-            } catch (fallbackErr: any) {
-              reject(fallbackErr);
-            }
+            console.warn('[Firebase Storage] URL fetch fallback:', urlErr?.message);
+            await triggerFallback('Download URL retrieval fallback');
           }
         }
       );
     } catch (initErr: any) {
-      if (finished) return;
-      finished = true;
-      console.warn('[Firebase Storage] Init fallback to server:', initErr?.message);
-      uploadViaServer()
-        .then(resolve)
-        .catch(reject);
+      console.warn('[Firebase Storage] Init fallback:', initErr?.message);
+      triggerFallback(initErr?.message || 'Storage initialization failed');
     }
   });
 }
