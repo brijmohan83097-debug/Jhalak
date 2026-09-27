@@ -49,7 +49,7 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
   onTabChange,
   onOpenSearch,
   onShowNotifications,
-  unreadAlertsCount = 3,
+  unreadAlertsCount = 0,
   searchableUsers = [],
   onViewUser,
 }) => {

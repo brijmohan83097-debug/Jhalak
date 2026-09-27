@@ -73,6 +73,26 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "participants"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Real user notifications for likes, follows, and live streams",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientUserId": { "type": "string" },
+        "recipientUsername": { "type": "string" },
+        "senderUserId": { "type": "string" },
+        "senderUsername": { "type": "string" },
+        "senderAvatar": { "type": "string" },
+        "type": { "type": "string", "enum": ["like", "follow", "live", "comment"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "postId": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "recipientUsername", "senderUsername", "type", "title"]
     }
   },
   "firestore": {
@@ -87,6 +107,10 @@
     "/conversations/{convId}": {
       "schema": "Conversation",
       "description": "Stores direct message chat conversations between users"
+    },
+    "/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "Stores user notifications for likes, follows, and live events"
     }
   }
 }

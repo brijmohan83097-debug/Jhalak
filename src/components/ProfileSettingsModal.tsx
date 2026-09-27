@@ -198,7 +198,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
               </button>
 
-              {/* 2. Language / भाषा */}
+              {/* 2. Language */}
               <button
                 id="settings-language-opt"
                 onClick={() => setSubView('language')}
@@ -223,7 +223,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:translate-x-0.5 transition-transform" />
               </button>
 
-              {/* 2b. Theme / डार्क या लाइट मोड */}
+              {/* 2b. Theme / Dark or Light mode */}
               {onToggleDarkMode && (
                 <button
                   id="settings-theme-toggle-btn"

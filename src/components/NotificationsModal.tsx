@@ -1,115 +1,200 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   X,
   Heart,
   Bell,
-  Settings,
   CheckCheck,
   Sparkles,
   UserCheck,
   MessageCircle,
-  Film,
-  Flame,
+  Radio,
   Check,
+  Loader2,
 } from 'lucide-react';
 import { SupportedLanguage, translations } from '../translations';
+import { User } from '../types';
+import { moderationService } from '../services/moderationService';
+import {
+  fetchUserNotificationsFromFirestore,
+  markNotificationsAsReadInFirestore,
+  FirestoreNotification,
+} from '../services/firebase';
 
 export interface AlertNotification {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'system' | 'trending';
+  type: 'like' | 'comment' | 'follow' | 'system' | 'trending' | 'live';
   title: string;
   description: string;
   avatar?: string;
   timeAgo: string;
   read: boolean;
+  senderUsername?: string;
+  postId?: string;
   actionUrl?: string;
 }
-
-const INITIAL_ALERTS: AlertNotification[] = [
-  {
-    id: 'alert-1',
-    type: 'follow',
-    title: 'Khesari Lal Yadav started following you',
-    description: 'Bhojpuri Superstar connected with your creator profile.',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120',
-    timeAgo: '12m ago',
-    read: false,
-  },
-  {
-    id: 'alert-2',
-    type: 'like',
-    title: 'Pawan Singh & 42 others liked your reel',
-    description: 'Your recent video reel is trending in Bihar & UP region 🔥',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120',
-    timeAgo: '45m ago',
-    read: false,
-  },
-  {
-    id: 'alert-3',
-    type: 'comment',
-    title: 'Amrapali Dubey commented on your post',
-    description: '"Superb energy! Keep creating authentic desi content 👏✨"',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120',
-    timeAgo: '2h ago',
-    read: false,
-  },
-  {
-    id: 'alert-4',
-    type: 'trending',
-    title: 'Your audio track is trending in Reels',
-    description: 'More than 1,200 creators are recording reels with your music.',
-    avatar: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=120',
-    timeAgo: '5h ago',
-    read: true,
-  },
-  {
-    id: 'alert-5',
-    type: 'system',
-    title: 'Welcome to Jhalak Reels: Made in India 🇮🇳',
-    description: 'Your account is verified for UGC community creation and monetization.',
-    timeAgo: '1d ago',
-    read: true,
-  },
-];
 
 interface NotificationsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onOpenSettings?: () => void;
+  currentUser?: User;
   currentLanguage?: SupportedLanguage;
   onSelectUser?: (username: string) => void;
+  onSelectPost?: (postId: string) => void;
   unreadCount?: number;
   onMarkAllAsRead?: () => void;
+}
+
+function formatTimeAgo(dateIsoOrMs: string | number): string {
+  try {
+    const ms = typeof dateIsoOrMs === 'number' ? dateIsoOrMs : new Date(dateIsoOrMs).getTime();
+    if (isNaN(ms)) return 'Just now';
+    const diff = Math.floor((Date.now() - ms) / 1000);
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  } catch {
+    return 'Recently';
+  }
 }
 
 export const NotificationsModal: React.FC<NotificationsModalProps> = ({
   isOpen,
   onClose,
-  onOpenSettings,
+  currentUser,
   currentLanguage = 'en',
   onSelectUser,
+  onSelectPost,
   onMarkAllAsRead,
 }) => {
   const t = translations[currentLanguage];
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
-  const [alerts, setAlerts] = useState<AlertNotification[]>(INITIAL_ALERTS);
+  const [alerts, setAlerts] = useState<AlertNotification[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadRealNotifications = useCallback(async () => {
+    if (!currentUser?.username) {
+      setAlerts([]);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const remoteNotifs = await fetchUserNotificationsFromFirestore(
+        currentUser.username,
+        currentUser.id
+      );
+
+      // Block list enforcement: strictly filter out any notification from a blocked user
+      const filtered = remoteNotifs.filter(
+        (n) => !n.senderUsername || !moderationService.isUserBlocked(n.senderUsername)
+      );
+
+      const mapped: AlertNotification[] = filtered.map((n) => ({
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        description: n.description,
+        avatar: n.senderAvatar,
+        timeAgo: formatTimeAgo(n.createdAtMs || n.createdAt),
+        read: Boolean(n.read),
+        senderUsername: n.senderUsername,
+        postId: n.postId,
+      }));
+
+      setAlerts(mapped);
+    } catch {
+      // safe fallback to local cache
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUser?.username, currentUser?.id]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadRealNotifications();
+    }
+  }, [isOpen, loadRealNotifications]);
+
+  // Listen to in-app real-time notification events
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleNewNotif = (e: Event) => {
+      const customEvent = e as CustomEvent<FirestoreNotification>;
+      const detail = customEvent.detail;
+      if (!detail) return;
+
+      // Filter blocked users
+      if (detail.senderUsername && moderationService.isUserBlocked(detail.senderUsername)) {
+        return;
+      }
+
+      // Check if for current user
+      const cleanCurrent = (currentUser?.username || '').replace(/^@/, '').toLowerCase();
+      const cleanRecipient = (detail.recipientUsername || '').replace(/^@/, '').toLowerCase();
+
+      if (cleanCurrent && cleanRecipient === cleanCurrent) {
+        const item: AlertNotification = {
+          id: detail.id,
+          type: detail.type,
+          title: detail.title,
+          description: detail.description,
+          avatar: detail.senderAvatar,
+          timeAgo: 'Just now',
+          read: false,
+          senderUsername: detail.senderUsername,
+          postId: detail.postId,
+        };
+        setAlerts((prev) => [item, ...prev.filter((p) => p.id !== item.id)]);
+      }
+    };
+
+    window.addEventListener('jhalak:new_notification', handleNewNotif);
+    return () => {
+      window.removeEventListener('jhalak:new_notification', handleNewNotif);
+    };
+  }, [currentUser?.username]);
 
   if (!isOpen) return null;
 
-  const unreadAlerts = alerts.filter((a) => !a.read);
-  const displayedAlerts = filter === 'unread' ? unreadAlerts : alerts;
+  // Filter blocked users in real-time
+  const unblockedAlerts = alerts.filter(
+    (a) => !a.senderUsername || !moderationService.isUserBlocked(a.senderUsername)
+  );
+  const unreadAlerts = unblockedAlerts.filter((a) => !a.read);
+  const displayedAlerts = filter === 'unread' ? unreadAlerts : unblockedAlerts;
 
   const handleMarkAllRead = () => {
+    const unreadIds = unreadAlerts.map((a) => a.id);
     setAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
+    if (currentUser?.username) {
+      markNotificationsAsReadInFirestore(unreadIds, currentUser.username).catch(() => {});
+    }
     if (onMarkAllAsRead) {
       onMarkAllAsRead();
     }
   };
 
   const handleAlertClick = (alert: AlertNotification) => {
+    // Mark as read immediately
     setAlerts((prev) =>
       prev.map((a) => (a.id === alert.id ? { ...a, read: true } : a))
     );
+    if (currentUser?.username) {
+      markNotificationsAsReadInFirestore([alert.id], currentUser.username).catch(() => {});
+    }
+
+    // Action handling
+    if (alert.type === 'follow' && alert.senderUsername && onSelectUser) {
+      onClose();
+      onSelectUser(alert.senderUsername);
+    } else if ((alert.type === 'like' || alert.type === 'comment') && alert.postId && onSelectPost) {
+      onClose();
+      onSelectPost(alert.postId);
+    } else if (alert.type === 'live' && alert.senderUsername && onSelectUser) {
+      onClose();
+      onSelectUser(alert.senderUsername);
+    }
   };
 
   return (
@@ -123,7 +208,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
         className="relative w-full max-w-lg bg-white dark:bg-neutral-900 rounded-2xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Header - Settings Icon Removed */}
         <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/90">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center">
@@ -135,7 +220,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               </h3>
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
                 {unreadAlerts.length > 0
-                  ? `${unreadAlerts.length} new unread updates`
+                  ? `${unreadAlerts.length} new updates`
                   : 'All notifications caught up'}
               </p>
             </div>
@@ -145,33 +230,20 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
             {unreadAlerts.length > 0 && (
               <button
                 type="button"
+                id="notif-mark-all-read-btn"
                 onClick={handleMarkAllRead}
-                className="px-2.5 py-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 rounded-lg transition cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/40 rounded-lg transition cursor-pointer flex items-center gap-1"
                 title="Mark all as read"
               >
                 <Check className="w-3 h-3" />
                 <span>Mark read</span>
               </button>
             )}
-            {onOpenSettings && (
-              <button
-                id="notif-open-settings-btn"
-                onClick={() => {
-                  onClose();
-                  onOpenSettings();
-                }}
-                className="p-1.5 text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
-                title="Notification settings"
-                aria-label="Notification settings"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-            )}
             <button
               id="notifications-close-btn"
               onClick={onClose}
               aria-label="Close notifications"
-              className="p-1.5 text-neutral-400 hover:text-neutral-800 dark:hover:text-white rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
+              className="p-1.5 text-neutral-400 hover:text-neutral-800 dark:hover:text-white rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -183,19 +255,21 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
+              id="notif-filter-all-btn"
               onClick={() => setFilter('all')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
                 filter === 'all'
                   ? 'bg-neutral-900 text-white dark:bg-white dark:text-black shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
               }`}
             >
-              All ({alerts.length})
+              All ({unblockedAlerts.length})
             </button>
             <button
               type="button"
+              id="notif-filter-unread-btn"
               onClick={() => setFilter('unread')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1.5 ${
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
                 filter === 'unread'
                   ? 'bg-rose-600 text-white shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
@@ -212,13 +286,18 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
 
           <span className="text-[11px] text-neutral-400 flex items-center gap-1">
             <Sparkles className="w-3 h-3 text-amber-500" />
-            Live Feed
+            Live Cloud
           </span>
         </div>
 
         {/* Content List */}
         <div className="flex-1 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800/60">
-          {displayedAlerts.length === 0 ? (
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center text-neutral-400">
+              <Loader2 className="w-6 h-6 animate-spin text-rose-500 mb-2" />
+              <p className="text-xs">Loading real notifications...</p>
+            </div>
+          ) : displayedAlerts.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center my-6">
               <div className="w-14 h-14 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400 flex items-center justify-center mb-3">
                 <CheckCheck className="w-7 h-7 text-emerald-500" />
@@ -228,8 +307,8 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               </h4>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs leading-relaxed">
                 {filter === 'unread'
-                  ? 'You have viewed all pending notifications. Switch to "All" to review past activity.'
-                  : 'When friends follow you, like your reels, or comment, alerts will appear right here.'}
+                  ? 'You have viewed all pending notifications. Switch to "All" to review activity.'
+                  : 'When friends follow you, like your video reels, or go live, real alerts appear here.'}
               </p>
             </div>
           ) : (
@@ -242,8 +321,8 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                     return <MessageCircle className="w-3 h-3 text-white" />;
                   case 'follow':
                     return <UserCheck className="w-3 h-3 text-white" />;
-                  case 'trending':
-                    return <Flame className="w-3 h-3 text-white" />;
+                  case 'live':
+                    return <Radio className="w-3 h-3 text-white animate-pulse" />;
                   default:
                     return <Bell className="w-3 h-3 text-white" />;
                 }
@@ -257,8 +336,8 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                     return 'bg-sky-500';
                   case 'follow':
                     return 'bg-emerald-500';
-                  case 'trending':
-                    return 'bg-amber-500';
+                  case 'live':
+                    return 'bg-red-600 animate-pulse';
                   default:
                     return 'bg-purple-500';
                 }
@@ -269,24 +348,19 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                   key={alert.id}
                   onClick={() => handleAlertClick(alert)}
                   className={`p-3.5 flex items-start gap-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition cursor-pointer ${
-                    !alert.read
-                      ? 'bg-rose-50/40 dark:bg-rose-950/20'
-                      : ''
+                    !alert.read ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''
                   }`}
                 >
                   {/* Avatar / Icon */}
                   <div className="relative flex-shrink-0">
-                    {alert.avatar ? (
-                      <img
-                        src={alert.avatar}
-                        alt={alert.title}
-                        className="w-10 h-10 rounded-full object-cover border border-neutral-200 dark:border-neutral-700"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center font-bold text-xs text-neutral-600 dark:text-neutral-300">
-                        🇮🇳
-                      </div>
-                    )}
+                    <img
+                      src={
+                        alert.avatar ||
+                        `https://api.dicebear.com/7.x/avataaars/svg?seed=${alert.senderUsername || alert.id}`
+                      }
+                      alt={alert.title}
+                      className="w-10 h-10 rounded-full object-cover border border-neutral-200 dark:border-neutral-700"
+                    />
                     <span
                       className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full ${getBadgeColor()} flex items-center justify-center shadow-xs`}
                     >
@@ -321,11 +395,11 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
         <div className="p-3 bg-neutral-50 dark:bg-neutral-800/40 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between text-xs text-neutral-500">
           <span className="flex items-center gap-1.5 text-[11px]">
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            Instant push & in-app alerts
+            Real-time Cloud Notifications
           </span>
           <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
             <CheckCheck className="w-3.5 h-3.5" />
-            <span>Real-time Active</span>
+            <span>Active</span>
           </div>
         </div>
       </div>

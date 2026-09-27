@@ -517,36 +517,36 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       clearTimeout(tapTimeoutRef.current);
     }
 
-    // Single tap toggles play/pause reliably or smoothly unmutes if currently muted
+    // Single tap toggles play/pause (tap-to-play / tap-to-pause)
     tapTimeoutRef.current = setTimeout(() => {
       const currentVideo = videoRefs.current[activeIndex];
       if (currentVideo) {
         if (currentVideo.paused) {
-          currentVideo.muted = isMuted;
-          currentVideo
-            .play()
-            .then(() => {
-              setIsPlaying(true);
-              setShowPlayPauseIcon('play');
-              setTimeout(() => setShowPlayPauseIcon(null), 600);
-            })
-            .catch(() => {
-              currentVideo.muted = true;
-              currentVideo
-                .play()
-                .then(() => {
-                  setIsPlaying(true);
-                  setShowPlayPauseIcon('play');
-                  setTimeout(() => setShowPlayPauseIcon(null), 600);
-                })
-                .catch(() => {});
-            });
-        } else if (isMuted) {
-          // If video is playing but currently muted, tapping anywhere smoothly un-mutes
-          toggleSoundAndPlay();
+          try {
+            currentVideo.muted = isMuted;
+            currentVideo
+              .play()
+              .then(() => {
+                setIsPlaying(true);
+                setShowPlayPauseIcon('play');
+                setTimeout(() => setShowPlayPauseIcon(null), 600);
+              })
+              .catch(() => {
+                currentVideo.muted = true;
+                currentVideo
+                  .play()
+                  .then(() => {
+                    setIsPlaying(true);
+                    setShowPlayPauseIcon('play');
+                    setTimeout(() => setShowPlayPauseIcon(null), 600);
+                  })
+                  .catch(() => {});
+              });
+          } catch {}
         } else {
-          // If video is playing with sound, tapping anywhere smoothly pauses
-          currentVideo.pause();
+          try {
+            currentVideo.pause();
+          } catch {}
           setIsPlaying(false);
           setShowPlayPauseIcon('pause');
           setTimeout(() => setShowPlayPauseIcon(null), 600);
@@ -900,23 +900,24 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       }
                     }}
                     src={videoSrc}
-                    controls
                     playsInline
                     webkit-playsinline="true"
-                    preload="auto"
+                    muted={isMuted}
                     autoPlay
                     loop
+                    preload="auto"
                     poster={reel.thumbnailUrl || ''}
                     className="w-full h-full object-cover pointer-events-none"
-                    muted={isMuted}
                     onCanPlay={(e) => {
                       if (index === activeIndex && isActive) {
                         const vid = e.currentTarget;
                         if (vid.paused) {
-                          vid.play().then(() => setIsPlaying(true)).catch(() => {
-                            vid.muted = true;
-                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                          });
+                          try {
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {
+                              vid.muted = true;
+                              vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                            });
+                          } catch {}
                         }
                       }
                     }}
@@ -924,7 +925,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       if (index === activeIndex && isActive) {
                         const vid = e.currentTarget;
                         if (vid.paused) {
-                          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                          try {
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                          } catch {}
                         }
                       }
                     }}
@@ -938,7 +941,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     onEnded={(e) => {
                       const vid = e.currentTarget;
                       vid.currentTime = 0;
-                      vid.play().catch(() => {});
+                      try {
+                        vid.play().catch(() => {});
+                      } catch {}
                     }}
                     onError={(e) => {
                       console.warn("Video failed, attempting storage URL fallback", reel.downloadURL);
@@ -950,7 +955,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                         if (currentSrc && !currentSrc.includes('sample/ForBiggerBlazes')) {
                           vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
                           vid.load();
-                          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                          try {
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                          } catch {}
                         }
                       }
                     }}
@@ -1009,25 +1016,27 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   e.stopPropagation();
                   const currentVideo = videoRefs.current[activeIndex];
                   if (currentVideo) {
-                    currentVideo.muted = isMuted;
-                    currentVideo
-                      .play()
-                      .then(() => {
-                        setIsPlaying(true);
-                        setShowPlayPauseIcon('play');
-                        setTimeout(() => setShowPlayPauseIcon(null), 600);
-                      })
-                      .catch(() => {
-                        currentVideo.muted = true;
-                        currentVideo
-                          .play()
-                          .then(() => {
-                            setIsPlaying(true);
-                            setShowPlayPauseIcon('play');
-                            setTimeout(() => setShowPlayPauseIcon(null), 600);
-                          })
-                          .catch(() => {});
-                      });
+                    try {
+                      currentVideo.muted = isMuted;
+                      currentVideo
+                        .play()
+                        .then(() => {
+                          setIsPlaying(true);
+                          setShowPlayPauseIcon('play');
+                          setTimeout(() => setShowPlayPauseIcon(null), 600);
+                        })
+                        .catch(() => {
+                          currentVideo.muted = true;
+                          currentVideo
+                            .play()
+                            .then(() => {
+                              setIsPlaying(true);
+                              setShowPlayPauseIcon('play');
+                              setTimeout(() => setShowPlayPauseIcon(null), 600);
+                            })
+                            .catch(() => {});
+                        });
+                    } catch {}
                   }
                 }}
                 className="absolute inset-0 flex items-center justify-center cursor-pointer z-30 animate-in zoom-in-90 duration-150"

@@ -171,7 +171,6 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
     onAddComment(post.id, commentText.trim(), selectedMedia?.url, selectedMedia?.type);
     setCommentText('');
     setSelectedMedia(null);
-    setShowGifPicker(false);
   };
 
   const handleReply = (username: string) => {
@@ -195,7 +194,6 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
         url: compressed,
         type: 'image',
       });
-      setShowGifPicker(false);
     } catch {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -204,7 +202,6 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             url: event.target.result as string,
             type: 'image',
           });
-          setShowGifPicker(false);
         }
       };
       reader.readAsDataURL(file);

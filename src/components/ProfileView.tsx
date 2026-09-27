@@ -175,6 +175,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
     const nextFollowing = !isCurrentlyFollowing;
 
+    if (nextFollowing && moderationService.isUserBlocked(clean)) {
+      setToastMsg(`Cannot follow @${clean} because this user is blocked`);
+      setTimeout(() => setToastMsg(null), 2500);
+      return;
+    }
+
     setLocalFollowedMap((prev) => ({
       ...prev,
       [targetUser.username]: nextFollowing,
@@ -852,90 +858,137 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
           <h3 className="text-base font-semibold text-neutral-800 dark:text-neutral-200">
             {activeTab === 'reels'
-              ? 'Is folder me abhi koi video nahi hai'
+              ? 'No video reels in this folder yet'
               : activeTab === 'saved'
               ? t.noSavedPosts
-              : 'Abhi koi reel ya post nahi hai'}
+              : 'No posts or reels yet'}
           </h3>
           <p className="text-xs text-neutral-500 mt-1 max-w-sm mx-auto">
             {activeTab === 'reels'
-              ? 'Aapki ya is creator ki uploaded video reels yahan folder me dikhengi.'
+              ? 'Uploaded video reels will appear in this folder.'
               : activeTab === 'saved'
-              ? 'Save photos and videos that you want to see again. Only you can see what you’ve saved.'
-              : 'Pehli reel ya photo post karein taaki wo aapki profile par dikhe.'}
+              ? 'Save photos and videos that you want to see again. Only you can see what you have saved.'
+              : 'Share your first photo or video reel to see it on your profile.'}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-1 md:gap-4">
-          {(displayPosts || []).map((post) => (
-            <div
-              key={post.id}
-              id={`profile-grid-post-${post.id}`}
-              onClick={() => onSelectPost(post)}
-              className="group relative aspect-square bg-neutral-900 overflow-hidden cursor-pointer rounded-sm md:rounded-lg"
-            >
-              {post.mediaType === 'video' ? (
-                <div className="w-full h-full relative bg-neutral-950 flex items-center justify-center">
-                  <img
-                    src={
-                      post.thumbnailUrl ||
-                      (post.mediaUrl && !post.mediaUrl.startsWith('blob:')
-                        ? post.mediaUrl
-                        : createVideoFallbackDataUrl(post.caption))
-                    }
-                    alt={post.caption || 'Video Reel'}
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      target.src = createVideoFallbackDataUrl(post.caption);
-                    }}
-                    className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
-                      post.filter || ''
-                    }`}
-                    loading="lazy"
-                  />
-                  {/* Video / Reel badge in top-right */}
-                  <div className="absolute top-2 right-2 p-1 rounded-full bg-black/60 backdrop-blur-md text-white drop-shadow-md z-10 flex items-center justify-center">
-                    <Film className="w-3.5 h-3.5 text-white" />
+          {(displayPosts || []).map((post) => {
+            // Compute real permanent video URL
+            const permanentVideoUrl =
+              (post.downloadURL && !post.downloadURL.startsWith('blob:'))
+                ? post.downloadURL
+                : (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
+                ? post.mediaUrl
+                : ((post as any).videoUrl && !(post as any).videoUrl.startsWith('blob:'))
+                ? (post as any).videoUrl
+                : post.downloadURL || post.mediaUrl || (post as any).videoUrl;
+
+            // Compute real photo URL, avoiding purple abstract placeholder
+            const realPhotoUrl =
+              (post.thumbnailUrl && post.thumbnailUrl.startsWith('data:image/'))
+                ? post.thumbnailUrl
+                : (post.mediaUrl && !post.mediaUrl.includes('photo-1618005182384-a83a8bd57fbe'))
+                ? post.mediaUrl
+                : (post.thumbnailUrl && !post.thumbnailUrl.includes('photo-1618005182384-a83a8bd57fbe'))
+                ? post.thumbnailUrl
+                : (post.downloadURL && !post.downloadURL.includes('photo-1618005182384-a83a8bd57fbe'))
+                ? post.downloadURL
+                : post.mediaUrl;
+
+            const hasValidImageThumb =
+              post.thumbnailUrl &&
+              !post.thumbnailUrl.startsWith('blob:') &&
+              !post.thumbnailUrl.endsWith('.mp4') &&
+              !post.thumbnailUrl.includes('sample/ForBiggerBlazes');
+
+            return (
+              <div
+                key={post.id}
+                id={`profile-grid-post-${post.id}`}
+                onClick={() => onSelectPost(post)}
+                className="group relative aspect-square bg-neutral-900 overflow-hidden cursor-pointer rounded-sm md:rounded-lg"
+              >
+                {post.mediaType === 'video' ? (
+                  <div className="w-full h-full relative bg-neutral-950 flex items-center justify-center">
+                    {hasValidImageThumb ? (
+                      <img
+                        src={post.thumbnailUrl}
+                        alt={post.caption || 'Video Reel'}
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = 'none';
+                        }}
+                        className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
+                          post.filter || ''
+                        }`}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <video
+                        src={permanentVideoUrl}
+                        playsInline
+                        webkit-playsinline="true"
+                        autoPlay
+                        muted
+                        loop
+                        preload="auto"
+                        className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 pointer-events-none ${
+                          post.filter || ''
+                        }`}
+                      />
+                    )}
+                    {/* Video / Reel badge in top-right */}
+                    <div className="absolute top-2 right-2 p-1 rounded-full bg-black/60 backdrop-blur-md text-white drop-shadow-md z-10 flex items-center justify-center">
+                      <Film className="w-3.5 h-3.5 text-white" />
+                    </div>
+                    {/* Private badge if post is private */}
+                    {(post.privacy === 'private' || post.isPrivate) && (
+                      <div className="absolute top-2 right-9 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>Private</span>
+                      </div>
+                    )}
+                    {/* Keep title visible on card preview */}
+                    {post.caption && (
+                      <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none">
+                        <p className="text-[11px] font-medium text-white/95 truncate leading-tight">
+                          {post.caption}
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  {/* Private badge if post is private */}
-                  {(post.privacy === 'private' || post.isPrivate) && (
-                    <div className="absolute top-2 right-9 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
-                      <Lock className="w-2.5 h-2.5" />
-                      <span>Private</span>
-                    </div>
-                  )}
-                  {/* Keep title visible on card preview */}
-                  {post.caption && (
-                    <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none">
-                      <p className="text-[11px] font-medium text-white/95 truncate leading-tight">
-                        {post.caption}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="w-full h-full relative bg-neutral-950">
-                  <img
-                    src={post.mediaUrl}
-                    alt={post.caption || 'Post image'}
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      target.src = createPhotoFallbackDataUrl(post.caption);
-                    }}
-                    className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
-                      post.filter || ''
-                    }`}
-                    loading="lazy"
-                  />
-                  {/* Private badge if post is private */}
-                  {(post.privacy === 'private' || post.isPrivate) && (
-                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
-                      <Lock className="w-2.5 h-2.5" />
-                      <span>Private</span>
-                    </div>
-                  )}
-                </div>
-              )}
+                ) : (
+                  <div className="w-full h-full relative bg-neutral-950">
+                    <img
+                      src={realPhotoUrl}
+                      alt={post.caption || 'Post image'}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (
+                          post.thumbnailUrl &&
+                          post.thumbnailUrl !== target.src &&
+                          !post.thumbnailUrl.includes('photo-1618005182384-a83a8bd57fbe')
+                        ) {
+                          target.src = post.thumbnailUrl;
+                        } else {
+                          target.src = createPhotoFallbackDataUrl(post.caption);
+                        }
+                      }}
+                      className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
+                        post.filter || ''
+                      }`}
+                      loading="lazy"
+                    />
+                    {/* Private badge if post is private */}
+                    {(post.privacy === 'private' || post.isPrivate) && (
+                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>Private</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               {/* Hover Overlay */}
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-6 text-white font-semibold text-sm">
                 <div className="flex items-center gap-1.5">
@@ -973,9 +1026,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </button>
               )}
             </div>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
+    )}
 
       {/* In-App Permanent Deletion Confirmation Modal */}
       {postToDeleteConfirm && (

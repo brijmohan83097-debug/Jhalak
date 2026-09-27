@@ -49,6 +49,7 @@ import { Post, User, Comment, Conversation, Message } from '../types';
 import { ADMIN_EMAIL, isSuperAdmin } from '../constants/admin';
 import { getItemTimestamp } from './recommendationEngine';
 import { saveBlobToIndexedDB } from '../utils/persistentMediaStore';
+import { moderationService } from './moderationService';
 
 // Silence Firebase internal logs and connection retry noise completely
 try {
@@ -1826,11 +1827,40 @@ export async function uploadMediaToStorage(
     } catch {}
 
     if (onProgress) onProgress(100);
-    // 3. Fallback to permanent streamable CDN video so video never produces a black screen
+    // 3. For videos, return direct base64 / persistent IndexedDB object URL so user video is never lost
     if (ext === 'mp4') {
-      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+      try {
+        const idbUrl = await saveBlobToIndexedDB(assignedId, fileOrBlob);
+        if (fileOrBlob.size <= 8 * 1024 * 1024) {
+          try {
+            const dataUrl = await new Promise<string>((res, rej) => {
+              const reader = new FileReader();
+              reader.onload = () => res(reader.result as string);
+              reader.onerror = rej;
+              reader.readAsDataURL(fileOrBlob);
+            });
+            if (dataUrl && dataUrl.startsWith('data:video/')) {
+              return dataUrl;
+            }
+          } catch {}
+        }
+        if (idbUrl) return idbUrl;
+      } catch {}
+      return URL.createObjectURL(fileOrBlob);
     }
-    return 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800';
+    // For photos, return the real base64 data URL of the uploaded image so user's real photo is never replaced with abstract placeholders
+    try {
+      const dataUrl = await new Promise<string>((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result as string);
+        reader.onerror = rej;
+        reader.readAsDataURL(fileOrBlob);
+      });
+      if (dataUrl && dataUrl.startsWith('data:image/')) {
+        return dataUrl;
+      }
+    } catch {}
+    return 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800';
   };
 
   // Primary attempt: Upload to Firebase Cloud Storage via uploadBytesResumable
@@ -1861,19 +1891,19 @@ export async function uploadMediaToStorage(
       safeFinish(url);
     };
 
-    // Stalling guard: If 0 bytes transferred after 12 seconds, switch to local persistence
+    // Stalling guard: If 0 bytes transferred after 5 seconds, switch to instant local persistence
     connectionTimeout = setTimeout(() => {
       if (!finished) {
         triggerFallback('Connection timeout: storage service unresponsive');
       }
-    }, 12000);
+    }, 5000);
 
-    // Total timeout guard: If upload takes longer than 35 seconds, switch to local persistence
+    // Total timeout guard: If upload takes longer than 9.5 seconds, switch to instant local persistence
     totalTimeout = setTimeout(() => {
       if (!finished) {
-        triggerFallback('Total timeout exceeded: switching to instant local persistence');
+        triggerFallback('Total timeout exceeded (10s safeguard): switching to instant local persistence');
       }
-    }, 35000);
+    }, 9500);
 
     try {
       const fileRef = ref(storage, fileName);
@@ -2032,4 +2062,274 @@ export async function sendFirestoreMessage(
     } catch {}
   }
 }
+
+// =========================================================================
+// REAL USER NOTIFICATIONS (FIRESTORE)
+// =========================================================================
+
+export interface FirestoreNotification {
+  id: string;
+  recipientUserId?: string;
+  recipientUsername: string; // clean lowercase username
+  senderUserId?: string;
+  senderUsername: string;
+  senderAvatar?: string;
+  type: 'like' | 'follow' | 'live' | 'comment';
+  title: string;
+  description: string;
+  postId?: string;
+  read: boolean;
+  createdAt: string; // ISO string
+  createdAtMs: number;
+}
+
+/**
+ * Creates a real notification in Firestore.
+ * Strictly enforces block list: if either sender or recipient is blocked, cancels immediately.
+ */
+export async function createNotificationInFirestore(
+  notif: Omit<FirestoreNotification, 'id' | 'createdAt' | 'createdAtMs' | 'read'>
+): Promise<void> {
+  const cleanRecipient = (notif.recipientUsername || '').replace(/^@/, '').toLowerCase().trim();
+  const cleanSender = (notif.senderUsername || '').replace(/^@/, '').toLowerCase().trim();
+
+  // Self-notification check: users don't receive notifications from themselves
+  if (!cleanRecipient || !cleanSender || cleanRecipient === cleanSender) return;
+
+  // Block list enforcement: If a user is blocked, cancel notification immediately
+  if (moderationService.isUserBlocked(cleanSender) || moderationService.isUserBlocked(cleanRecipient)) {
+    return;
+  }
+
+  const notifId = `notif-${cleanRecipient}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+
+  const newDoc: FirestoreNotification = {
+    ...notif,
+    id: notifId,
+    recipientUsername: cleanRecipient,
+    senderUsername: cleanSender,
+    read: false,
+    createdAt: nowIso,
+    createdAtMs: nowMs,
+  };
+
+  // 1. Cache locally for instant UI update
+  try {
+    const localKey = `jhalak_notifications_${cleanRecipient}`;
+    const raw = localStorage.getItem(localKey);
+    const existing: FirestoreNotification[] = raw ? JSON.parse(raw) : [];
+    // Deduplicate rapid repeat alerts within 20s
+    const filtered = existing.filter(
+      (e) => !(e.type === newDoc.type && e.senderUsername === newDoc.senderUsername && (nowMs - (e.createdAtMs || 0) < 20000))
+    );
+    localStorage.setItem(localKey, JSON.stringify([newDoc, ...filtered].slice(0, 50)));
+  } catch {}
+
+  // 2. Dispatch in-app event so open panels or active tabs immediately refresh
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('jhalak:new_notification', { detail: newDoc }));
+  }
+
+  // 3. Write to Firestore root notifications collection
+  try {
+    await setDoc(doc(db, 'notifications', notifId), newDoc);
+  } catch (err) {
+    console.warn('[Firebase] Notification write notice:', err);
+  }
+
+  // 4. Also write to user subcollection if recipient user ID is available
+  if (notif.recipientUserId && !notif.recipientUserId.startsWith('user-')) {
+    try {
+      await setDoc(doc(db, 'users', notif.recipientUserId, 'notifications', notifId), newDoc);
+    } catch {}
+  }
+}
+
+/**
+ * Fetches real notifications from Firestore for the given user,
+ * merging with local cache, sorting chronologically, and filtering out blocked users.
+ */
+export async function fetchUserNotificationsFromFirestore(
+  recipientUsername: string,
+  recipientUserId?: string
+): Promise<FirestoreNotification[]> {
+  const cleanRecipient = (recipientUsername || '').replace(/^@/, '').toLowerCase().trim();
+  if (!cleanRecipient) return [];
+
+  // Read local cache first
+  let cached: FirestoreNotification[] = [];
+  try {
+    const localKey = `jhalak_notifications_${cleanRecipient}`;
+    const raw = localStorage.getItem(localKey);
+    if (raw) {
+      cached = JSON.parse(raw);
+    }
+  } catch {}
+
+  let remote: FirestoreNotification[] = [];
+  try {
+    const notifsRef = collection(db, 'notifications');
+    const q = query(
+      notifsRef,
+      where('recipientUsername', '==', cleanRecipient),
+      limit(50)
+    );
+    const snap = await getDocs(q);
+    remote = snap.docs.map((d) => d.data() as FirestoreNotification);
+  } catch {}
+
+  // Also query user subcollection if recipientUserId is valid
+  if (recipientUserId && !recipientUserId.startsWith('user-')) {
+    try {
+      const subRef = collection(db, 'users', recipientUserId, 'notifications');
+      const subSnap = await getDocs(query(subRef, limit(30)));
+      const subRemote = subSnap.docs.map((d) => d.data() as FirestoreNotification);
+      remote.push(...subRemote);
+    } catch {}
+  }
+
+  // Combine and deduplicate by id
+  const map = new Map<string, FirestoreNotification>();
+  for (const item of [...cached, ...remote]) {
+    if (item && item.id && !map.has(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+
+  // Sort by createdAtMs descending and strictly enforce block list
+  const results = Array.from(map.values())
+    .filter((n) => {
+      // Hide all notifications from blocked users
+      if (!n.senderUsername) return true;
+      return !moderationService.isUserBlocked(n.senderUsername);
+    })
+    .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+
+  return results;
+}
+
+/**
+ * Marks given notifications as read in Firestore and local cache.
+ */
+export async function markNotificationsAsReadInFirestore(
+  notificationIds: string[],
+  recipientUsername?: string
+): Promise<void> {
+  if (!notificationIds || notificationIds.length === 0) return;
+
+  // Update local cache
+  if (recipientUsername) {
+    const cleanRecipient = recipientUsername.replace(/^@/, '').toLowerCase().trim();
+    try {
+      const localKey = `jhalak_notifications_${cleanRecipient}`;
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const list: FirestoreNotification[] = JSON.parse(raw);
+        const updated = list.map((n) => (notificationIds.includes(n.id) ? { ...n, read: true } : n));
+        localStorage.setItem(localKey, JSON.stringify(updated));
+      }
+    } catch {}
+  }
+
+  // Update Firestore
+  for (const id of notificationIds) {
+    try {
+      await updateDoc(doc(db, 'notifications', id), { read: true });
+    } catch {}
+  }
+}
+
+/**
+ * Broadcasts a Live broadcast alert to all followers of the creator in Firestore.
+ */
+export async function broadcastLiveNotificationToFollowers(
+  creatorUsername: string,
+  creatorUserId?: string,
+  creatorAvatar?: string,
+  streamTitle?: string
+): Promise<void> {
+  const cleanCreator = (creatorUsername || '').replace(/^@/, '').toLowerCase().trim();
+  if (!cleanCreator) return;
+
+  if (moderationService.isUserBlocked(cleanCreator)) return;
+
+  // 1. Gather all followers from Firestore user subcollection or document
+  const followersList: string[] = [];
+
+  if (creatorUserId && !creatorUserId.startsWith('user-')) {
+    try {
+      const followersSub = collection(db, 'users', creatorUserId, 'followers');
+      const snap = await getDocs(query(followersSub, limit(100)));
+      snap.docs.forEach((d) => {
+        const u = d.data()?.username || d.id;
+        if (u) followersList.push(u);
+      });
+    } catch {}
+  }
+
+  // If subcollection was empty, check followers array in creator user document
+  if (followersList.length === 0 && creatorUserId) {
+    try {
+      const userSnap = await getDoc(doc(db, 'users', creatorUserId));
+      if (userSnap.exists()) {
+        const rawFollowers = userSnap.data()?.followers || [];
+        if (Array.isArray(rawFollowers)) {
+          followersList.push(...rawFollowers);
+        }
+      }
+    } catch {}
+  }
+
+  // Also check local storage for followed users map to notify active local viewers
+  try {
+    const globalRaw = localStorage.getItem('ig_followed_users');
+    if (globalRaw) {
+      const globalMap = JSON.parse(globalRaw);
+      // If current local device follows this creator
+      if (globalMap[cleanCreator] || globalMap[`@${cleanCreator}`]) {
+        // Current device follows creator
+        const localUserRaw = localStorage.getItem('jhalak_active_user');
+        if (localUserRaw) {
+          const u = JSON.parse(localUserRaw);
+          if (u.username && !followersList.includes(u.username)) {
+            followersList.push(u.username);
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // Send notification to each follower
+  const uniqueFollowers = Array.from(new Set(followersList))
+    .map((u) => u.replace(/^@/, '').toLowerCase().trim())
+    .filter((u) => u && u !== cleanCreator && !moderationService.isUserBlocked(u));
+
+  for (const followerUsername of uniqueFollowers) {
+    createNotificationInFirestore({
+      recipientUsername: followerUsername,
+      senderUsername: cleanCreator,
+      senderUserId: creatorUserId,
+      senderAvatar: creatorAvatar,
+      type: 'live',
+      title: `@${cleanCreator} is live now 🔴`,
+      description: streamTitle ? `Live: "${streamTitle}". Tap to join the broadcast!` : 'Started a live broadcast. Tap to watch!',
+    }).catch(() => {});
+  }
+
+  // Global event for immediate toast or active UI
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('jhalak:friend_went_live', {
+        detail: {
+          creatorUsername: cleanCreator,
+          creatorAvatar,
+          streamTitle,
+        },
+      })
+    );
+  }
+}
+
 

@@ -47,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   currentUser,
   unreadMessagesCount,
-  unreadAlertsCount = 3,
+  unreadAlertsCount = 0,
   darkMode,
   onToggleDarkMode,
   onOpenCreateModal,

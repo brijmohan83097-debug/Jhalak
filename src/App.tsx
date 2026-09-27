@@ -61,6 +61,8 @@ import {
   addCommentToFirestore,
   toggleFollowUserInFirestore,
   loadFollowedUsersFromFirestore,
+  createNotificationInFirestore,
+  fetchUserNotificationsFromFirestore,
   logOutFirebase,
   testConnection,
   signInWithGoogle,
@@ -312,8 +314,48 @@ export default function App() {
   // Home Feed Filter: 'all' (Personalized / For You) vs 'following' (Posts from followed friends)
   const [homeFeedFilter, setHomeFeedFilter] = useState<'all' | 'following'>('all');
 
-  // Top Notification Alerts Unread Count
-  const [unreadAlertsCount, setUnreadAlertsCount] = useState<number>(3);
+  // Top Notification Alerts Unread Count (real unread count from Firestore)
+  const [unreadAlertsCount, setUnreadAlertsCount] = useState<number>(() => {
+    try {
+      const activeUser = currentUser?.username || 'me';
+      const clean = activeUser.replace(/^@/, '').toLowerCase().trim();
+      const raw = localStorage.getItem(`jhalak_notifications_${clean}`);
+      if (raw) {
+        const notifs = JSON.parse(raw);
+        if (Array.isArray(notifs)) {
+          return notifs.filter(
+            (n: any) => !n.read && (!n.senderUsername || !moderationService.isUserBlocked(n.senderUsername))
+          ).length;
+        }
+      }
+    } catch {}
+    return 0;
+  });
+
+  // Sync real unread notification count
+  useEffect(() => {
+    if (!currentUser?.username) return;
+    const clean = currentUser.username.replace(/^@/, '').toLowerCase().trim();
+
+    const refreshCount = async () => {
+      try {
+        const list = await fetchUserNotificationsFromFirestore(clean, currentUser.id);
+        const unread = list.filter((n) => !n.read && (!n.senderUsername || !moderationService.isUserBlocked(n.senderUsername))).length;
+        setUnreadAlertsCount(unread);
+      } catch {}
+    };
+
+    refreshCount();
+
+    const handleNotifEvent = () => {
+      refreshCount();
+    };
+
+    window.addEventListener('jhalak:new_notification', handleNotifEvent);
+    return () => {
+      window.removeEventListener('jhalak:new_notification', handleNotifEvent);
+    };
+  }, [currentUser?.username, currentUser?.id]);
 
   // Check if a given creator/friend is followed
   const isUserFollowed = useCallback(
@@ -341,6 +383,12 @@ export default function App() {
     }
     const cleanTarget = (targetUsername || '').replace(/^@/, '').trim();
     if (!cleanTarget) return;
+
+    // Block list enforcement: Cannot follow blocked users
+    if (moderationService.isUserBlocked(cleanTarget)) {
+      showToast(`Cannot follow @${cleanTarget} because this user is blocked`);
+      return;
+    }
 
     const currentlyFollowing = Boolean(
       followedUsers[cleanTarget] ||
@@ -372,6 +420,20 @@ export default function App() {
       targetUserId,
       nextFollowing
     ).catch(() => {});
+
+    // Send real Firestore notification if following
+    if (nextFollowing) {
+      createNotificationInFirestore({
+        recipientUsername: cleanTarget,
+        recipientUserId: targetUserId,
+        senderUsername: currentUser.username,
+        senderUserId: currentUser.id,
+        senderAvatar: currentUser.avatar,
+        type: 'follow',
+        title: `@${currentUser.username.replace(/^@/, '')} started following you`,
+        description: `@${currentUser.username.replace(/^@/, '')} is now following your creator profile.`,
+      }).catch(() => {});
+    }
 
     showToast(nextFollowing ? `Following @${cleanTarget} ✨` : `Unfollowed @${cleanTarget}`);
   };
@@ -784,7 +846,7 @@ export default function App() {
     }
   };
 
-  const handleHomeTouchMove = (e: React.TouchEvent) => {
+  const handleHomeTouchMove = () => {
     // Dedicated standard scrolling on home feed without pull-to-refresh interference
   };
 
@@ -998,6 +1060,23 @@ export default function App() {
         const cat = post.category || inferCategory(post);
         recommendationEngine.recordInteraction(cat, 'like', post.id);
         recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
+
+        // Create real Firestore notification for video / post creator
+        const authorUsername = (post.username || '').replace(/^@/, '').toLowerCase().trim();
+        const currentClean = (currentUser.username || '').replace(/^@/, '').toLowerCase().trim();
+        if (authorUsername && authorUsername !== currentClean) {
+          createNotificationInFirestore({
+            recipientUsername: authorUsername,
+            recipientUserId: post.userId,
+            senderUsername: currentUser.username,
+            senderUserId: currentUser.id,
+            senderAvatar: currentUser.avatar,
+            type: 'like',
+            title: `@${currentUser.username.replace(/^@/, '')} liked your ${post.mediaType === 'video' ? 'video reel' : 'post'}`,
+            description: post.caption ? `Liked: "${post.caption}"` : 'Liked your video in Reels',
+            postId: post.id,
+          }).catch(() => {});
+        }
       }
 
       // Save user like state directly into Firestore
@@ -2003,6 +2082,23 @@ export default function App() {
         const cat = targetReel.category || inferCategory(targetReel);
         recommendationEngine.recordInteraction(cat, 'like', targetReel.id);
         recommendationEngine.recordLanguageInteraction(inferLanguage(targetReel), 'like');
+
+        // Create real Firestore notification for reel creator
+        const authorUsername = (targetReel.username || '').replace(/^@/, '').toLowerCase().trim();
+        const currentClean = (currentUser.username || '').replace(/^@/, '').toLowerCase().trim();
+        if (authorUsername && authorUsername !== currentClean) {
+          createNotificationInFirestore({
+            recipientUsername: authorUsername,
+            recipientUserId: targetReel.userId,
+            senderUsername: currentUser.username,
+            senderUserId: currentUser.id,
+            senderAvatar: currentUser.avatar,
+            type: 'like',
+            title: `@${currentUser.username.replace(/^@/, '')} liked your video reel`,
+            description: targetReel.caption ? `Liked: "${targetReel.caption}"` : 'Liked your video in Reels',
+            postId: cleanPostId,
+          }).catch(() => {});
+        }
       }
       toggleLikeInFirestore(cleanPostId, isLiked, currentUser.id, currentUser.username).catch(() => {});
     }
@@ -3600,10 +3696,23 @@ export default function App() {
       <NotificationsModal
         isOpen={isNotificationsModalOpen}
         onClose={() => setIsNotificationsModalOpen(false)}
+        currentUser={currentUser}
         unreadCount={unreadAlertsCount}
         onMarkAllAsRead={() => setUnreadAlertsCount(0)}
         onSelectUser={(u) => handleViewUser(u)}
-        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onSelectPost={(postId) => {
+          const found =
+            posts.find((p) => p.id === postId || p.id === `reel-${postId}`) ||
+            reels.find((r) => r.id === postId || r.id === `reel-${postId}`);
+          if (found) {
+            if ((found as any).mediaType === 'video' || 'videoUrl' in found) {
+              handleOpenReelFromPost(found as any);
+            } else {
+              setSelectedPostDetail(found as Post);
+            }
+          }
+        }}
+        currentLanguage={currentLanguage}
       />
 
       {/* MODAL 13: Admin Moderation Dashboard (Auto-flagged & Multi-Report Queue, Super Admin strictly for Brijmohan83097@gmail.com) */}

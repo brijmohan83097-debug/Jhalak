@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 import confetti from 'canvas-confetti';
+import { broadcastLiveNotificationToFollowers } from '../services/firebase';
 
 interface GoLiveStudioProps {
   currentUser: User;
@@ -141,6 +142,13 @@ export const GoLiveStudio: React.FC<GoLiveStudioProps> = ({
   const handleStartStream = () => {
     setStreamStage('live');
     setDurationSeconds(0);
+    // Broadcast live notification from Firestore to all followers
+    broadcastLiveNotificationToFollowers(
+      currentUser.username,
+      currentUser.id,
+      currentUser.avatar,
+      streamTitle
+    ).catch(() => {});
     try {
       confetti({
         particleCount: 50,

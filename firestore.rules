@@ -49,6 +49,17 @@ service cloud.firestore {
       match /following/{followingId} {
         allow read, write: if true;
       }
+      match /notifications/{notifId} {
+        allow read, write: if true;
+      }
+    }
+
+    // =========================================================================
+    // NOTIFICATIONS COLLECTION
+    // Real user notifications for likes, follows, and live broadcasts
+    // =========================================================================
+    match /notifications/{notifId} {
+      allow read, write: if true;
     }
 
     // =========================================================================

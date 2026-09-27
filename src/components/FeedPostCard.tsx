@@ -229,38 +229,18 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       tapTimeoutRef.current = null;
     }
 
-    // Video posts: Tapping anywhere on the video or center play button toggles play/pause reliably
+    // Video posts: single tap opens full ReelsView directly at that reel
     if (post.mediaType === 'video') {
       tapTimeoutRef.current = setTimeout(() => {
-        if (videoRef.current) {
-          if (videoRef.current.paused) {
-            videoRef.current.muted = isMuted;
-            videoRef.current
-              .play()
-              .then(() => {
-                setIsPlaying(true);
-                setShowPlayPauseIcon('play');
-                setTimeout(() => setShowPlayPauseIcon(null), 600);
-              })
-              .catch(() => {
-                if (videoRef.current) {
-                  videoRef.current.muted = true;
-                  videoRef.current
-                    .play()
-                    .then(() => {
-                      setIsPlaying(true);
-                      setShowPlayPauseIcon('play');
-                      setTimeout(() => setShowPlayPauseIcon(null), 600);
-                    })
-                    .catch(() => {});
-                }
-              });
-          } else {
-            videoRef.current.pause();
-            setIsPlaying(false);
-            setShowPlayPauseIcon('pause');
-            setTimeout(() => setShowPlayPauseIcon(null), 600);
-          }
+        if (onOpenReel) {
+          onOpenReel(post);
+        } else if (onOpenFullScreen) {
+          onOpenFullScreen({
+            ...post,
+            mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
+          });
+        } else {
+          onOpenDetail(post);
         }
         tapTimeoutRef.current = null;
       }, 200);
@@ -504,14 +484,13 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       }
                     }}
                     src={videoSrc}
-                    controls
                     playsInline
                     webkit-playsinline="true"
                     preload="auto"
                     autoPlay
                     loop
                     poster={post.thumbnailUrl || ''}
-                    className={`w-full h-full object-cover ${post.filter ? post.filter : ''}`}
+                    className={`w-full h-full object-cover pointer-events-none ${post.filter ? post.filter : ''}`}
                     muted={isMuted}
                     onCanPlay={(e) => {
                       const vid = e.currentTarget;
@@ -660,31 +639,19 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               <div
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (videoRef.current) {
-                    videoRef.current.muted = isMuted;
-                    videoRef.current
-                      .play()
-                      .then(() => {
-                        setIsPlaying(true);
-                        setShowPlayPauseIcon('play');
-                        setTimeout(() => setShowPlayPauseIcon(null), 600);
-                      })
-                      .catch(() => {
-                        if (videoRef.current) {
-                          videoRef.current.muted = true;
-                          videoRef.current
-                            .play()
-                            .then(() => {
-                              setIsPlaying(true);
-                              setShowPlayPauseIcon('play');
-                              setTimeout(() => setShowPlayPauseIcon(null), 600);
-                            })
-                            .catch(() => {});
-                        }
-                      });
+                  if (onOpenReel) {
+                    onOpenReel(post);
+                  } else if (onOpenFullScreen) {
+                    onOpenFullScreen({
+                      ...post,
+                      mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
+                    });
+                  } else {
+                    onOpenDetail(post);
                   }
                 }}
                 className="absolute inset-0 flex items-center justify-center cursor-pointer z-20"
+                title="Watch Reel"
               >
                 <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-xl transition-all hover:scale-110 active:scale-95">
                   <Play className="w-7 h-7 fill-white ml-1 text-white" />
