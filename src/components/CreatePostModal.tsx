@@ -460,17 +460,17 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   };
 
   const processSelectedVideo = async (file: File | Blob, customThumbnail?: string, customAudio?: string) => {
-    // 1. Initial size validation against 30MB limit
+    // 1. Initial size validation against 100MB limit (Instagram standard)
     const validation = validateVideoFileSize(file, MAX_VIDEO_UPLOAD_SIZE_BYTES);
     if (!validation.valid) {
       setVideoAlert({
-        title: 'Video Exceeds 30MB Limit',
+        title: 'Video Exceeds 100MB Limit',
         message: validation.error || `Selected video (${validation.sizeMB} MB) is too large for upload.`,
-        details: 'Maximum file size allowed is 30 MB. Please trim your video or choose a smaller clip.',
+        details: 'Maximum file size allowed is 100 MB. Please trim your video or choose a smaller clip.',
         type: 'error',
       });
       if (onShowToast) {
-        onShowToast(`⚠️ Video is ${validation.sizeMB} MB. Maximum allowed size is 30 MB.`);
+        onShowToast(`⚠️ Video is ${validation.sizeMB} MB. Maximum allowed size is 100 MB.`);
       }
       return;
     }
@@ -525,7 +525,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       }
     }
 
-    // Set pending file for upload (video is validated within 30MB and 60s)
+    // Set pending file for upload (video is validated within 100MB and 60s)
     setPendingUploadFile(file);
 
     if (onShowToast) {

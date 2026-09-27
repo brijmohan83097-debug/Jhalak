@@ -134,13 +134,13 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     }
 
     if (isVideo) {
-      // 1. Initial size validation against 30MB limit
+      // 1. Initial size validation against 100MB limit
       const validation = validateVideoFileSize(file, MAX_VIDEO_UPLOAD_SIZE_BYTES);
       if (!validation.valid) {
         setVideoAlert({
-          title: 'Video Exceeds 30MB Limit',
+          title: 'Video Exceeds 100MB Limit',
           message: validation.error || `Selected video (${validation.sizeMB} MB) is too large for upload.`,
-          details: 'Maximum file size allowed is 30 MB. Please trim your video or choose a smaller clip.',
+          details: 'Maximum file size allowed is 100 MB. Please trim your video or choose a smaller clip.',
           type: 'error',
         });
         return;
@@ -187,9 +187,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         console.warn('Story video compression notice:', compErr?.message);
         if (file.size > MAX_VIDEO_UPLOAD_SIZE_BYTES) {
           setVideoAlert({
-            title: 'Video Too Large (Max 30MB)',
-            message: `Compression failed and original video (${formatBytes(file.size)}) exceeds the 30MB upload limit.`,
-            details: 'Please choose a shorter or smaller video clip under 30MB.',
+            title: 'Video Too Large (Max 100MB)',
+            message: `Compression failed and original video (${formatBytes(file.size)}) exceeds the 100MB upload limit.`,
+            details: 'Please choose a shorter or smaller video clip under 100MB.',
             type: 'error',
           });
           setPendingFile(null);
@@ -198,7 +198,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           setPendingFile(file);
           setVideoAlert({
             title: 'Compression Notice',
-            message: `Using original video (${formatBytes(file.size)}): ${compErr?.message || 'Compression skipped'}. File is within the 30MB limit.`,
+            message: `Using original video (${formatBytes(file.size)}): ${compErr?.message || 'Compression skipped'}. File is within the 100MB limit.`,
             type: 'warning',
           });
         }

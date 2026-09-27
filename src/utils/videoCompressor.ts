@@ -8,8 +8,8 @@
  * 4. Provides progress tracking, cancellation, and detailed compression statistics.
  */
 
-export const MAX_VIDEO_UPLOAD_SIZE_BYTES = 30 * 1024 * 1024; // 30 MB
-export const MAX_VIDEO_UPLOAD_SIZE_MB = 30;
+export const MAX_VIDEO_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
+export const MAX_VIDEO_UPLOAD_SIZE_MB = 100;
 export const MAX_VIDEO_UPLOAD_DURATION_SEC = 60; // 60 seconds
 
 export interface VideoCompressionOptions {
@@ -17,7 +17,7 @@ export interface VideoCompressionOptions {
   maxDimension?: number;
   /** Target video bitrate in bits per second (default: 2_000_000 = 2 Mbps) */
   targetBitrate?: number;
-  /** Maximum allowed size in bytes (default: 30MB) */
+  /** Maximum allowed size in bytes (default: 100MB) */
   maxSizeBytes?: number;
   /** Callback for compression progress (0 - 100) */
   onProgress?: (progress: {
@@ -62,7 +62,7 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * Validates whether a video file is within initial upload constraints (max 30MB).
+ * Validates whether a video file is within initial upload constraints (max 100MB).
  */
 export function validateVideoFileSize(
   file: File | Blob,
