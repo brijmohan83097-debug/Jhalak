@@ -486,12 +486,12 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                     src={videoSrc}
                     playsInline
                     webkit-playsinline="true"
-                    preload="auto"
                     autoPlay
+                    muted={isMuted}
                     loop
+                    preload="auto"
                     poster={post.thumbnailUrl || ''}
                     className={`w-full h-full object-cover pointer-events-none ${post.filter ? post.filter : ''}`}
-                    muted={isMuted}
                     onCanPlay={(e) => {
                       const vid = e.currentTarget;
                       if (isIntersectingRef.current && vid.paused) {

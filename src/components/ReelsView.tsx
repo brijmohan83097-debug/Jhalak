@@ -902,8 +902,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     src={videoSrc}
                     playsInline
                     webkit-playsinline="true"
-                    muted={isMuted}
                     autoPlay
+                    muted={isMuted}
                     loop
                     preload="auto"
                     poster={reel.thumbnailUrl || ''}

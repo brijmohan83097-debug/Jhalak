@@ -33,6 +33,7 @@ import {
   loadFollowersListFromFirestore,
   loadFollowingListFromFirestore,
   toggleFollowUserInFirestore,
+  loadUserPostsFromFirestore,
 } from '../services/firebase';
 import {
   createVideoFallbackDataUrl,
@@ -247,6 +248,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setHighlights([]);
     }
   }, [user?.id]);
+  const [firestoreUserPosts, setFirestoreUserPosts] = useState<Post[]>([]);
+
+  // Load and keep Firestore posts permanently synced for this profile
+  useEffect(() => {
+    if (!user?.id && !user?.username) return;
+    let isMounted = true;
+    const fetchUserPosts = () => {
+      loadUserPostsFromFirestore(user.id, user.email, user.username)
+        .then((posts) => {
+          if (isMounted && posts && posts.length > 0) {
+            setFirestoreUserPosts(posts);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchUserPosts();
+
+    const handleGlobalRefresh = () => {
+      fetchUserPosts();
+    };
+
+    window.addEventListener('jhalak:refresh_feed', handleGlobalRefresh);
+    window.addEventListener('jhalak:new_post_created', handleGlobalRefresh);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('jhalak:refresh_feed', handleGlobalRefresh);
+      window.removeEventListener('jhalak:new_post_created', handleGlobalRefresh);
+    };
+  }, [user?.id, user?.username, user?.email]);
+
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const t = translations[currentLanguage] || translations.en;
@@ -262,17 +294,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const targetUsername = (user?.username || '').replace(/^@/, '').trim().toLowerCase();
 
     const postUserId = (p.userId || '').trim().toLowerCase();
+    const postAuthorId = (p.authorId || '').trim().toLowerCase();
     const postUsername = (p.username || '').replace(/^@/, '').trim().toLowerCase();
 
-    // 1. Direct match by user ID
-    if (targetId && postUserId && targetId === postUserId) return true;
+    // 1. Direct match by user ID or author ID
+    if (targetId && (targetId === postUserId || targetId === postAuthorId)) return true;
 
     // 2. Direct match by username
     if (targetUsername && postUsername && targetUsername === postUsername) return true;
 
     // 3. Match by user created flag or email (for own profile)
     if (isOwnProfile && p.isUserCreated) return true;
-    if (isOwnProfile && user?.email && p.userEmail && user.email.toLowerCase() === p.userEmail.toLowerCase()) return true;
+    if (isOwnProfile && user?.email && (p.userEmail || p.email) && user.email.toLowerCase() === (p.userEmail || p.email).toLowerCase()) return true;
 
     return false;
   };
@@ -290,7 +323,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
     };
 
-    // 1. Check user-specific localStorage key for own profile
+    // 1. Check Firestore remote posts
+    (firestoreUserPosts || []).forEach(addIfMatching);
+
+    // 2. Check user-specific localStorage key for own profile
     if (isOwnProfile && user.id) {
       try {
         const userPostsKey = `ig_user_posts_${user.id}`;
@@ -299,6 +335,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
             parsed.forEach(addIfMatching);
+          }
+        }
+
+        // Global uploaded posts & reels cache
+        const rawAll = localStorage.getItem('jhalak_uploaded_posts_v1');
+        if (rawAll) {
+          const parsedAll = JSON.parse(rawAll);
+          if (Array.isArray(parsedAll)) {
+            parsedAll.forEach(addIfMatching);
           }
         }
 
@@ -320,7 +365,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
     }
 
-    // 2. Posts from props that match this user
+    // 3. Posts from props that match this user
     (userPosts || []).forEach(addIfMatching);
 
     // If viewing another user and no posts matched by strict matching, but userPosts were provided:
@@ -332,13 +377,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       });
     }
 
-    // 3. Posts directly attached to profile user object
+    // 4. Posts directly attached to profile user object
     (user.userPosts || user.posts || []).forEach(addIfMatching);
 
     const allPosts = Array.from(postMap.values());
     const uniquePosts = Array.from(new Map(allPosts.map((p) => [p.id, p])).values());
     return uniquePosts;
-  }, [userPosts, user, isOwnProfile]);
+  }, [userPosts, user, isOwnProfile, firestoreUserPosts]);
 
   const [deletedPostIds, setDeletedPostIds] = useState<string[]>([]);
 

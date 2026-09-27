@@ -2735,13 +2735,16 @@ export default function App() {
 
     const isMatchingAppUser = (p: any): boolean => {
       if (!p || typeof p !== 'object' || !p.id) return false;
+      if (isSuperAdmin(currentUser)) return true;
       const targetId = (currentUser.id || '').trim().toLowerCase();
-      const targetUsername = (currentUser.username || '').trim().toLowerCase();
-      const postUserId = (p.userId || '').trim().toLowerCase();
-      const postUsername = (p.username || '').trim().toLowerCase();
+      const targetUsername = (currentUser.username || '').replace(/^@/, '').trim().toLowerCase();
+      const postUserId = (p.userId || p.authorId || '').trim().toLowerCase();
+      const postUsername = (p.username || '').replace(/^@/, '').trim().toLowerCase();
 
-      if (targetId && postUserId && targetId === postUserId) return true;
+      if (targetId && (targetId === postUserId)) return true;
       if (targetUsername && postUsername && targetUsername === postUsername) return true;
+      if (currentUser.email && (p.userEmail || p.email) && currentUser.email.toLowerCase() === (p.userEmail || p.email).toLowerCase()) return true;
+      if (p.isUserCreated) return true;
       return false;
     };
 
@@ -2753,6 +2756,19 @@ export default function App() {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           parsed.forEach((p: Post) => {
+            if (p && p.id && isMatchingAppUser(p)) {
+              postMap.set(p.id, p);
+            }
+          });
+        }
+      }
+
+      // Check global uploaded posts cache
+      const rawAll = localStorage.getItem('jhalak_uploaded_posts_v1');
+      if (rawAll) {
+        const parsedAll = JSON.parse(rawAll);
+        if (Array.isArray(parsedAll)) {
+          parsedAll.forEach((p: Post) => {
             if (p && p.id && isMatchingAppUser(p)) {
               postMap.set(p.id, p);
             }

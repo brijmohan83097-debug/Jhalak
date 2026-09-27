@@ -809,83 +809,73 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         }
 
         if (fileOrBlobToUpload) {
-          setCloudUploadStatus('Uploading media file...');
+          setCloudUploadStatus('Uploading video to permanent storage...');
 
-          // Run storage upload with 10-second timeout safeguard
-          const uploadPromise = uploadMediaToStorage(
-            fileOrBlobToUpload,
-            mediaType === 'video' ? 'reels' : 'photos',
-            (pct) => {
-              setCloudUploadProgress(Math.min(96, Math.max(20, pct)));
-              setCloudUploadStatus(`Uploading to storage... ${pct}%`);
-            },
-            postId
-          );
-
-          const timeoutPromise = new Promise<string | null>((resolve) => {
-            setTimeout(() => {
-              uploadTimedOut = true;
-              resolve(null);
-            }, UPLOAD_TIMEOUT_MS);
-          });
-
-          const uploadedUrl = await Promise.race([uploadPromise, timeoutPromise]);
-
-          if (uploadedUrl && !uploadTimedOut) {
-            permanentMediaUrl = uploadedUrl;
-          } else {
-            // Upload took too long or stalled: immediately convert selected video file to direct base64 / persistent indexedDB blob URL fallback
-            console.warn('[CreatePostModal] Cloud Storage upload stalled or exceeded 10s safeguard. Engaging immediate local persistence fallback.');
-            setCloudUploadStatus('Applying instant video persistence...');
-
-            // 1. Save to persistent IndexedDB
-            let indexedDbUrl = '';
-            try {
-              indexedDbUrl = await saveBlobToIndexedDB(postId, fileOrBlobToUpload);
-            } catch (idbErr) {
-              console.warn('[CreatePostModal] IndexedDB fallback notice:', idbErr);
-            }
-
-            // 2. Also try rapid local server disk stream upload with a 2-second timeout
-            let serverUrl = '';
-            try {
-              const formData = new FormData();
-              const ext = fileOrBlobToUpload.type.includes('video') ? 'mp4' : 'jpg';
-              formData.append('media', fileOrBlobToUpload, `${postId}.${ext}`);
-              const ctrl = new AbortController();
-              const srvTimeout = setTimeout(() => ctrl.abort(), 2000);
-              const srvRes = await fetch('/api/media/upload', {
-                method: 'POST',
-                body: formData,
-                signal: ctrl.signal,
-              });
-              clearTimeout(srvTimeout);
-              if (srvRes.ok) {
-                const srvData = await srvRes.json();
-                if (srvData.url) serverUrl = srvData.url;
+          // Step 1: Rapid permanent server disk stream upload (saves mp4 to server disk with HTTP 206 byte-range streaming)
+          let serverDiskUrl = '';
+          try {
+            const formData = new FormData();
+            const ext = fileOrBlobToUpload.type.includes('video') ? 'mp4' : 'jpg';
+            formData.append('media', fileOrBlobToUpload, `${postId}.${ext}`);
+            const srvRes = await fetch('/api/media/upload', {
+              method: 'POST',
+              body: formData,
+            });
+            if (srvRes.ok) {
+              const srvData = await srvRes.json();
+              if (srvData.url) {
+                serverDiskUrl = srvData.url;
+              } else if (srvData.relativeUrl) {
+                serverDiskUrl = srvData.relativeUrl;
               }
-            } catch {}
-
-            // 3. For videos/photos <= 8MB, convert to direct base64 data URL
-            let base64Url = '';
-            if (fileOrBlobToUpload.size <= 8 * 1024 * 1024) {
-              try {
-                base64Url = await new Promise<string>((res, rej) => {
-                  const reader = new FileReader();
-                  reader.onload = () => res(reader.result as string);
-                  reader.onerror = rej;
-                  reader.readAsDataURL(fileOrBlobToUpload!);
-                });
-              } catch {}
             }
+          } catch (serverErr) {
+            console.warn('[CreatePostModal] Server media upload attempt notice:', serverErr);
+          }
 
-            permanentMediaUrl =
-              serverUrl ||
-              (base64Url && (base64Url.startsWith('data:video/') || base64Url.startsWith('data:image/'))
-                ? base64Url
-                : '') ||
-              indexedDbUrl ||
-              URL.createObjectURL(fileOrBlobToUpload);
+          // Step 2: Also cache in IndexedDB for instant local binary persistence
+          try {
+            await saveBlobToIndexedDB(postId, fileOrBlobToUpload);
+          } catch {}
+
+          // Step 3: Run Cloud Storage upload with safe timeout race
+          let cloudUrl: string | null = null;
+          try {
+            const uploadPromise = uploadMediaToStorage(
+              fileOrBlobToUpload,
+              mediaType === 'video' ? 'reels' : 'photos',
+              (pct) => {
+                setCloudUploadProgress(Math.min(96, Math.max(30, pct)));
+                setCloudUploadStatus(`Uploading to cloud... ${pct}%`);
+              },
+              postId
+            );
+
+            // 6-second timeout race so users are never stuck waiting
+            const timeoutPromise = new Promise<string | null>((resolve) => {
+              setTimeout(() => {
+                uploadTimedOut = true;
+                resolve(null);
+              }, 6000);
+            });
+
+            cloudUrl = await Promise.race([uploadPromise, timeoutPromise]);
+          } catch (cloudErr) {
+            console.warn('[CreatePostModal] Cloud storage upload notice:', cloudErr);
+          }
+
+          // Select permanent URL: Prefer Cloud Storage URL, or permanent server disk stream URL
+          if (cloudUrl && !cloudUrl.startsWith('blob:')) {
+            permanentMediaUrl = cloudUrl;
+          } else if (serverDiskUrl) {
+            permanentMediaUrl = serverDiskUrl;
+          } else {
+            // Safe fallback: IndexedDB or small base64
+            let idbUrl = '';
+            try {
+              idbUrl = await saveBlobToIndexedDB(postId, fileOrBlobToUpload);
+            } catch {}
+            permanentMediaUrl = idbUrl || (fileOrBlobToUpload ? URL.createObjectURL(fileOrBlobToUpload) : permanentMediaUrl);
           }
         }
       } catch (uploadErr: any) {
@@ -901,7 +891,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         // Automatically complete progress to 100%
         setCloudUploadProgress(100);
         setCloudUploadStatus('Upload complete! Sharing post...');
-        await new Promise((r) => setTimeout(r, 150));
+        await new Promise((r) => setTimeout(r, 120));
         setIsCloudUploading(false);
       }
     }
@@ -938,19 +928,31 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       // Save post document to Cloud Firestore
       try {
         const firestorePost = { ...newPost };
-        // If mediaUrl is a large base64 (>650KB), ensure it doesn't exceed Firestore's 1MB document size limit
-        if (firestorePost.mediaUrl.startsWith('data:video/') && firestorePost.mediaUrl.length > 700 * 1024) {
-          firestorePost.mediaUrl =
-            newPost.thumbnailUrl && newPost.thumbnailUrl.startsWith('data:')
-              ? newPost.thumbnailUrl
-              : (newPost.downloadURL && !newPost.downloadURL.startsWith('data:video/'))
-              ? newPost.downloadURL
-              : 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-        }
         await savePostToFirestore(firestorePost);
       } catch (firestoreErr: any) {
         console.warn('[Firestore] Notice during savePostToFirestore:', firestoreErr?.message);
       }
+
+      // Save to localStorage immediately so posts are NEVER lost or dropped on refresh
+      try {
+        const existingStr = localStorage.getItem('jhalak_uploaded_posts_v1');
+        const existingList: Post[] = existingStr ? JSON.parse(existingStr) : [];
+        const updatedList = [newPost, ...existingList.filter((p) => p.id !== newPost.id)];
+        localStorage.setItem('jhalak_uploaded_posts_v1', JSON.stringify(updatedList));
+
+        if (newReel) {
+          const existingRStr = localStorage.getItem('jhalak_uploaded_reels_v1');
+          const existingR: Reel[] = existingRStr ? JSON.parse(existingRStr) : [];
+          const updatedR = [newReel, ...existingR.filter((r) => r.id !== newReel.id)];
+          localStorage.setItem('jhalak_uploaded_reels_v1', JSON.stringify(updatedR));
+        }
+
+        const userPostsKey = `ig_user_posts_${currentUser.id}`;
+        const existingUStr = localStorage.getItem(userPostsKey);
+        const existingU: Post[] = existingUStr ? JSON.parse(existingUStr) : [];
+        const updatedU = [newPost, ...existingU.filter((p) => p.id !== newPost.id)];
+        localStorage.setItem(userPostsKey, JSON.stringify(updatedU));
+      } catch {}
 
       // Immediately trigger post creation and close modal
       onPostCreated(newPost, newReel);
