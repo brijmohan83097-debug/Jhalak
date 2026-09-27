@@ -1790,10 +1790,10 @@ export async function uploadMediaToStorage(
   onProgress?: (percent: number) => void,
   mediaId?: string
 ): Promise<string> {
-  const MAX_LIMIT = 50 * 1024 * 1024;
+  const MAX_LIMIT = 105 * 1024 * 1024;
   if (fileOrBlob.size > MAX_LIMIT) {
     const sizeMb = (fileOrBlob.size / (1024 * 1024)).toFixed(1);
-    throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 50 MB.`);
+    throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 100 MB.`);
   }
 
   const ext = fileOrBlob.type.includes('video') ? 'mp4' : 'jpg';
@@ -1898,12 +1898,12 @@ export async function uploadMediaToStorage(
       }
     }, 5000);
 
-    // Total timeout guard: If upload takes longer than 9.5 seconds, switch to instant local persistence
+    // Total timeout guard: If upload takes longer than 5 seconds, switch to instant local persistence
     totalTimeout = setTimeout(() => {
       if (!finished) {
-        triggerFallback('Total timeout exceeded (10s safeguard): switching to instant local persistence');
+        triggerFallback('Total timeout exceeded (5s safeguard): switching to instant local persistence');
       }
-    }, 9500);
+    }, 5000);
 
     try {
       const fileRef = ref(storage, fileName);
@@ -1936,7 +1936,11 @@ export async function uploadMediaToStorage(
         async () => {
           if (finished) return;
           try {
-            const downloadUrl = await getDownloadURL(uploadTask!.snapshot.ref);
+            const urlPromise = getDownloadURL(uploadTask!.snapshot.ref);
+            const urlTimeout = new Promise<string>((_, rej) =>
+              setTimeout(() => rej(new Error('getDownloadURL timeout')), 2000)
+            );
+            const downloadUrl = await Promise.race([urlPromise, urlTimeout]);
             safeFinish(downloadUrl);
           } catch (urlErr: any) {
             console.warn('[Firebase Storage] URL fetch fallback:', urlErr?.message);
