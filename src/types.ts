@@ -141,6 +141,7 @@ export interface Reel {
   likedBy?: string[];
   tags: string[];
   timestamp: string;
+  viewsCount?: number;
   language?: string;
   productTag?: ProductTag;
   createdAt?: number;

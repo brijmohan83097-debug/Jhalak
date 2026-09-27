@@ -466,7 +466,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       setVideoAlert({
         title: 'Video Exceeds 100MB Limit',
         message: validation.error || `Selected video (${validation.sizeMB} MB) is too large for upload.`,
-        details: 'Maximum file size allowed is 100 MB. Please trim your video or choose a smaller clip.',
+        details: 'Maximum file size allowed is 100 MB. Please choose a video up to 100 MB.',
         type: 'error',
       });
       if (onShowToast) {
@@ -475,26 +475,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       return;
     }
 
-    // 2. Video duration validation against 60 seconds limit
-    const durationCheck = await validateVideoDuration(file, MAX_VIDEO_UPLOAD_DURATION_SEC);
-    if (!durationCheck.valid) {
-      const durSec = Math.round(durationCheck.duration);
-      setVideoAlert({
-        title: 'Video Exceeds 60 Seconds Limit',
-        message: durationCheck.error || `Selected video is ${durSec}s long. Maximum allowed length is 60 seconds.`,
-        details: 'Video uploads and reels are limited to 60 seconds. Please trim your clip to 60 seconds or less.',
-        type: 'error',
-      });
-      if (onShowToast) {
-        onShowToast(`⚠️ Video is ${durSec}s long. Maximum allowed video length is 60 seconds.`);
-      }
-      return;
-    }
-
-    if (durationCheck.duration > 0) {
-      setVideoDuration(durationCheck.duration);
-    }
-
+    // INSTANT PREVIEW: immediately display video preview in edit mode
     setMediaType('video');
     setStep('edit');
 
@@ -502,36 +483,52 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       setSelectedAudio(customAudio);
     }
 
-    // Create immediate local object URL for preview
+    // Create immediate local object URL for instant preview
     const previewUrl = URL.createObjectURL(file);
     setSelectedMediaUrl(previewUrl);
+    setPendingUploadFile(file);
 
-    // Auto-save canvas thumbnail immediately to guarantee no black screen
+    // Auto-save canvas thumbnail immediately to guarantee zero black screen
     if (customThumbnail) {
       setThumbnailDataUrl(customThumbnail);
     } else {
-      try {
-        const thumb = await generateVideoThumbnail(
-          file instanceof File ? file : new File([file], 'reel-preview.mp4', { type: file.type || 'video/mp4' }),
-          640,
-          1140,
-          0.82
-        );
-        if (thumb && !thumb.startsWith('data:image/svg')) {
-          setThumbnailDataUrl(thumb);
+      generateVideoThumbnail(
+        file instanceof File ? file : new File([file], 'reel-preview.mp4', { type: file.type || 'video/mp4' }),
+        640,
+        1140,
+        0.82
+      )
+        .then((thumb) => {
+          if (thumb && !thumb.startsWith('data:image/svg')) {
+            setThumbnailDataUrl(thumb);
+          }
+        })
+        .catch(() => {});
+    }
+
+    // 2. Video duration validation against 60 seconds limit
+    validateVideoDuration(file, MAX_VIDEO_UPLOAD_DURATION_SEC).then((durationCheck) => {
+      if (!durationCheck.valid) {
+        const durSec = Math.round(durationCheck.duration);
+        setVideoAlert({
+          title: 'Video Exceeds 60 Seconds Limit',
+          message: durationCheck.error || `Selected video is ${durSec}s long. Maximum allowed length is 60 seconds.`,
+          details: 'Video uploads and reels are limited to 60 seconds. Please trim your clip to 60 seconds or less.',
+          type: 'error',
+        });
+        if (onShowToast) {
+          onShowToast(`⚠️ Video is ${durSec}s long. Maximum allowed video length is 60 seconds.`);
         }
-      } catch {
-        // Will auto-capture from live video preview
+        setPendingUploadFile(null);
+        setSelectedMediaUrl('');
+        setStep('upload');
+      } else if (durationCheck.duration > 0) {
+        setVideoDuration(durationCheck.duration);
+        if (onShowToast) {
+          onShowToast(`🎬 Video ready (${Math.round(durationCheck.duration)}s • ${formatBytes(file.size)})`);
+        }
       }
-    }
-
-    // Set pending file for upload (video is validated within 100MB and 60s)
-    setPendingUploadFile(file);
-
-    if (onShowToast) {
-      const durSec = durationCheck.duration ? `${Math.round(durationCheck.duration)}s • ` : '';
-      onShowToast(`🎬 Video ready (${durSec}${formatBytes(file.size)})`);
-    }
+    });
   };
 
   const handleVideoRecorded = async (
@@ -857,58 +854,63 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         if (fileOrBlobToUpload) {
           setCloudUploadStatus('Uploading video to permanent storage...');
 
-          // Step 1: Rapid permanent server disk stream upload (saves mp4 to server disk with HTTP 206 byte-range streaming)
+          // Concurrent Fast Upload Pipeline: server disk stream + cloud storage
           let serverDiskUrl = '';
-          try {
-            const formData = new FormData();
-            const ext = fileOrBlobToUpload.type.includes('video') ? 'mp4' : 'jpg';
-            formData.append('media', fileOrBlobToUpload, `${postId}.${ext}`);
-            const srvRes = await fetch('/api/media/upload', {
-              method: 'POST',
-              body: formData,
-            });
-            if (srvRes.ok) {
-              const srvData = await srvRes.json();
-              if (srvData.url) {
-                serverDiskUrl = srvData.url;
-              } else if (srvData.relativeUrl) {
-                serverDiskUrl = srvData.relativeUrl;
-              }
-            }
-          } catch (serverErr) {
-            console.warn('[CreatePostModal] Server media upload attempt notice:', serverErr);
-          }
-
-          // Step 2: Also cache in IndexedDB for instant local binary persistence
-          try {
-            await saveBlobToIndexedDB(postId, fileOrBlobToUpload);
-          } catch {}
-
-          // Step 3: Run Cloud Storage upload with safe timeout race
           let cloudUrl: string | null = null;
-          try {
-            const uploadPromise = uploadMediaToStorage(
-              fileOrBlobToUpload,
-              mediaType === 'video' ? 'reels' : 'photos',
-              (pct) => {
-                setCloudUploadProgress(Math.min(96, Math.max(30, pct)));
-                setCloudUploadStatus(`Uploading to cloud... ${pct}%`);
-              },
-              postId
-            );
 
-            // 6-second timeout race so users are never stuck waiting
-            const timeoutPromise = new Promise<string | null>((resolve) => {
-              setTimeout(() => {
-                uploadTimedOut = true;
-                resolve(null);
-              }, 6000);
-            });
+          const serverUploadPromise = (async () => {
+            try {
+              const formData = new FormData();
+              const ext = fileOrBlobToUpload.type.includes('video') ? 'mp4' : 'jpg';
+              formData.append('media', fileOrBlobToUpload, `${postId}.${ext}`);
+              const srvRes = await fetch('/api/media/upload', {
+                method: 'POST',
+                body: formData,
+              });
+              if (srvRes.ok) {
+                const srvData = await srvRes.json();
+                if (srvData.url) {
+                  serverDiskUrl = srvData.url;
+                } else if (srvData.relativeUrl) {
+                  serverDiskUrl = srvData.relativeUrl;
+                }
+              }
+            } catch (serverErr) {
+              console.warn('[CreatePostModal] Server media upload notice:', serverErr);
+            }
+          })();
 
-            cloudUrl = await Promise.race([uploadPromise, timeoutPromise]);
-          } catch (cloudErr) {
-            console.warn('[CreatePostModal] Cloud storage upload notice:', cloudErr);
-          }
+          const cloudUploadPromise = (async () => {
+            try {
+              const uploadTask = uploadMediaToStorage(
+                fileOrBlobToUpload,
+                mediaType === 'video' ? 'reels' : 'photos',
+                (pct) => {
+                  setCloudUploadProgress(Math.min(96, Math.max(30, pct)));
+                  setCloudUploadStatus(`Uploading to cloud... ${pct}%`);
+                },
+                postId
+              );
+
+              // 5-second race timeout so uploads never hang
+              const timeoutPromise = new Promise<string | null>((resolve) => {
+                setTimeout(() => {
+                  uploadTimedOut = true;
+                  resolve(null);
+                }, 5000);
+              });
+
+              cloudUrl = await Promise.race([uploadTask, timeoutPromise]);
+            } catch (cloudErr) {
+              console.warn('[CreatePostModal] Cloud storage upload notice:', cloudErr);
+            }
+          })();
+
+          await Promise.allSettled([
+            serverUploadPromise,
+            cloudUploadPromise,
+            saveBlobToIndexedDB(postId, fileOrBlobToUpload),
+          ]);
 
           // Select permanent URL: Prefer Cloud Storage URL, or permanent server disk stream URL
           if (cloudUrl && !cloudUrl.startsWith('blob:')) {
@@ -1135,7 +1137,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
               </div>
 
               <div className="text-[11px] text-neutral-500 mb-4 bg-neutral-950/70 py-1.5 px-3 rounded-lg border border-neutral-800">
-                Max limit: 25MB • Original: {formatBytes(videoCompression.originalSize)}
+                Max limit: 100MB • Original: {formatBytes(videoCompression.originalSize)}
               </div>
 
               <button
@@ -1502,7 +1504,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   {isCompressingPhoto
                     ? 'Applying canvas resizing to max 800px & 0.7 JPEG quality'
                     : mediaType === 'video'
-                    ? 'Max 25MB • Auto-compressed to 720p with optimized bitrate'
+                    ? 'Max 100MB • Up to 60s clips • Auto-optimized for smooth playback'
                     : 'Supports high-res photography (auto-optimized)'}
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-3">

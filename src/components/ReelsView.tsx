@@ -13,7 +13,9 @@ import {
   Play,
   Pause,
   BadgeCheck,
+  Eye,
   EyeOff,
+  Clock,
   Sparkles,
   HelpCircle,
   Check,
@@ -160,6 +162,114 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const [followedMap, setFollowedMap] = useState<Record<string, boolean>>({});
   const [progress, setProgress] = useState(0);
 
+  // Dynamic reel view counts tracking across session and storage
+  const [reelViewsMap, setReelViewsMap] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('jhalak_reel_views_v1');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const viewedReelsSessionRef = useRef<Set<string>>(new Set());
+
+  const getDeterministicViews = useCallback((id: string): number => {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = (hash << 5) - hash + id.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash % 4500) + 1200; // e.g. 1.2k - 5.7k views
+  }, []);
+
+  const incrementReelView = useCallback((reelId: string, baseViews?: number) => {
+    if (!reelId || viewedReelsSessionRef.current.has(reelId)) return;
+    viewedReelsSessionRef.current.add(reelId);
+
+    setReelViewsMap((prev) => {
+      const initialCount =
+        prev[reelId] ?? (typeof baseViews === 'number' && baseViews > 0 ? baseViews : getDeterministicViews(reelId));
+      const nextCount = initialCount + 1;
+      const updated = { ...prev, [reelId]: nextCount };
+      try {
+        localStorage.setItem('jhalak_reel_views_v1', JSON.stringify(updated));
+      } catch {}
+
+      // Keep localStorage posts and reels view count synced
+      try {
+        const cleanId = reelId.replace(/^reel-/, '');
+        const rawPosts = localStorage.getItem('jhalak_uploaded_posts_v1');
+        if (rawPosts) {
+          const posts = JSON.parse(rawPosts);
+          if (Array.isArray(posts)) {
+            const idx = posts.findIndex((p: any) => p.id === cleanId || p.id === reelId);
+            if (idx !== -1) {
+              posts[idx].viewsCount = nextCount;
+              localStorage.setItem('jhalak_uploaded_posts_v1', JSON.stringify(posts));
+            }
+          }
+        }
+      } catch {}
+
+      return updated;
+    });
+  }, [getDeterministicViews]);
+
+  const formatViewsCount = useCallback((count?: number): string => {
+    const val = count && count > 0 ? count : 1200;
+    if (val >= 1_000_000) {
+      return `${(val / 1_000_000).toFixed(1).replace(/\.0$/, '')}M views`;
+    }
+    if (val >= 1_000) {
+      return `${(val / 1_000).toFixed(1).replace(/\.0$/, '')}k views`;
+    }
+    return `${val} ${val === 1 ? 'view' : 'views'}`;
+  }, []);
+
+  const formatPostTime = useCallback((r: Reel): string => {
+    if (r.createdAt) {
+      const createdMs = typeof r.createdAt === 'number' ? r.createdAt : Number(r.createdAt);
+      if (!isNaN(createdMs) && createdMs > 0) {
+        const diffSec = Math.max(1, Math.floor((Date.now() - createdMs) / 1000));
+        if (diffSec < 60) return 'Just now';
+        const diffMin = Math.floor(diffSec / 60);
+        if (diffMin < 60) return `${diffMin}m ago`;
+        const diffHours = Math.floor(diffMin / 60);
+        if (diffHours === 1) return '1 hour ago';
+        if (diffHours < 24) return `${diffHours} hours ago`;
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffDays === 1) return 'Yesterday';
+        if (diffDays < 7) return `${diffDays} days ago`;
+        const diffWeeks = Math.floor(diffDays / 7);
+        if (diffWeeks === 1) return '1 week ago';
+        if (diffWeeks < 5) return `${diffWeeks} weeks ago`;
+      }
+    }
+    if (r.createdAtIso) {
+      const createdMs = new Date(r.createdAtIso).getTime();
+      if (!isNaN(createdMs) && createdMs > 0) {
+        const diffSec = Math.max(1, Math.floor((Date.now() - createdMs) / 1000));
+        if (diffSec < 60) return 'Just now';
+        const diffMin = Math.floor(diffSec / 60);
+        if (diffMin < 60) return `${diffMin}m ago`;
+        const diffHours = Math.floor(diffMin / 60);
+        if (diffHours === 1) return '1 hour ago';
+        if (diffHours < 24) return `${diffHours} hours ago`;
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffDays === 1) return 'Yesterday';
+        if (diffDays < 7) return `${diffDays} days ago`;
+        const diffWeeks = Math.floor(diffDays / 7);
+        if (diffWeeks === 1) return '1 week ago';
+        if (diffWeeks < 5) return `${diffWeeks} weeks ago`;
+      }
+    }
+    if (r.timestamp && typeof r.timestamp === 'string' && r.timestamp.trim()) {
+      return r.timestamp;
+    }
+    return '2 hours ago';
+  }, []);
+
   const t = translations[currentLanguage];
 
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
@@ -268,6 +378,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       return () => clearTimeout(timer);
     }
   }, [initialReelId, isActive, queue, isMuted]);
+
+  // Auto-increment views when active reel loads or switches
+  useEffect(() => {
+    if (!isActive) return;
+    const item = queue[activeIndex];
+    if (item && !('adUnitId' in item)) {
+      incrementReelView(item.id, (item as Reel).viewsCount);
+    }
+  }, [activeIndex, isActive, queue, incrementReelView]);
 
   const currentItem = queue[activeIndex] || queue[0] || initialReels[0];
   const isAdCurrent = adMobService.isAdItem(currentItem);
@@ -906,32 +1025,22 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     playsInline
                     webkit-playsinline="true"
                     autoPlay
-                    muted={isMuted}
+                    muted
                     loop
-                    preload="auto"
+                    preload="metadata"
                     poster={reel.thumbnailUrl || ''}
                     className="w-full h-full object-cover pointer-events-none"
                     onCanPlay={(e) => {
-                      if (index === activeIndex && isActive) {
-                        const vid = e.currentTarget;
-                        if (vid.paused) {
-                          try {
-                            vid.play().then(() => setIsPlaying(true)).catch(() => {
-                              vid.muted = true;
-                              vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                            });
-                          } catch {}
-                        }
+                      e.currentTarget.play().catch(() => {});
+                      if (index === activeIndex) {
+                        setIsPlaying(true);
+                        incrementReelView(reel.id, (reel as any).viewsCount);
                       }
                     }}
                     onLoadedData={(e) => {
                       if (index === activeIndex && isActive) {
-                        const vid = e.currentTarget;
-                        if (vid.paused) {
-                          try {
-                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                          } catch {}
-                        }
+                        e.currentTarget.play().catch(() => {});
+                        setIsPlaying(true);
                       }
                     }}
                     onPlay={() => {
@@ -1196,7 +1305,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       isVerified: reel.isVerified,
                     } as User);
                   }}
-                  className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/80 hover:scale-105 transition flex-shrink-0 cursor-pointer"
+                  className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/80 hover:scale-105 transition flex-shrink-0 cursor-pointer shadow-md"
                   title={`View @${reel.username}'s profile`}
                 >
                   <img
@@ -1206,53 +1315,70 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   />
                 </button>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    pauseAllMedia();
-                    onViewUser(reel.username, {
-                      id: reel.userId || reel.username,
-                      username: reel.username,
-                      name: reel.username,
-                      avatar: reel.userAvatar,
-                      isVerified: reel.isVerified,
-                    } as User);
-                  }}
-                  className="font-bold text-sm hover:underline drop-shadow-md flex items-center gap-1 truncate cursor-pointer"
-                  title={`View @${reel.username}'s profile`}
-                >
-                  <span>{reel.username}</span>
-                  {reel.isVerified && (
-                    <BadgeCheck className="w-4 h-4 text-sky-400 fill-sky-400 flex-shrink-0" />
-                  )}
-                </button>
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pauseAllMedia();
+                        onViewUser(reel.username, {
+                          id: reel.userId || reel.username,
+                          username: reel.username,
+                          name: reel.username,
+                          avatar: reel.userAvatar,
+                          isVerified: reel.isVerified,
+                        } as User);
+                      }}
+                      className="font-bold text-sm hover:underline drop-shadow-md flex items-center gap-1 truncate cursor-pointer"
+                      title={`View @${reel.username}'s profile`}
+                    >
+                      <span>{reel.username}</span>
+                      {reel.isVerified && (
+                        <BadgeCheck className="w-4 h-4 text-sky-400 fill-sky-400 flex-shrink-0" />
+                      )}
+                    </button>
 
-                {(reel.privacy === 'private' || reel.isPrivate) && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-black/60 backdrop-blur-md border border-amber-400/40 px-2 py-0.5 rounded-full shadow-sm">
-                    <Lock className="w-2.5 h-2.5" />
-                    <span>Private</span>
-                  </span>
-                )}
+                    {(reel.privacy === 'private' || reel.isPrivate) && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-black/60 backdrop-blur-md border border-amber-400/40 px-2 py-0.5 rounded-full shadow-sm">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>Private</span>
+                      </span>
+                    )}
 
-                {/* Follow / Following Toggle - DISABLED on user's own reel */}
-                {!isThisReelOwn && (
-                  <button
-                    id={`reel-follow-btn-${reel.id}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFollow(reel.username, reel.userId);
-                    }}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md transition cursor-pointer active:scale-95 ${
-                      isFollowingUser(reel.username, reel.userId)
-                        ? 'bg-white/20 text-neutral-200 border border-white/30'
-                        : 'bg-white text-black hover:bg-neutral-200 shadow-md'
-                    }`}
-                  >
-                    {isFollowingUser(reel.username, reel.userId)
-                      ? (t.followingBtn || t.following || 'Following')
-                      : (t.follow || 'Follow')}
-                  </button>
-                )}
+                    {/* Follow / Following Toggle - DISABLED on user's own reel */}
+                    {!isThisReelOwn && (
+                      <button
+                        id={`reel-follow-btn-${reel.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFollow(reel.username, reel.userId);
+                        }}
+                        className={`px-3 py-0.5 rounded-full text-xs font-semibold backdrop-blur-md transition cursor-pointer active:scale-95 ${
+                          isFollowingUser(reel.username, reel.userId)
+                            ? 'bg-white/20 text-neutral-200 border border-white/30'
+                            : 'bg-white text-black hover:bg-neutral-200 shadow-md'
+                        }`}
+                      >
+                        {isFollowingUser(reel.username, reel.userId)
+                          ? (t.followingBtn || t.following || 'Following')
+                          : (t.follow || 'Follow')}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Views & Post Time: Visible on each reel for both creator and viewers */}
+                  <div className="flex items-center gap-2 text-[11px] text-white/90 font-medium mt-0.5 drop-shadow-sm">
+                    <span className="flex items-center gap-1 font-semibold text-rose-300">
+                      <Eye className="w-3 h-3 text-rose-400 flex-shrink-0" />
+                      <span>{formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? getDeterministicViews(reel.id))}</span>
+                    </span>
+                    <span className="text-white/50">•</span>
+                    <span className="flex items-center gap-1 text-neutral-300">
+                      <Clock className="w-3 h-3 text-neutral-300 flex-shrink-0" />
+                      <span>{formatPostTime(reel)}</span>
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Caption & Location */}
@@ -1332,6 +1458,19 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   {reel.likesCount.toLocaleString()}
                 </span>
               </button>
+
+              {/* View Count Badge */}
+              <div
+                className="flex flex-col items-center group transition"
+                title={`${formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? getDeterministicViews(reel.id))}`}
+              >
+                <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md">
+                  <Eye className="w-6 h-6 text-rose-400 stroke-[2]" />
+                </div>
+                <span className="text-[11px] font-semibold mt-0.5 drop-shadow-md">
+                  {formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? getDeterministicViews(reel.id)).replace(' views', '')}
+                </span>
+              </div>
 
               {/* Comments Drawer Trigger */}
               <button

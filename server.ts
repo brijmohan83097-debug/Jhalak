@@ -28,8 +28,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '120mb' }));
+app.use(express.urlencoded({ extended: true, limit: '120mb' }));
 
 // Multer storage engine
 const storageEngine = multer.diskStorage({
