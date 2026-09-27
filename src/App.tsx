@@ -156,7 +156,7 @@ export default function App() {
     }
   });
 
-  // Validator that preserves all user-uploaded and Firestore posts & reels
+  // Validator and permanent URL resolver that preserves all user-uploaded and Firestore posts & reels
   const isRealPost = (p: Post | any): boolean => {
     if (!p || !p.id) return false;
     return true;
@@ -167,6 +167,57 @@ export default function App() {
     return true;
   };
 
+  const ensurePermanentPostOnReload = (p: Post): Post => {
+    let mediaUrl = p.mediaUrl || '';
+    let downloadURL = p.downloadURL || '';
+    let thumb = p.thumbnailUrl || '';
+
+    if (mediaUrl.startsWith('blob:')) {
+      if (downloadURL && !downloadURL.startsWith('blob:')) {
+        mediaUrl = downloadURL;
+      } else {
+        mediaUrl = `/api/media/${p.id}.mp4`;
+      }
+    }
+
+    if (downloadURL.startsWith('blob:')) {
+      downloadURL = mediaUrl;
+    }
+
+    return {
+      ...p,
+      mediaUrl,
+      downloadURL,
+      thumbnailUrl: thumb,
+    };
+  };
+
+  const ensurePermanentReelOnReload = (r: Reel): Reel => {
+    let videoUrl = r.videoUrl || '';
+    let downloadURL = r.downloadURL || '';
+    let thumb = r.thumbnailUrl || '';
+
+    if (videoUrl.startsWith('blob:')) {
+      if (downloadURL && !downloadURL.startsWith('blob:')) {
+        videoUrl = downloadURL;
+      } else {
+        const cleanId = r.id.replace(/^reel-/, '');
+        videoUrl = `/api/media/${cleanId}.mp4`;
+      }
+    }
+
+    if (downloadURL.startsWith('blob:')) {
+      downloadURL = videoUrl;
+    }
+
+    return {
+      ...r,
+      videoUrl,
+      downloadURL,
+      thumbnailUrl: thumb,
+    };
+  };
+
   const [posts, setPosts] = useState<Post[]>(() => {
     try {
       // Strictly load real posts; all old dummy fixture posts are pruned
@@ -174,7 +225,7 @@ export default function App() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          const valid = parsed.filter(isRealPost);
+          const valid = parsed.filter(isRealPost).map(ensurePermanentPostOnReload);
           return Array.from(new Map(valid.map((p) => [p.id, p])).values());
         }
       }
@@ -191,7 +242,7 @@ export default function App() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          const valid = parsed.filter(isRealReel);
+          const valid = parsed.filter(isRealReel).map(ensurePermanentReelOnReload);
           return Array.from(new Map(valid.map((r) => [r.id, r])).values());
         }
       }

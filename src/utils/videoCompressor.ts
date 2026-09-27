@@ -8,15 +8,16 @@
  * 4. Provides progress tracking, cancellation, and detailed compression statistics.
  */
 
-export const MAX_VIDEO_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
-export const MAX_VIDEO_UPLOAD_SIZE_MB = 25;
+export const MAX_VIDEO_UPLOAD_SIZE_BYTES = 30 * 1024 * 1024; // 30 MB
+export const MAX_VIDEO_UPLOAD_SIZE_MB = 30;
+export const MAX_VIDEO_UPLOAD_DURATION_SEC = 60; // 60 seconds
 
 export interface VideoCompressionOptions {
   /** Maximum dimension for the short edge (default: 720 for 720p) */
   maxDimension?: number;
   /** Target video bitrate in bits per second (default: 2_000_000 = 2 Mbps) */
   targetBitrate?: number;
-  /** Maximum allowed size in bytes (default: 25MB) */
+  /** Maximum allowed size in bytes (default: 30MB) */
   maxSizeBytes?: number;
   /** Callback for compression progress (0 - 100) */
   onProgress?: (progress: {
@@ -61,7 +62,7 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * Validates whether a video file is within initial upload constraints.
+ * Validates whether a video file is within initial upload constraints (max 30MB).
  */
 export function validateVideoFileSize(
   file: File | Blob,
@@ -70,18 +71,17 @@ export function validateVideoFileSize(
   const sizeMB = Number((file.size / (1024 * 1024)).toFixed(2));
   const limitMB = Math.round(maxSizeBytes / (1024 * 1024));
 
-  if (file.size > maxSizeBytes * 4) {
-    // Over 100MB is too large for client-side canvas compression in browser memory
+  if (file.size > maxSizeBytes) {
     return {
       valid: false,
       sizeMB,
       limitMB,
       requiresCompression: true,
-      error: `File is too large (${sizeMB} MB). Maximum allowed video size is ${limitMB} MB. Please trim your video.`,
+      error: `File is too large (${sizeMB} MB). Maximum allowed video size is ${limitMB} MB. Please choose a smaller video clip.`,
     };
   }
 
-  const requiresCompression = file.size > 8 * 1024 * 1024 || file.size > maxSizeBytes;
+  const requiresCompression = file.size > 8 * 1024 * 1024;
 
   return {
     valid: true,
@@ -89,6 +89,77 @@ export function validateVideoFileSize(
     limitMB,
     requiresCompression,
   };
+}
+
+/**
+ * Validates whether a video file's duration is within constraints (max 60 seconds).
+ */
+export function validateVideoDuration(
+  file: File | Blob,
+  maxDurationSec = MAX_VIDEO_UPLOAD_DURATION_SEC
+): Promise<{ valid: boolean; duration: number; error?: string }> {
+  return new Promise((resolve) => {
+    try {
+      const tempVideo = document.createElement('video');
+      tempVideo.preload = 'metadata';
+      const tempUrl = URL.createObjectURL(file);
+      tempVideo.src = tempUrl;
+
+      const cleanup = () => {
+        try {
+          URL.revokeObjectURL(tempUrl);
+        } catch {}
+        tempVideo.src = '';
+      };
+
+      tempVideo.onloadedmetadata = () => {
+        const duration = tempVideo.duration;
+        cleanup();
+        if (duration && duration > maxDurationSec + 0.5) {
+          const durSec = Math.round(duration);
+          resolve({
+            valid: false,
+            duration,
+            error: `Video length (${durSec}s) exceeds the ${maxDurationSec}-second limit. Please trim your video to ${maxDurationSec} seconds or less.`,
+          });
+        } else {
+          resolve({ valid: true, duration: duration || 0 });
+        }
+      };
+
+      tempVideo.oncanplay = () => {
+        if (tempVideo.duration) {
+          const duration = tempVideo.duration;
+          cleanup();
+          if (duration > maxDurationSec + 0.5) {
+            const durSec = Math.round(duration);
+            resolve({
+              valid: false,
+              duration,
+              error: `Video length (${durSec}s) exceeds the ${maxDurationSec}-second limit. Please trim your video to ${maxDurationSec} seconds or less.`,
+            });
+          } else {
+            resolve({ valid: true, duration });
+          }
+        }
+      };
+
+      tempVideo.onerror = () => {
+        cleanup();
+        // If metadata extraction fails in browser sandbox, proceed gracefully
+        resolve({ valid: true, duration: 0 });
+      };
+
+      tempVideo.load();
+
+      setTimeout(() => {
+        cleanup();
+        resolve({ valid: true, duration: 0 });
+      }, 5000);
+    } catch {
+      resolve({ valid: true, duration: 0 });
+    }
+  });
 }
 
 /**

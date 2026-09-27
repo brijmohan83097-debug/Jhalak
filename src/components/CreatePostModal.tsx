@@ -49,9 +49,11 @@ import {
 import {
   compressVideo,
   validateVideoFileSize,
+  validateVideoDuration,
   formatBytes,
   MAX_VIDEO_UPLOAD_SIZE_BYTES,
   MAX_VIDEO_UPLOAD_SIZE_MB,
+  MAX_VIDEO_UPLOAD_DURATION_SEC,
 } from '../utils/videoCompressor';
 import {
   UGCCommunityGuidelinesModal,
@@ -325,6 +327,52 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     }
   }, [captureVideoFrameAt]);
 
+  // Auto-capture canvas thumbnail directly from preview video element to fix black screen
+  const tryAutoCaptureCanvasThumbnail = useCallback(() => {
+    const vid = previewVideoRef.current;
+    if (!vid || !vid.videoWidth || !vid.videoHeight) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(vid.videoWidth || 480, 640);
+      canvas.height = Math.min(vid.videoHeight || 480, 1140);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+
+        // Check for pitch-black frame
+        let isBlack = false;
+        try {
+          const sampleW = Math.min(canvas.width, 32);
+          const sampleH = Math.min(canvas.height, 32);
+          const data = ctx.getImageData(0, 0, sampleW, sampleH).data;
+          let sum = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            sum += data[i] + data[i + 1] + data[i + 2];
+          }
+          if (sum / ((data.length / 4) * 3) < 8) {
+            isBlack = true;
+          }
+        } catch {}
+
+        if (!isBlack) {
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          if (dataUrl) {
+            setThumbnailDataUrl((prev) => {
+              if (!prev || prev.startsWith('blob:') || prev.startsWith('data:image/svg')) {
+                return dataUrl;
+              }
+              return prev;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // safe
+    }
+  }, []);
+
   // Capture frame from the live preview video element
   const captureFrameFromLivePreview = useCallback(() => {
     const vid = previewVideoRef.current;
@@ -412,16 +460,39 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   };
 
   const processSelectedVideo = async (file: File | Blob, customThumbnail?: string, customAudio?: string) => {
-    // 1. Initial size validation against 25MB limit
+    // 1. Initial size validation against 30MB limit
     const validation = validateVideoFileSize(file, MAX_VIDEO_UPLOAD_SIZE_BYTES);
     if (!validation.valid) {
       setVideoAlert({
-        title: 'Video Exceeds 25MB Limit',
+        title: 'Video Exceeds 30MB Limit',
         message: validation.error || `Selected video (${validation.sizeMB} MB) is too large for upload.`,
-        details: 'Maximum file size allowed is 25 MB. Please trim your video or choose a smaller clip.',
+        details: 'Maximum file size allowed is 30 MB. Please trim your video or choose a smaller clip.',
         type: 'error',
       });
+      if (onShowToast) {
+        onShowToast(`⚠️ Video is ${validation.sizeMB} MB. Maximum allowed size is 30 MB.`);
+      }
       return;
+    }
+
+    // 2. Video duration validation against 60 seconds limit
+    const durationCheck = await validateVideoDuration(file, MAX_VIDEO_UPLOAD_DURATION_SEC);
+    if (!durationCheck.valid) {
+      const durSec = Math.round(durationCheck.duration);
+      setVideoAlert({
+        title: 'Video Exceeds 60 Seconds Limit',
+        message: durationCheck.error || `Selected video is ${durSec}s long. Maximum allowed length is 60 seconds.`,
+        details: 'Video uploads and reels are limited to 60 seconds. Please trim your clip to 60 seconds or less.',
+        type: 'error',
+      });
+      if (onShowToast) {
+        onShowToast(`⚠️ Video is ${durSec}s long. Maximum allowed video length is 60 seconds.`);
+      }
+      return;
+    }
+
+    if (durationCheck.duration > 0) {
+      setVideoDuration(durationCheck.duration);
     }
 
     setMediaType('video');
@@ -435,7 +506,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     const previewUrl = URL.createObjectURL(file);
     setSelectedMediaUrl(previewUrl);
 
-    // Extract thumbnail
+    // Auto-save canvas thumbnail immediately to guarantee no black screen
     if (customThumbnail) {
       setThumbnailDataUrl(customThumbnail);
     } else {
@@ -443,88 +514,23 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         const thumb = await generateVideoThumbnail(
           file instanceof File ? file : new File([file], 'reel-preview.mp4', { type: file.type || 'video/mp4' }),
           640,
-          640,
-          0.7
+          1140,
+          0.82
         );
-        setThumbnailDataUrl(thumb);
+        if (thumb && !thumb.startsWith('data:image/svg')) {
+          setThumbnailDataUrl(thumb);
+        }
       } catch {
-        setThumbnailDataUrl(createVideoFallbackDataUrl('Video Reel'));
+        // Will auto-capture from live video preview
       }
     }
 
-    // Set initial pending file
+    // Set pending file for upload (video is validated within 30MB and 60s)
     setPendingUploadFile(file);
 
-    // 2. Automatic client-side video compression to 720p with optimized bitrate
-    const abortCtrl = new AbortController();
-    compressionAbortRef.current = abortCtrl;
-    setVideoCompression({
-      isCompressing: true,
-      percent: 0,
-      status: 'Compressing video to 720p...',
-      originalSize: file.size,
-    });
-
-    try {
-      const result = await compressVideo(file, {
-        maxDimension: 720,
-        targetBitrate: 2_000_000,
-        maxSizeBytes: MAX_VIDEO_UPLOAD_SIZE_BYTES,
-        signal: abortCtrl.signal,
-        onProgress: (p) => {
-          setVideoCompression((prev) =>
-            prev ? { ...prev, percent: p.percent, status: p.status } : null
-          );
-        },
-      });
-
-      // Update pending upload file with compressed blob
-      setPendingUploadFile(result.blob);
-      const compressedUrl = URL.createObjectURL(result.blob);
-      setSelectedMediaUrl(compressedUrl);
-
-      // Convert to base64 if small for direct offline feed support
-      if (result.compressedSize <= 3 * 1024 * 1024) {
-        fileToDataUrl(result.blob).then((b64) => {
-          setSelectedMediaUrl(b64);
-        }).catch(() => {});
-      }
-
-      if (result.wasCompressed) {
-        const savedPct = Math.round((1 - result.compressionRatio) * 100);
-        if (onShowToast) {
-          onShowToast(
-            `🎬 Optimized to 720p: ${formatBytes(result.originalSize)} ➔ ${formatBytes(
-              result.compressedSize
-            )} (${savedPct > 0 ? `${savedPct}% smaller` : 'optimized'})`
-          );
-        }
-      }
-    } catch (compErr: any) {
-      console.warn('Client-side video compression notice:', compErr?.message);
-      // 3. If compression fails or file is too large, show user warning alert
-      if (file.size > MAX_VIDEO_UPLOAD_SIZE_BYTES) {
-        setVideoAlert({
-          title: 'Video Too Large (Max 25MB)',
-          message: `Compression failed and original video (${formatBytes(file.size)}) exceeds the 25MB upload limit: ${compErr?.message || 'File could not be compressed.'}`,
-          details: 'Please choose a shorter or smaller video clip under 25MB.',
-          type: 'error',
-        });
-        setPendingUploadFile(null);
-        setSelectedMediaUrl('');
-        setStep('upload');
-      } else {
-        // Under 25MB limit: notify user but allow proceeding with original video
-        setPendingUploadFile(file);
-        setVideoAlert({
-          title: 'Compression Notice',
-          message: `Using original video (${formatBytes(file.size)}): ${compErr?.message || 'Compression could not be completed'}. File is within the 25MB limit.`,
-          type: 'warning',
-        });
-      }
-    } finally {
-      setVideoCompression(null);
-      compressionAbortRef.current = null;
+    if (onShowToast) {
+      const durSec = durationCheck.duration ? `${Math.round(durationCheck.duration)}s • ` : '';
+      onShowToast(`🎬 Video ready (${durSec}${formatBytes(file.size)})`);
     }
   };
 
@@ -687,11 +693,51 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
     const now = Date.now();
     const postId = `post-${now}`;
-    let persistedThumbnail =
-      thumbnailDataUrl ||
-      (mediaType === 'image'
-        ? selectedMediaUrl
-        : createVideoFallbackDataUrl(caption || 'Video Reel'));
+
+    // Auto-save canvas thumbnail to fix black screen
+    let persistedThumbnail = thumbnailDataUrl;
+    if (mediaType === 'video') {
+      const vid = previewVideoRef.current;
+      if (vid && vid.videoWidth > 0 && vid.videoHeight > 0) {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.min(vid.videoWidth || 480, 640);
+          canvas.height = Math.min(vid.videoHeight || 480, 1140);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+            const captured = canvas.toDataURL('image/jpeg', 0.82);
+            if (captured && !captured.includes('image/svg')) {
+              persistedThumbnail = captured;
+              setThumbnailDataUrl(captured);
+            }
+          }
+        } catch (e) {
+          console.warn('[CreatePostModal] Canvas frame capture before share notice:', e);
+        }
+      }
+      if (!persistedThumbnail || persistedThumbnail.startsWith('blob:') || persistedThumbnail.startsWith('data:image/svg')) {
+        if (pendingUploadFile) {
+          try {
+            const fallbackThumb = await generateVideoThumbnail(pendingUploadFile, 640, 1140, 0.82);
+            if (fallbackThumb && !fallbackThumb.startsWith('data:image/svg')) {
+              persistedThumbnail = fallbackThumb;
+              setThumbnailDataUrl(fallbackThumb);
+            }
+          } catch {}
+        }
+      }
+    }
+
+    if (!persistedThumbnail) {
+      persistedThumbnail =
+        thumbnailDataUrl ||
+        (mediaType === 'image'
+          ? selectedMediaUrl
+          : createVideoFallbackDataUrl(caption || 'Video Reel'));
+    }
 
     const parsedCategory = inferCategory({
       caption,
@@ -870,12 +916,12 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           } else if (serverDiskUrl) {
             permanentMediaUrl = serverDiskUrl;
           } else {
-            // Safe fallback: IndexedDB or small base64
+            // Safe fallback: permanent server disk route or idbUrl
             let idbUrl = '';
             try {
               idbUrl = await saveBlobToIndexedDB(postId, fileOrBlobToUpload);
             } catch {}
-            permanentMediaUrl = idbUrl || (fileOrBlobToUpload ? URL.createObjectURL(fileOrBlobToUpload) : permanentMediaUrl);
+            permanentMediaUrl = serverDiskUrl || idbUrl || `/api/media/${postId}.mp4`;
           }
         }
       } catch (uploadErr: any) {
@@ -883,7 +929,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         if (pendingUploadFile) {
           try {
             const indexedDbUrl = await saveBlobToIndexedDB(postId, pendingUploadFile);
-            permanentMediaUrl = indexedDbUrl || URL.createObjectURL(pendingUploadFile);
+            permanentMediaUrl = indexedDbUrl || `/api/media/${postId}.mp4`;
           } catch {}
         }
       } finally {
@@ -896,10 +942,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       }
     }
 
-    // Ensure permanent URLs so posts and reels NEVER suffer from dead blob URLs or black screens
-    if (!permanentMediaUrl) {
+    // Ensure permanent URLs so posts and reels NEVER suffer from dead blob URLs or black screens on reload
+    if (!permanentMediaUrl || permanentMediaUrl.startsWith('blob:')) {
       if (mediaType === 'video') {
-        permanentMediaUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+        permanentMediaUrl = `/api/media/${postId}.mp4`;
       } else {
         permanentMediaUrl =
           persistedThumbnail && persistedThumbnail.startsWith('data:image/')
@@ -1615,6 +1661,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                       autoPlay
                       loop
                       playsInline
+                      webkit-playsinline="true"
+                      preload="auto"
                       muted={previewMuted}
                       onLoadedMetadata={(e) => {
                         const dur = e.currentTarget.duration;
@@ -1622,6 +1670,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                           setVideoDuration(dur);
                           extractSnapshotFrames(selectedMediaUrl, dur);
                         }
+                        tryAutoCaptureCanvasThumbnail();
+                      }}
+                      onLoadedData={() => {
+                        tryAutoCaptureCanvasThumbnail();
+                      }}
+                      onCanPlay={() => {
+                        tryAutoCaptureCanvasThumbnail();
+                      }}
+                      onSeeked={() => {
+                        tryAutoCaptureCanvasThumbnail();
                       }}
                       className="w-full h-full object-cover"
                     />

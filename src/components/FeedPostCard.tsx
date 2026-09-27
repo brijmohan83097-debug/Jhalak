@@ -472,7 +472,11 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               {(() => {
                 const videoSrc = (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
                   ? post.mediaUrl
-                  : (post.downloadURL || (post as any).videoUrl);
+                  : (post.downloadURL && !post.downloadURL.startsWith('blob:'))
+                  ? post.downloadURL
+                  : ((post as any).videoUrl && !(post as any).videoUrl.startsWith('blob:'))
+                  ? (post as any).videoUrl
+                  : `/api/media/${post.id}.mp4`;
 
                 return (
                   <video

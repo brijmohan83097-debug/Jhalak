@@ -884,11 +884,14 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               />
             ) : (
               (() => {
+                const cleanReelId = (reel.id || '').replace(/^reel-/, '');
                 const videoSrc = ((reel as any).mediaUrl && !(reel as any).mediaUrl.startsWith('blob:'))
                   ? (reel as any).mediaUrl
                   : (reel.videoUrl && !reel.videoUrl.startsWith('blob:'))
                   ? reel.videoUrl
-                  : (reel.downloadURL || reel.videoUrl || (reel as any).mediaUrl);
+                  : (reel.downloadURL && !reel.downloadURL.startsWith('blob:'))
+                  ? reel.downloadURL
+                  : `/api/media/${cleanReelId}.mp4`;
 
                 return (
                   <video

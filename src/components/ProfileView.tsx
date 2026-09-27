@@ -927,7 +927,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 ? post.mediaUrl
                 : ((post as any).videoUrl && !(post as any).videoUrl.startsWith('blob:'))
                 ? (post as any).videoUrl
-                : post.downloadURL || post.mediaUrl || (post as any).videoUrl;
+                : `/api/media/${post.id}.mp4`;
 
             // Compute real photo URL, avoiding purple abstract placeholder
             const realPhotoUrl =

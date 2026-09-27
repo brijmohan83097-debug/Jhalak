@@ -234,6 +234,7 @@ export async function resolvePlayableMediaUrl(id: string, mediaUrl: string): Pro
     mediaUrl &&
     (mediaUrl.startsWith('https://') ||
       mediaUrl.startsWith('http://') ||
+      mediaUrl.startsWith('/api/') ||
       mediaUrl.startsWith('data:image/') ||
       mediaUrl.startsWith('data:video/'))
   ) {
@@ -254,6 +255,12 @@ export async function resolvePlayableMediaUrl(id: string, mediaUrl: string): Pro
       return freshUrl;
     }
   } catch {}
+
+  // If was a blob: URL from a dead past session, fallback to permanent server streaming route
+  if (mediaUrl && mediaUrl.startsWith('blob:')) {
+    const cleanId = id.replace(/^reel-/, '');
+    return `/api/media/${cleanId}.mp4`;
+  }
 
   return mediaUrl || '';
 }

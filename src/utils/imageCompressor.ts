@@ -229,6 +229,8 @@ export async function generateVideoThumbnail(
         video.src = '';
       };
 
+      let seekAttempts = 0;
+
       const captureFrame = () => {
         try {
           const width = video.videoWidth || 480;
@@ -246,6 +248,30 @@ export async function generateVideoThumbnail(
               ctx.imageSmoothingEnabled = true;
               ctx.imageSmoothingQuality = 'high';
               ctx.drawImage(video, 0, 0, targetW, targetH);
+
+              // Check if the captured frame is pitch-black (e.g. video starts with black fade-in)
+              let isBlack = false;
+              try {
+                const sampleW = Math.min(targetW, 32);
+                const sampleH = Math.min(targetH, 32);
+                const pData = ctx.getImageData(0, 0, sampleW, sampleH).data;
+                let sum = 0;
+                for (let i = 0; i < pData.length; i += 4) {
+                  sum += pData[i] + pData[i + 1] + pData[i + 2];
+                }
+                const avgBrightness = sum / ((pData.length / 4) * 3);
+                if (avgBrightness < 8) {
+                  isBlack = true;
+                }
+              } catch {}
+
+              // If it's black and video is long enough, try seeking further to catch actual video content
+              if (isBlack && seekAttempts < 2 && video.duration && video.duration > 1.2) {
+                seekAttempts++;
+                video.currentTime = Math.min(2.0, video.duration * 0.35);
+                return;
+              }
+
               const dataUrl = canvas.toDataURL('image/jpeg', quality);
               cleanup();
               return resolve(dataUrl);
@@ -268,8 +294,8 @@ export async function generateVideoThumbnail(
 
       video.onloadeddata = () => {
         try {
-          if (video.duration && video.duration > 0.3) {
-            video.currentTime = Math.min(0.5, video.duration / 2);
+          if (video.duration && video.duration > 0.4) {
+            video.currentTime = Math.min(0.8, Math.max(0.2, video.duration * 0.15));
           } else {
             doCaptureOnce();
           }
@@ -278,8 +304,14 @@ export async function generateVideoThumbnail(
         }
       };
 
+      video.oncanplay = () => {
+        if (!captured && (!video.duration || video.duration <= 0.4)) {
+          doCaptureOnce();
+        }
+      };
+
       video.onseeked = () => {
-        doCaptureOnce();
+        captureFrame();
       };
 
       video.onerror = () => {
