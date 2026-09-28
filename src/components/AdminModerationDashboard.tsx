@@ -294,13 +294,13 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
                   </p>
                 </div>
               ) : (
-                filteredAggregates.map((item) => {
+                filteredAggregates.map((item, idx) => {
                   const media = getMediaForRecord(item.id);
                   const isAutoHidden = item.isHiddenByModeration || item.reportCount >= 3;
 
                   return (
                     <div
-                      key={item.id}
+                      key={`mod-item-${item.id}-${idx}`}
                       id={`reported-item-${item.id}`}
                       className={`p-4 rounded-xl border transition ${
                         isAutoHidden
@@ -518,9 +518,9 @@ export const AdminModerationDashboard: React.FC<AdminModerationDashboardProps> =
                   </h4>
                 </div>
 
-                {payoutRequests.map((req) => (
+                {payoutRequests.map((req, idx) => (
                   <div
-                    key={req.id}
+                    key={`payout-${req.id}-${idx}`}
                     className="p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
                     <div>

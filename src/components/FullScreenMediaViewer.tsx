@@ -507,7 +507,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
 
           return (
             <div
-              key={post.id}
+              key={`full-post-${post.id}-${index}`}
               className={`absolute inset-0 w-full h-full flex items-center justify-center transition-all duration-350 ease-out ${transformClass}`}
             >
               {/* Subtle ambient colored blur background for photos and videos */}
@@ -545,9 +545,13 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                   ) : (
                     <div className="relative w-full h-full flex items-center justify-center">
                         {(() => {
-                          const videoSrc = (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
+                          const videoSrc = (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('blob:')))
+                            ? post.downloadURL
+                            : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('blob:')))
                             ? post.mediaUrl
-                            : (post.downloadURL || (post as any).videoUrl || resolvedMediaUrls[post.id]);
+                            : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('blob:')))
+                            ? (post as any).videoUrl
+                            : post.downloadURL || post.mediaUrl || (post as any).videoUrl || resolvedMediaUrls[post.id] || `/api/media/${post.id}.mp4`;
 
                           return (
                             <video
@@ -567,6 +571,7 @@ export const FullScreenMediaViewer: React.FC<FullScreenMediaViewerProps> = ({
                               }}
                               src={videoSrc}
                               controls
+                              controlsList="nodownload"
                               playsInline
                               webkit-playsinline="true"
                               preload="auto"

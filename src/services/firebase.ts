@@ -766,13 +766,27 @@ export async function loadUsersFromFirestore(): Promise<User[]> {
     const colRef = collection(db, 'users');
     const snap = await getDocs(colRef);
     const users: User[] = [];
+    const seenIds = new Set<string>();
+    const seenUsernames = new Set<string>();
+
     snap.forEach((docSnap) => {
       const data = docSnap.data();
       if (data) {
+        const id = String(data.id || docSnap.id || '').trim();
+        const username = String(data.username || docSnap.id || '').trim();
+        const cleanUname = username.toLowerCase().replace(/^@/, '');
+
+        if (!id && !cleanUname) return;
+        if (id && seenIds.has(id)) return;
+        if (cleanUname && seenUsernames.has(cleanUname)) return;
+
+        if (id) seenIds.add(id);
+        if (cleanUname) seenUsernames.add(cleanUname);
+
         users.push({
-          id: data.id || docSnap.id,
-          username: data.username || docSnap.id,
-          name: data.name || data.username || 'User',
+          id: id || username,
+          username: username || id,
+          name: data.name || username || 'User',
           avatar: data.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400`,
           bio: data.bio || '',
           email: data.email || '',
@@ -802,13 +816,27 @@ export function subscribeToFirestoreUsers(callback: (users: User[]) => void): ()
       colRef,
       (snap) => {
         const users: User[] = [];
+        const seenIds = new Set<string>();
+        const seenUsernames = new Set<string>();
+
         snap.forEach((docSnap) => {
           const data = docSnap.data();
           if (data) {
+            const id = String(data.id || docSnap.id || '').trim();
+            const username = String(data.username || docSnap.id || '').trim();
+            const cleanUname = username.toLowerCase().replace(/^@/, '');
+
+            if (!id && !cleanUname) return;
+            if (id && seenIds.has(id)) return;
+            if (cleanUname && seenUsernames.has(cleanUname)) return;
+
+            if (id) seenIds.add(id);
+            if (cleanUname) seenUsernames.add(cleanUname);
+
             users.push({
-              id: data.id || docSnap.id,
-              username: data.username || docSnap.id,
-              name: data.name || data.username || 'User',
+              id: id || username,
+              username: username || id,
+              name: data.name || username || 'User',
               avatar: data.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400`,
               bio: data.bio || '',
               email: data.email || '',
@@ -1216,6 +1244,47 @@ export async function toggleLikeInFirestore(
       });
     } catch {
       // User doc updated optionally
+    }
+  }
+}
+
+/**
+ * Increment real views in Firestore for a reel or post.
+ * Strictly ignores creator's own views.
+ */
+export async function incrementViewCountInFirestore(
+  postId: string,
+  viewerUserId?: string,
+  authorUserId?: string,
+  authorUsername?: string
+): Promise<void> {
+  if (!postId) return;
+  const cleanViewerId = (viewerUserId || auth.currentUser?.uid || '').trim().toLowerCase();
+  const cleanAuthorId = (authorUserId || '').trim().toLowerCase();
+  const cleanAuthorUsername = (authorUsername || '').toLowerCase().replace(/^@/, '').trim();
+
+  // Strictly skip if viewer is the creator themselves
+  if (
+    (cleanViewerId && cleanAuthorId && cleanViewerId === cleanAuthorId) ||
+    cleanAuthorId === 'user-me' ||
+    cleanAuthorUsername === 'you'
+  ) {
+    return;
+  }
+
+  const cleanPostId = postId.replace(/^reel-/, '');
+  const candidateIds = Array.from(new Set([postId, cleanPostId, `reel-${cleanPostId}`]));
+
+  for (const id of candidateIds) {
+    try {
+      const postRef = doc(db, 'posts', id);
+      await updateDoc(postRef, {
+        viewsCount: increment(1),
+        updatedAtIso: new Date().toISOString(),
+      });
+      return;
+    } catch {
+      // Try next candidate id
     }
   }
 }

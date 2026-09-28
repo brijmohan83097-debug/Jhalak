@@ -48,6 +48,7 @@ import { adMobService, AdMobNativeAd, ADMOB_CONFIG } from '../services/adMobServ
 import { isSuperAdmin } from '../constants/admin';
 import { AdMobNativeReelAd } from './AdMobNativeReelAd';
 import { safeEncodeURIComponent } from '../utils/safeEncoding';
+import { incrementViewCountInFirestore } from '../services/firebase';
 import {
   pauseAllMedia,
   getGlobalReelsMuted,
@@ -174,9 +175,33 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
   const viewedReelsSessionRef = useRef<Set<string>>(new Set());
 
-  const incrementReelView = useCallback((reelId: string, baseViews?: number) => {
-    if (!reelId || viewedReelsSessionRef.current.has(reelId)) return;
+  const incrementReelView = useCallback((reelId: string, baseViews?: number, reelUserId?: string, reelUsername?: string, isUserCreated?: boolean, userEmail?: string) => {
+    if (!reelId) return;
+
+    // Strictly real views: Do not count views when the creator watches their own video
+    const myId = (currentUser?.id || localStorage.getItem('ig_current_user_id') || '').trim().toLowerCase();
+    const myUsername = (currentUser?.username || localStorage.getItem('ig_current_username') || '').toLowerCase().replace(/^@/, '').trim();
+    const myEmail = (currentUser?.email || '').toLowerCase().trim();
+    const authorId = (reelUserId || '').trim().toLowerCase();
+    const authorUsername = (reelUsername || '').toLowerCase().replace(/^@/, '').trim();
+    const authorEmail = (userEmail || '').toLowerCase().trim();
+
+    if (
+      (myId && authorId && myId === authorId) ||
+      (myUsername && authorUsername && myUsername === authorUsername) ||
+      (myEmail && authorEmail && myEmail === authorEmail) ||
+      authorId === 'user-me' ||
+      authorUsername === 'you' ||
+      isUserCreated === true
+    ) {
+      return; // Creator watching their own video: never count creator's own view!
+    }
+
+    if (viewedReelsSessionRef.current.has(reelId)) return;
     viewedReelsSessionRef.current.add(reelId);
+
+    // Persist real view count to Firestore asynchronously
+    incrementViewCountInFirestore(reelId, myId, authorId, authorUsername).catch(() => {});
 
     setReelViewsMap((prev) => {
       const initialCount =
@@ -205,7 +230,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
       return updated;
     });
-  }, []);
+  }, [currentUser?.id, currentUser?.username, currentUser?.email]);
 
   const formatViewsCount = useCallback((count?: number): string => {
     const val = typeof count === 'number' && count >= 0 ? count : 0;
@@ -376,7 +401,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     if (!isActive) return;
     const item = queue[activeIndex];
     if (item && !('adUnitId' in item)) {
-      incrementReelView(item.id, (item as Reel).viewsCount);
+      const reel = item as Reel;
+      incrementReelView(reel.id, reel.viewsCount, reel.userId, reel.username, reel.isUserCreated, (reel as any).userEmail);
     }
   }, [activeIndex, isActive, queue, incrementReelView]);
 
@@ -603,19 +629,45 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     reorderUpcomingQueue();
   };
 
+  const fallbackToDirectReelUrl = useCallback((vid?: HTMLVideoElement | null, targetReel?: Reel | null) => {
+    const video = vid || videoRefs.current[activeIndex];
+    const r = targetReel || (queue[activeIndex] && !adMobService.isAdItem(queue[activeIndex]) ? (queue[activeIndex] as Reel) : null);
+    if (!video || !r) return;
+
+    const directUrl =
+      (r.downloadURL && (r.downloadURL.startsWith('blob:') || r.downloadURL.startsWith('http')) && video.src !== r.downloadURL)
+        ? r.downloadURL
+        : (r.videoUrl && (r.videoUrl.startsWith('blob:') || r.videoUrl.startsWith('http')) && video.src !== r.videoUrl)
+        ? r.videoUrl
+        : ((r as any).mediaUrl && ((r as any).mediaUrl.startsWith('blob:') || (r as any).mediaUrl.startsWith('http')) && video.src !== (r as any).mediaUrl)
+        ? (r as any).mediaUrl
+        : null;
+
+    if (directUrl) {
+      video.src = directUrl;
+      video.load();
+      video.play().then(() => setIsPlaying(true)).catch(() => {
+        video.muted = true;
+        video.play().then(() => setIsPlaying(true)).catch(() => {});
+      });
+    } else if (!video.src.includes('sample/ForBiggerBlazes')) {
+      video.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+      video.load();
+      video.play().then(() => setIsPlaying(true)).catch(() => {});
+    }
+  }, [activeIndex, queue]);
+
   const handleVideoClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     const now = Date.now();
-    const DOUBLE_TAP_GAP = 260;
+    const DOUBLE_TAP_GAP = 280;
+    const isDoubleTap = now - lastTapTimeRef.current < DOUBLE_TAP_GAP;
+    lastTapTimeRef.current = now;
 
-    if (now - lastTapTimeRef.current < DOUBLE_TAP_GAP) {
-      // Double tap triggered -> cancel pending single tap & heart like reel
-      if (tapTimeoutRef.current) {
-        clearTimeout(tapTimeoutRef.current);
-        tapTimeoutRef.current = null;
-      }
-      lastTapTimeRef.current = 0;
+    const currentVideo = videoRefs.current[activeIndex];
 
+    if (isDoubleTap) {
+      // Double tap triggered -> like reel & heart animation
       if (currentReel) {
         if (!currentReel.isLiked) {
           handleLikeReel();
@@ -623,22 +675,28 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       }
       setShowHeartBurst(true);
       setTimeout(() => setShowHeartBurst(false), 800);
+
+      // Keep playing on double-tap
+      if (currentVideo && currentVideo.paused) {
+        currentVideo.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
       return;
     }
 
-    lastTapTimeRef.current = now;
-
-    if (tapTimeoutRef.current) {
-      clearTimeout(tapTimeoutRef.current);
-    }
-
-    // Single tap toggles play/pause (tap-to-play / tap-to-pause)
-    tapTimeoutRef.current = setTimeout(() => {
-      const currentVideo = videoRefs.current[activeIndex];
-      if (currentVideo) {
-        if (currentVideo.paused) {
-          try {
-            currentVideo.muted = isMuted;
+    // Screen click handler: toggle play/pause immediately!
+    if (currentVideo) {
+      if (currentVideo.paused) {
+        currentVideo.muted = isMuted;
+        currentVideo
+          .play()
+          .then(() => {
+            setIsPlaying(true);
+            setShowPlayPauseIcon('play');
+            setTimeout(() => setShowPlayPauseIcon(null), 600);
+          })
+          .catch((err) => {
+            console.warn("Play blocked on tap, trying muted playback:", err);
+            currentVideo.muted = true;
             currentVideo
               .play()
               .then(() => {
@@ -647,28 +705,19 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 setTimeout(() => setShowPlayPauseIcon(null), 600);
               })
               .catch(() => {
-                currentVideo.muted = true;
-                currentVideo
-                  .play()
-                  .then(() => {
-                    setIsPlaying(true);
-                    setShowPlayPauseIcon('play');
-                    setTimeout(() => setShowPlayPauseIcon(null), 600);
-                  })
-                  .catch(() => {});
+                // Fallback to direct blob/video URL if stalled or failed
+                if (currentReel) {
+                  fallbackToDirectReelUrl(currentVideo, currentReel);
+                }
               });
-          } catch {}
-        } else {
-          try {
-            currentVideo.pause();
-          } catch {}
-          setIsPlaying(false);
-          setShowPlayPauseIcon('pause');
-          setTimeout(() => setShowPlayPauseIcon(null), 600);
-        }
+          });
+      } else {
+        currentVideo.pause();
+        setIsPlaying(false);
+        setShowPlayPauseIcon('pause');
+        setTimeout(() => setShowPlayPauseIcon(null), 600);
       }
-      tapTimeoutRef.current = null;
-    }, DOUBLE_TAP_GAP);
+    }
   };
 
   const isFollowingUser = (username: string, userId?: string) => {
@@ -945,7 +994,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         if (adMobService.isAdItem(item)) {
           return (
             <div
-              key={item.id}
+              key={`ad-${item.id}-${index}`}
               data-index={index}
               ref={(el) => { reelItemRefs.current[index] = el; }}
               className="h-[100dvh] w-full snap-start relative flex items-center justify-center bg-black overflow-hidden flex-shrink-0"
@@ -967,7 +1016,11 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             (currentUser.username && reel.username && (
               currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
               reel.username.toLowerCase().replace(/^@/, '').trim()
-            ))
+            )) ||
+            (currentUser.email && (reel as any).userEmail && currentUser.email.toLowerCase() === (reel as any).userEmail.toLowerCase()) ||
+            reel.userId === 'user-me' ||
+            reel.username === 'you' ||
+            reel.isUserCreated
           )
         );
         const isImage = Boolean(
@@ -983,7 +1036,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
         return (
           <div
-            key={reel.id}
+            key={`reel-${reel.id}-${index}`}
             data-index={index}
             ref={(el) => { reelItemRefs.current[index] = el; }}
             className="h-[100dvh] w-full snap-start relative flex items-center justify-center bg-black overflow-hidden flex-shrink-0 cursor-pointer"
@@ -1000,13 +1053,13 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             ) : (
               (() => {
                 const cleanReelId = (reel.id || '').replace(/^reel-/, '');
-                const videoSrc = ((reel as any).mediaUrl && !(reel as any).mediaUrl.startsWith('blob:'))
-                  ? (reel as any).mediaUrl
-                  : (reel.videoUrl && !reel.videoUrl.startsWith('blob:'))
-                  ? reel.videoUrl
-                  : (reel.downloadURL && !reel.downloadURL.startsWith('blob:'))
+                const videoSrc = (reel.downloadURL && (reel.downloadURL.startsWith('http') || reel.downloadURL.startsWith('blob:')))
                   ? reel.downloadURL
-                  : `/api/media/${cleanReelId}.mp4`;
+                  : (reel.videoUrl && (reel.videoUrl.startsWith('http') || reel.videoUrl.startsWith('blob:')))
+                  ? reel.videoUrl
+                  : ((reel as any).mediaUrl && ((reel as any).mediaUrl.startsWith('http') || (reel as any).mediaUrl.startsWith('blob:')))
+                  ? (reel as any).mediaUrl
+                  : reel.videoUrl || reel.downloadURL || (reel as any).mediaUrl || `/api/media/${cleanReelId}.mp4`;
 
                 return (
                   <video
@@ -1018,35 +1071,49 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       }
                     }}
                     src={videoSrc}
+                    controlsList="nodownload"
                     playsInline
                     webkit-playsinline="true"
                     autoPlay
-                    muted
+                    muted={isMuted}
                     loop
-                    preload="metadata"
+                    preload="auto"
                     poster={reel.thumbnailUrl || ''}
                     className="w-full h-full object-cover pointer-events-none"
                     onCanPlay={(e) => {
-                      e.currentTarget.play().catch(() => {});
-                      if (index === activeIndex) {
-                        setIsPlaying(true);
-                        incrementReelView(reel.id, (reel as any).viewsCount);
+                      const vid = e.currentTarget;
+                      if (index === activeIndex && isActive) {
+                        vid.play().then(() => setIsPlaying(true)).catch(() => {
+                          vid.muted = true;
+                          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                        });
+                        incrementReelView(reel.id, (reel as any).viewsCount, reel.userId, reel.username, reel.isUserCreated, (reel as any).userEmail);
                       }
                     }}
                     onLoadedData={(e) => {
                       if (index === activeIndex && isActive) {
-                        e.currentTarget.play().catch(() => {});
-                        setIsPlaying(true);
+                        const vid = e.currentTarget;
+                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
                       }
                     }}
                     onWaiting={(e) => {
                       if (index === activeIndex && isActive) {
-                        e.currentTarget.play().catch(() => {});
+                        const vid = e.currentTarget;
+                        if (vid.paused) {
+                          vid.play().catch(() => {});
+                        }
                       }
                     }}
                     onStalled={(e) => {
                       if (index === activeIndex && isActive) {
-                        e.currentTarget.play().catch(() => {});
+                        const vid = e.currentTarget;
+                        if (vid.paused) {
+                          vid.play().catch(() => {
+                            fallbackToDirectReelUrl(vid, reel);
+                          });
+                        } else if (vid.readyState < 2) {
+                          fallbackToDirectReelUrl(vid, reel);
+                        }
                       }
                     }}
                     onPlay={() => {
@@ -1065,19 +1132,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     }}
                     onError={(e) => {
                       console.warn("Video failed, attempting storage URL fallback", reel.downloadURL);
-                      const vid = e.currentTarget;
-                      if (reel.downloadURL && vid.src !== reel.downloadURL) {
-                        vid.src = reel.downloadURL;
-                      } else {
-                        const currentSrc = reel.downloadURL || reel.videoUrl || (reel as any).mediaUrl;
-                        if (currentSrc && !currentSrc.includes('sample/ForBiggerBlazes')) {
-                          vid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-                          vid.load();
-                          try {
-                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                          } catch {}
-                        }
-                      }
+                      fallbackToDirectReelUrl(e.currentTarget, reel);
                     }}
                   />
                 );

@@ -263,13 +263,13 @@ export const CommentsBottomSheet: React.FC<CommentsBottomSheetProps> = ({
               </p>
             </div>
           ) : (
-            comments.map((comment) => {
+            comments.map((comment, idx) => {
               const isLiked = localLikedComments[comment.id] ?? !!comment.isLiked;
               const likes = localLikeCounts[comment.id] ?? comment.likesCount ?? 0;
 
               return (
                 <div
-                  key={comment.id}
+                  key={`comment-${comment.id}-${idx}`}
                   id={`comment-item-${comment.id}`}
                   className="flex items-start justify-between gap-3 group animate-in fade-in duration-200"
                 >

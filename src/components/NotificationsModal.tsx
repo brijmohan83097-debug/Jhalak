@@ -312,7 +312,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               </p>
             </div>
           ) : (
-            displayedAlerts.map((alert) => {
+            displayedAlerts.map((alert, idx) => {
               const getIcon = () => {
                 switch (alert.type) {
                   case 'like':
@@ -345,7 +345,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
 
               return (
                 <div
-                  key={alert.id}
+                  key={`alert-${alert.id}-${idx}`}
                   onClick={() => handleAlertClick(alert)}
                   className={`p-3.5 flex items-start gap-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition cursor-pointer ${
                     !alert.read ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''

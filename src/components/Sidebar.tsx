@@ -10,7 +10,6 @@ import {
   Settings,
   Clapperboard,
   LogOut,
-  Globe2,
   Scale,
   Heart,
   ShieldAlert,

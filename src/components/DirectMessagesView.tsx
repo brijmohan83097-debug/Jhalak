@@ -101,9 +101,9 @@ export const DirectMessagesView: React.FC<DirectMessagesViewProps> = ({
             </div>
             <span className="text-[11px] text-neutral-500">Your note</span>
           </div>
-          {conversations.slice(0, 3).map((c) => (
+          {conversations.slice(0, 3).map((c, idx) => (
             <div
-              key={c.id}
+              key={`conv-note-${c.id}-${idx}`}
               onClick={() => handleSelectConv(c.id)}
               className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer"
             >
@@ -142,13 +142,13 @@ export const DirectMessagesView: React.FC<DirectMessagesViewProps> = ({
               </p>
             </div>
           ) : (
-            filteredConversations.map((conv) => {
+            filteredConversations.map((conv, idx) => {
               const isSelected = conv.id === selectedId;
               const lastMessage = conv.messages[conv.messages.length - 1];
 
               return (
                 <button
-                  key={conv.id}
+                  key={`dm-conv-${conv.id}-${idx}`}
                   id={`dm-conv-${conv.id}`}
                   onClick={() => handleSelectConv(conv.id)}
                   className={`w-full flex items-center gap-3 p-3.5 text-left transition ${
@@ -286,9 +286,9 @@ export const DirectMessagesView: React.FC<DirectMessagesViewProps> = ({
               </div>
 
               {/* Messages */}
-              {selectedConv.messages.map((msg) => (
+              {selectedConv.messages.map((msg, idx) => (
                 <div
-                  key={msg.id}
+                  key={`msg-${msg.id}-${idx}`}
                   className={`flex flex-col max-w-[75%] ${
                     msg.isMine ? 'self-end items-end' : 'self-start items-start'
                   }`}

@@ -255,9 +255,13 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             ) : (
               <div className="relative w-full h-full flex items-center justify-center bg-black">
                 {(() => {
-                  const videoSrc = (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
+                  const videoSrc = (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('blob:')))
+                    ? post.downloadURL
+                    : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('blob:')))
                     ? post.mediaUrl
-                    : (post.downloadURL || (post as any).videoUrl || resolvedUrl);
+                    : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('blob:')))
+                    ? (post as any).videoUrl
+                    : post.downloadURL || post.mediaUrl || (post as any).videoUrl || resolvedUrl || `/api/media/${post.id}.mp4`;
 
                   return (
                     <video
@@ -277,6 +281,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                       }}
                       src={videoSrc}
                       controls
+                      controlsList="nodownload"
                       playsInline
                       webkit-playsinline="true"
                       preload="auto"
@@ -508,8 +513,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                 No comments yet. Start the conversation!
               </div>
             ) : (
-              post.comments.map((comment) => (
-                <div key={comment.id} className="flex items-start justify-between gap-2 group">
+              post.comments.map((comment, idx) => (
+                <div key={`post-comment-${comment.id}-${idx}`} className="flex items-start justify-between gap-2 group">
                   <div className="flex items-start gap-2.5 flex-1 min-w-0">
                     <img
                       src={comment.avatar}

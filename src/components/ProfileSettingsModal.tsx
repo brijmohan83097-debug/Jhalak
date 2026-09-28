@@ -3,7 +3,7 @@ import {
   X,
   User as UserIcon,
   Shield,
-  Globe2,
+  Languages,
   Bell,
   Bookmark,
   LogOut,
@@ -205,13 +205,13 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 className="w-full flex items-center justify-between p-3.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 transition group text-left"
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-                    <Globe2 className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center">
+                    <Languages className="w-5 h-5" />
                   </div>
                   <div>
                     <span className="text-sm font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
                       {t.language}
-                      <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
                         {activeLangObj?.name}
                       </span>
                     </span>

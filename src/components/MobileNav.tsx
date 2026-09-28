@@ -9,7 +9,6 @@ import {
   Compass,
   Clapperboard,
   Check,
-  Globe2,
   Settings,
   Scale,
   Search,
@@ -61,16 +60,32 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
   // Filter friends & creators by name or username; if search is empty, display all signed-up friends as recommendations
   const matchingUsers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase().replace(/^@/, '');
-    if (!q) {
-      return (searchableUsers || []).slice(0, 8);
+    const pool = Array.isArray(searchableUsers) ? searchableUsers : [];
+    const filtered = !q
+      ? pool.slice(0, 15)
+      : pool.filter((u) => {
+          const nameMatch = (u.name || '').toLowerCase().includes(q);
+          const usernameMatch = (u.username || '').toLowerCase().includes(q);
+          return nameMatch || usernameMatch;
+        });
+
+    const deduped: User[] = [];
+    const seenIds = new Set<string>();
+    const seenUsernames = new Set<string>();
+    for (const u of filtered) {
+      if (!u) continue;
+      const uid = String(u.id || '').trim();
+      const uname = String(u.username || '').toLowerCase().replace(/^@/, '').trim();
+      if (!uid && !uname) continue;
+      if (uid && seenIds.has(uid)) continue;
+      if (uname && seenUsernames.has(uname)) continue;
+
+      if (uid) seenIds.add(uid);
+      if (uname) seenUsernames.add(uname);
+      deduped.push(u);
+      if (deduped.length >= 10) break;
     }
-    return (searchableUsers || [])
-      .filter((u) => {
-        const nameMatch = (u.name || '').toLowerCase().includes(q);
-        const usernameMatch = (u.username || '').toLowerCase().includes(q);
-        return nameMatch || usernameMatch;
-      })
-      .slice(0, 10);
+    return deduped;
   }, [searchableUsers, searchQuery]);
 
   // Click outside to dismiss search suggestions
@@ -185,9 +200,9 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
 
             {matchingUsers.length > 0 ? (
               <div className="max-h-72 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800/60">
-                {matchingUsers.map((u) => (
+                {matchingUsers.map((u, idx) => (
                   <div
-                    key={u.id || u.username}
+                    key={`nav-user-${u.id || ''}-${u.username || ''}-${idx}`}
                     onClick={() => handleSelectUser(u)}
                     className="p-2.5 flex items-center justify-between gap-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/70 active:bg-neutral-100 dark:active:bg-neutral-800 transition cursor-pointer group"
                   >

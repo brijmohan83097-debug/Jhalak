@@ -1403,26 +1403,39 @@ export default function App() {
 
   // Comprehensive searchable users list (friends from Firestore + creators from posts & reels)
   const allSearchableUsers = useMemo<User[]>(() => {
-    const map = new Map<string, User>();
+    const userMap = new Map<string, User>();
+    const seenIds = new Set<string>();
+
+    const addUser = (u: User) => {
+      if (!u) return;
+      const cleanUname = (u.username || '').toLowerCase().replace(/^@/, '').trim();
+      const id = String(u.id || '').trim();
+      if (!cleanUname && !id) return;
+      if (id && seenIds.has(id)) return;
+      if (cleanUname && userMap.has(cleanUname)) return;
+
+      if (id) seenIds.add(id);
+      if (cleanUname) {
+        userMap.set(cleanUname, u);
+      } else if (id) {
+        userMap.set(id, u);
+      }
+    };
 
     // 1. Current user
-    if (currentUser?.username) {
-      const clean = currentUser.username.toLowerCase().replace(/^@/, '');
-      map.set(clean, currentUser);
+    if (currentUser?.username || currentUser?.id) {
+      addUser(currentUser);
     }
 
     // 2. Firestore registered users & friends
-    (searchableUsers || []).forEach((u) => {
-      const uname = (u.username || '').toLowerCase().replace(/^@/, '').trim();
-      if (!uname) return;
-      map.set(uname, u);
-    });
+    (searchableUsers || []).forEach(addUser);
 
     // 3. Creators from posts & reels
     posts.forEach((p) => {
       const uname = (p.username || '').toLowerCase().replace(/^@/, '').trim();
-      if (!uname || map.has(uname)) return;
-      map.set(uname, {
+      const pUserId = String(p.userId || '').trim();
+      if ((uname && userMap.has(uname)) || (pUserId && seenIds.has(pUserId))) return;
+      addUser({
         id: p.userId || `user-${uname}`,
         username: p.username,
         name: p.username.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -1437,8 +1450,9 @@ export default function App() {
 
     reels.forEach((r) => {
       const uname = (r.username || '').toLowerCase().replace(/^@/, '').trim();
-      if (!uname || map.has(uname)) return;
-      map.set(uname, {
+      const rUserId = String(r.userId || '').trim();
+      if ((uname && userMap.has(uname)) || (rUserId && seenIds.has(rUserId))) return;
+      addUser({
         id: r.userId || `user-${uname}`,
         username: r.username,
         name: r.username.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -1451,7 +1465,7 @@ export default function App() {
       });
     });
 
-    return Array.from(map.values());
+    return Array.from(userMap.values());
   }, [currentUser, searchableUsers, posts, reels]);
 
   // Derive real suggested creators & friends from registered users & posts (no mock users)
@@ -1460,41 +1474,47 @@ export default function App() {
       string,
       { id: string; username: string; name?: string; avatar: string; subtitle?: string }
     >();
+    const seenIds = new Set<string>();
 
     const currentClean = (currentUser?.username || '').toLowerCase().replace(/^@/, '').trim();
+    const currentId = String(currentUser?.id || '').trim();
+    if (currentId) seenIds.add(currentId);
+
+    const addCreator = (item: { id: string; username: string; name?: string; avatar: string; subtitle?: string }) => {
+      const uname = (item.username || '').toLowerCase().replace(/^@/, '').trim();
+      const uid = String(item.id || '').trim();
+      if (!uname || uname === currentClean || uname === 'you' || uname === 'user-me') return;
+      if (uid && (uid === currentId || uid === 'user-me' || seenIds.has(uid))) return;
+      if (creatorMap.has(uname)) return;
+
+      if (uid) seenIds.add(uid);
+      creatorMap.set(uname, item);
+    };
 
     // 1. Primary: Display registered users from Cloud Firestore
     (searchableUsers || []).forEach((u) => {
-      const uname = (u.username || '').toLowerCase().replace(/^@/, '').trim();
-      if (!uname || uname === currentClean) return;
-      if (!creatorMap.has(uname)) {
-        creatorMap.set(uname, {
-          id: u.id || uname,
-          username: u.username,
-          name: u.name || u.username,
-          avatar: u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-          subtitle: u.followersCount ? `${u.followersCount} followers` : 'Friend on Jhalak',
-        });
-      }
+      addCreator({
+        id: u.id || u.username,
+        username: u.username,
+        name: u.name || u.username,
+        avatar: u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        subtitle: u.followersCount ? `${u.followersCount} followers` : 'Friend on Jhalak',
+      });
     });
 
     // 2. Creators from posts & reels
     posts.forEach((p) => {
-      const uname = (p.username || '').toLowerCase().replace(/^@/, '').trim();
-      if (!uname || uname === currentClean) return;
-      if (!creatorMap.has(uname)) {
-        creatorMap.set(uname, {
-          id: p.userId || p.username,
-          username: p.username,
-          name: p.username,
-          avatar: p.userAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-          subtitle: `Shared ${p.category || 'Reels'}`,
-        });
-      }
+      addCreator({
+        id: p.userId || p.username,
+        username: p.username,
+        name: p.username,
+        avatar: p.userAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        subtitle: `Shared ${p.category || 'Reels'}`,
+      });
     });
 
     return Array.from(creatorMap.values()).slice(0, 10);
-  }, [searchableUsers, posts, currentUser.username]);
+  }, [searchableUsers, posts, currentUser.username, currentUser.id]);
 
   // Clean Reels filtered against Blocked creators, Reported content, and Private reels
   const unblockedReels = useMemo(() => {
@@ -2786,16 +2806,17 @@ export default function App() {
 
     const isMatchingAppUser = (p: any): boolean => {
       if (!p || typeof p !== 'object' || !p.id) return false;
-      if (isSuperAdmin(currentUser)) return true;
       const targetId = (currentUser.id || '').trim().toLowerCase();
       const targetUsername = (currentUser.username || '').replace(/^@/, '').trim().toLowerCase();
+      const targetEmail = (currentUser.email || '').trim().toLowerCase();
+
       const postUserId = (p.userId || p.authorId || '').trim().toLowerCase();
       const postUsername = (p.username || '').replace(/^@/, '').trim().toLowerCase();
+      const postEmail = (p.userEmail || p.email || '').trim().toLowerCase();
 
-      if (targetId && (targetId === postUserId)) return true;
+      if (targetId && postUserId && targetId === postUserId) return true;
       if (targetUsername && postUsername && targetUsername === postUsername) return true;
-      if (currentUser.email && (p.userEmail || p.email) && currentUser.email.toLowerCase() === (p.userEmail || p.email).toLowerCase()) return true;
-      if (p.isUserCreated) return true;
+      if (targetEmail && postEmail && targetEmail === postEmail) return true;
       return false;
     };
 
@@ -2814,7 +2835,7 @@ export default function App() {
         }
       }
 
-      // Check global uploaded posts cache
+      // Check global uploaded posts cache strictly matching user
       const rawAll = localStorage.getItem('jhalak_uploaded_posts_v1');
       if (rawAll) {
         const parsedAll = JSON.parse(rawAll);
@@ -2824,19 +2845,6 @@ export default function App() {
               postMap.set(p.id, p);
             }
           });
-        }
-      }
-
-      // Legacy fallback exclusively for Super Admin
-      if (isSuperAdmin(currentUser)) {
-        const legacyMe = localStorage.getItem('ig_user_posts_user-me');
-        if (legacyMe) {
-          const parsed = JSON.parse(legacyMe);
-          if (Array.isArray(parsed)) {
-            parsed.forEach((p: Post) => {
-              if (p && p.id && isMatchingAppUser(p)) postMap.set(p.id, p);
-            });
-          }
         }
       }
     } catch {
@@ -3146,106 +3154,37 @@ export default function App() {
             >
               {/* Feed Column */}
               <div className="w-full max-w-[470px] sm:max-w-[540px] flex flex-col">
-                {/* Home Feed Mode Switcher: "For You" vs "Following" */}
-                <div className="flex items-center justify-between px-3 sm:px-1 pt-1.5 pb-1 select-none">
-                  <div className="flex items-center gap-1.5 p-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/70 dark:border-neutral-700/60 shadow-xs">
-                    <button
-                      id="feed-tab-all-btn"
-                      type="button"
-                      onClick={() => setHomeFeedFilter('all')}
-                      className={`px-3.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                        homeFeedFilter === 'all'
-                          ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-xs'
-                          : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-                      }`}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>For You</span>
-                    </button>
-
-                    <button
-                      id="feed-tab-following-btn"
-                      type="button"
-                      onClick={() => setHomeFeedFilter('following')}
-                      className={`px-3.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                        homeFeedFilter === 'following'
-                          ? 'bg-neutral-900 text-white dark:bg-white dark:text-black shadow-xs'
-                          : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-                      }`}
-                    >
-                      <UserCheck className="w-3.5 h-3.5 text-rose-500" />
-                      <span>Following</span>
-                      {followedFriendsCount > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-500 font-extrabold">
-                          {followedFriendsCount}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-
-                  <span className="text-[11px] font-semibold text-neutral-400 hidden sm:inline-flex items-center gap-1">
-                    {homeFeedFilter === 'following'
-                      ? 'Showing posts from followed friends'
-                      : 'Personalized For You'}
-                  </span>
-                </div>
-
                 {/* Posts Feed */}
-                <div className="mt-2 md:mt-4 space-y-2">
+                <div className="space-y-2">
                   {sortedFeedPosts.length === 0 ? (
-                    homeFeedFilter === 'following' ? (
-                      <div
-                        id="feed-following-empty-state"
-                        className="flex flex-col items-center justify-center p-8 py-14 text-center bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl my-3 shadow-xs"
-                      >
-                        <div className="w-16 h-16 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mb-4 border border-rose-200 dark:border-rose-900/60 shadow-xs">
-                          <UserCheck className="w-8 h-8 stroke-[1.8]" />
-                        </div>
-                        <h3 className="text-base font-bold text-neutral-900 dark:text-white mb-1.5">
-                          Followed friends ki koi nayi post nahi mili
-                        </h3>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
-                          Aap jin creators aur dosto ko follow karte hain unke posts yahan dikhenge.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setHomeFeedFilter('all')}
-                          className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          <span>Browse "For You" Feed</span>
-                        </button>
+                    <div
+                      id="feed-empty-state"
+                      className="flex flex-col items-center justify-center p-8 py-14 text-center bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl my-3 shadow-xs"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mb-4 border border-rose-200 dark:border-rose-900/60 shadow-xs">
+                        <Sparkles className="w-8 h-8 stroke-[1.8]" />
                       </div>
-                    ) : (
-                      <div
-                        id="feed-empty-state"
-                        className="flex flex-col items-center justify-center p-8 py-14 text-center bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl my-3 shadow-xs"
+                      <h3 className="text-base font-bold text-neutral-900 dark:text-white mb-1.5">
+                        Abhi koi reel ya post nahi hai. Pehli post karein!
+                      </h3>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
+                        Niche diye gaye button par click karke apni pehli photo ya video upload karein!
+                      </p>
+                      <button
+                        id="empty-feed-create-post-btn"
+                        onClick={handleOpenCreateModal}
+                        className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
                       >
-                        <div className="w-16 h-16 rounded-full bg-neutral-100 dark:bg-neutral-800/90 flex items-center justify-center mb-4 text-neutral-400">
-                          <Plus className="w-8 h-8 text-neutral-400 stroke-[1.8]" />
-                        </div>
-                        <h3 className="text-base font-bold text-neutral-900 dark:text-white mb-1.5">
-                          Abhi koi reel ya post nahi hai. Pehli post karein!
-                        </h3>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mb-5 leading-relaxed">
-                          Database me abhi koi posts nahi hain. Niche diye gaye button par click karke apni pehli photo ya video upload karein!
-                        </p>
-                        <button
-                          id="empty-feed-create-post-btn"
-                          onClick={handleOpenCreateModal}
-                          className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center gap-2 cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4 stroke-[3]" />
-                          <span>Upload First Post</span>
-                        </button>
-                      </div>
-                    )
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                        <span>Upload First Post</span>
+                      </button>
+                    </div>
                   ) : (
-                    feedItemsWithAds.map((item) => {
+                    feedItemsWithAds.map((item, idx) => {
                       if (adMobService.isAdItem(item)) {
                         return (
                           <AdMobNativeFeedAd
-                            key={item.id}
+                            key={`feed-ad-${item.id}-${idx}`}
                             ad={item}
                             onHideAd={(id) => {
                               adMobService.hideAd(id);
@@ -3257,7 +3196,7 @@ export default function App() {
                       const post = item as Post;
                       return (
                         <FeedPostCard
-                          key={post.id}
+                          key={`feed-post-${post.id}-${idx}`}
                           post={post}
                           currentUser={currentUser}
                           onToggleLike={handleToggleLike}
@@ -3830,72 +3769,96 @@ export default function App() {
               </div>
             </div>
 
-            {!(
-              currentUser && (
-                (currentUser.id && selectedProfileUser.id && currentUser.id.toLowerCase() === selectedProfileUser.id.toLowerCase()) ||
-                (currentUser.username && selectedProfileUser.username && (
-                  currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
-                  selectedProfileUser.username.toLowerCase().replace(/^@/, '').trim()
-                ))
-              )
-            ) && (
-              <button
-                id={`modal-follow-top-btn-${selectedProfileUser.username}`}
-                onClick={() => {
-                  handleToggleFollow(selectedProfileUser.username, selectedProfileUser.id);
-                }}
-                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm ${
-                  followedUsers[selectedProfileUser.username] ||
+            {(() => {
+              const isSelf = Boolean(
+                currentUser && (
+                  (currentUser.id && selectedProfileUser.id && currentUser.id.toLowerCase() === selectedProfileUser.id.toLowerCase()) ||
+                  (currentUser.username && selectedProfileUser.username && (
+                    currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+                    selectedProfileUser.username.toLowerCase().replace(/^@/, '').trim()
+                  )) ||
+                  (currentUser.email && selectedProfileUser.email && currentUser.email.toLowerCase() === selectedProfileUser.email.toLowerCase()) ||
+                  selectedProfileUser.id === 'user-me' ||
+                  selectedProfileUser.username.toLowerCase().replace(/^@/, '') === 'you'
+                )
+              );
+
+              return !isSelf ? (
+                <button
+                  id={`modal-follow-top-btn-${selectedProfileUser.username}`}
+                  onClick={() => {
+                    handleToggleFollow(selectedProfileUser.username, selectedProfileUser.id);
+                  }}
+                  className={`px-4 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm ${
+                    followedUsers[selectedProfileUser.username] ||
+                    followedUsers[`@${selectedProfileUser.username}`] ||
+                    (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
+                      ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                      : 'bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-rose-500/20'
+                  }`}
+                >
+                  {followedUsers[selectedProfileUser.username] ||
                   followedUsers[`@${selectedProfileUser.username}`] ||
                   (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
-                    ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'
-                    : 'bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white shadow-rose-500/20'
-                }`}
-              >
-                {followedUsers[selectedProfileUser.username] ||
-                followedUsers[`@${selectedProfileUser.username}`] ||
-                (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
-                  ? (t.following || 'Following')
-                  : (t.follow || 'Follow')}
-              </button>
-            )}
+                    ? (t.following || 'Following')
+                    : (t.follow || 'Follow')}
+                </button>
+              ) : null;
+            })()}
           </div>
 
           <div className="pt-2 pb-16">
-            <ProfileView
-              user={selectedProfileUser}
-              currentUser={currentUser}
-              isOwnProfile={false}
-              isFollowing={Boolean(
-                followedUsers[selectedProfileUser.username] ||
-                  followedUsers[`@${selectedProfileUser.username}`] ||
-                  (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
-              )}
-              followedUsers={followedUsers}
-              onToggleFollow={(u, id) => handleToggleFollow(u, id)}
-              onSelectUser={(u, _id, userObj) => handleViewUser(u, userObj)}
-              onBack={() => setSelectedProfileUser(null)}
-              onStartChat={(targetUser) => {
-                setSelectedProfileUser(null);
-                setCurrentTab('messages');
-              }}
-              userPosts={selectedUserPosts}
-              savedPosts={[]}
-              onOpenEditProfile={() => setIsEditProfileOpen(true)}
-              onOpenSettings={() => setIsSettingsModalOpen(true)}
-              onSelectPost={(p) => {
-                if (p.mediaType === 'video') {
-                  setSelectedProfileUser(null);
-                  handleOpenReelFromPost(p);
-                } else {
-                  handleOpenFullScreen(p, selectedUserPosts);
-                }
-              }}
-              onOpenStoryModal={() => setActiveStoryIndex(0)}
-              onDeletePost={handleDeletePost}
-              onUpdatePostPrivacy={handleUpdatePostPrivacy}
-              currentLanguage={currentLanguage}
-            />
+            {(() => {
+              const isSelf = Boolean(
+                currentUser && (
+                  (currentUser.id && selectedProfileUser.id && currentUser.id.toLowerCase() === selectedProfileUser.id.toLowerCase()) ||
+                  (currentUser.username && selectedProfileUser.username && (
+                    currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
+                    selectedProfileUser.username.toLowerCase().replace(/^@/, '').trim()
+                  )) ||
+                  (currentUser.email && selectedProfileUser.email && currentUser.email.toLowerCase() === selectedProfileUser.email.toLowerCase()) ||
+                  selectedProfileUser.id === 'user-me' ||
+                  selectedProfileUser.username.toLowerCase().replace(/^@/, '') === 'you'
+                )
+              );
+
+              return (
+                <ProfileView
+                  user={selectedProfileUser}
+                  currentUser={currentUser}
+                  isOwnProfile={isSelf}
+                  isFollowing={!isSelf && Boolean(
+                    followedUsers[selectedProfileUser.username] ||
+                      followedUsers[`@${selectedProfileUser.username}`] ||
+                      (selectedProfileUser.id && followedUsers[selectedProfileUser.id])
+                  )}
+                  followedUsers={followedUsers}
+                  onToggleFollow={(u, id) => handleToggleFollow(u, id)}
+                  onSelectUser={(u, _id, userObj) => handleViewUser(u, userObj)}
+                  onBack={() => setSelectedProfileUser(null)}
+                  onStartChat={(targetUser) => {
+                    setSelectedProfileUser(null);
+                    setCurrentTab('messages');
+                  }}
+                  userPosts={selectedUserPosts}
+                  savedPosts={[]}
+                  onOpenEditProfile={() => setIsEditProfileOpen(true)}
+                  onOpenSettings={() => setIsSettingsModalOpen(true)}
+                  onSelectPost={(p) => {
+                    if (p.mediaType === 'video') {
+                      setSelectedProfileUser(null);
+                      handleOpenReelFromPost(p);
+                    } else {
+                      handleOpenFullScreen(p, selectedUserPosts);
+                    }
+                  }}
+                  onOpenStoryModal={() => setActiveStoryIndex(0)}
+                  onDeletePost={handleDeletePost}
+                  onUpdatePostPrivacy={handleUpdatePostPrivacy}
+                  currentLanguage={currentLanguage}
+                />
+              );
+            })()}
           </div>
         </div>
       )}

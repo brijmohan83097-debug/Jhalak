@@ -294,11 +294,11 @@ export const AudioDetailSheet: React.FC<AudioDetailSheetProps> = ({
 
             {/* 3-Column Instagram Reel Thumbnail Grid */}
             <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
-              {displayReels.map((reel) => {
+              {displayReels.map((reel, idx) => {
                 const isCurrent = reel.id === currentReelId;
                 return (
                   <button
-                    key={reel.id}
+                    key={`audio-reel-${reel.id}-${idx}`}
                     id={`audio-reel-card-${reel.id}`}
                     onClick={() => {
                       if (onSelectReel) {

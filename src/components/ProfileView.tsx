@@ -10,12 +10,10 @@ import {
   Camera,
   Film,
   LogOut,
-  Globe2,
   Scale,
   ShieldAlert,
   Trash2,
   ArrowLeft,
-  Lock,
   X,
   Users,
   UserCheck,
@@ -288,10 +286,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   // Helper to determine if a post belongs strictly to current profile user
   const isMatchingUser = (p: any): boolean => {
     if (!p || typeof p !== 'object' || !p.id) return false;
-    const targetUserId = (isOwnProfile ? (currentUser?.id || user?.id) : user?.id || '').trim();
-    if (!targetUserId) return false;
-    const postUserId = (p.userId || '').trim();
-    return postUserId === targetUserId;
+    const targetUserId = (isOwnProfile ? (currentUser?.id || user?.id) : user?.id || '').trim().toLowerCase();
+    const targetUsername = (isOwnProfile ? (currentUser?.username || user?.username) : user?.username || '').replace(/^@/, '').trim().toLowerCase();
+    const targetEmail = (isOwnProfile ? (currentUser?.email || user?.email) : user?.email || '').trim().toLowerCase();
+
+    const postUserId = (p.userId || p.authorId || '').trim().toLowerCase();
+    const postUsername = (p.username || '').replace(/^@/, '').trim().toLowerCase();
+    const postEmail = (p.userEmail || p.email || '').trim().toLowerCase();
+
+    if (targetUserId && postUserId && targetUserId === postUserId) return true;
+    if (targetUsername && postUsername && targetUsername === postUsername) return true;
+    if (targetEmail && postEmail && targetEmail === postEmail) return true;
+    return false;
   };
 
   // Load and display this profile user's uploaded posts (strictly filtered by current user)
@@ -395,15 +401,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   const safeResolvedPosts = React.useMemo(() => {
-    const targetUserId = (isOwnProfile ? (currentUser?.id || user?.id) : user?.id || '').trim();
     const list = (Array.isArray(resolvedUserPosts) ? resolvedUserPosts : []).filter(
       (p) =>
-        (!targetUserId || p.userId === targetUserId) &&
+        isMatchingUser(p) &&
         !deletedPostIds.includes(p.id) &&
         !moderationService.isPermanentlyDeleted(p.id)
     );
     return Array.from(new Map(list.map((p) => [p.id, p])).values());
-  }, [resolvedUserPosts, deletedPostIds, currentUser?.id, user?.id, isOwnProfile]);
+  }, [resolvedUserPosts, deletedPostIds, isMatchingUser]);
 
   const safeSavedPosts = React.useMemo(() => {
     const list = (Array.isArray(savedPosts) ? savedPosts : []).filter(
@@ -567,7 +572,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   (currentUser.username && user?.username && (
                     currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
                     user.username.toLowerCase().replace(/^@/, '').trim()
-                  ))
+                  )) ||
+                  (currentUser.email && user?.email && currentUser.email.toLowerCase() === user.email.toLowerCase()) ||
+                  user?.id === 'user-me' ||
+                  user?.username?.toLowerCase().replace(/^@/, '') === 'you'
                 )
               )
             ) ? (
@@ -617,16 +625,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 >
                   <Settings className="w-4 h-4" />
                   <span className="hidden sm:inline text-xs font-semibold">{t.settings}</span>
-                </button>
-
-                {/* Language quick badge */}
-                <button
-                  onClick={onOpenSettings}
-                  title="Change language"
-                  className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Globe2 className="w-3.5 h-3.5" />
-                  <span>{activeLangObj?.name || 'English'}</span>
                 </button>
 
                 {/* Legal & Privacy Policies button */}
@@ -882,16 +880,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-1 md:gap-4">
-          {(displayPosts || []).map((post) => {
+          {(displayPosts || []).map((post, idx) => {
             // Compute real permanent video URL
             const permanentVideoUrl =
-              (post.downloadURL && !post.downloadURL.startsWith('blob:'))
+              (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('blob:')))
                 ? post.downloadURL
-                : (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
+                : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('blob:')))
                 ? post.mediaUrl
-                : ((post as any).videoUrl && !(post as any).videoUrl.startsWith('blob:'))
+                : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('blob:')))
                 ? (post as any).videoUrl
-                : `/api/media/${post.id}.mp4`;
+                : post.mediaUrl || post.downloadURL || (post as any).videoUrl || `/api/media/${post.id}.mp4`;
 
             // Compute real photo URL, avoiding purple abstract placeholder
             const realPhotoUrl =
@@ -913,7 +911,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
             return (
               <div
-                key={post.id}
+                key={`profile-post-${post.id}-${idx}`}
                 id={`profile-grid-post-${post.id}`}
                 onClick={() => onSelectPost(post)}
                 className="group relative aspect-square bg-neutral-900 overflow-hidden cursor-pointer rounded-sm md:rounded-lg"
@@ -951,13 +949,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     <div className="absolute top-2 right-2 p-1 rounded-full bg-black/60 backdrop-blur-md text-white drop-shadow-md z-10 flex items-center justify-center">
                       <Film className="w-3.5 h-3.5 text-white" />
                     </div>
-                    {/* Private badge if post is private */}
-                    {(post.privacy === 'private' || post.isPrivate) && (
-                      <div className="absolute top-2 right-9 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
-                        <Lock className="w-2.5 h-2.5" />
-                        <span>Private</span>
-                      </div>
-                    )}
                     {/* Keep title visible on card preview */}
                     {post.caption && (
                       <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none">
@@ -989,13 +980,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       }`}
                       loading="lazy"
                     />
-                    {/* Private badge if post is private */}
-                    {(post.privacy === 'private' || post.isPrivate) && (
-                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-bold border border-amber-400/40 flex items-center gap-1 z-10 shadow-md">
-                        <Lock className="w-2.5 h-2.5" />
-                        <span>Private</span>
-                      </div>
-                    )}
                   </div>
                 )}
               {/* Hover Overlay */}
@@ -1151,7 +1135,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   </p>
                 </div>
               ) : (
-                filteredModalUsers.map((u) => {
+                filteredModalUsers.map((u, idx) => {
                   const isCurrentSelf =
                     currentUser &&
                     ((currentUser.id && u.id && currentUser.id === u.id) ||
@@ -1171,7 +1155,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
                   return (
                     <div
-                      key={u.id || u.username}
+                      key={`modal-user-${u.id || ''}-${u.username || ''}-${idx}`}
                       className="p-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition flex items-center justify-between gap-3"
                     >
                       {/* User Info clickable to view profile */}

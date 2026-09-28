@@ -30,6 +30,28 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
   const t = translations[currentLanguage];
 
+  // Safely deduplicate creators by both id and username
+  const uniqueCreators = React.useMemo(() => {
+    const deduped: SuggestedCreator[] = [];
+    const seenIds = new Set<string>();
+    const seenUsernames = new Set<string>();
+
+    (creators || []).forEach((c) => {
+      if (!c) return;
+      const uid = String(c.id || '').trim();
+      const uname = String(c.username || '').toLowerCase().replace(/^@/, '').trim();
+      if (!uid && !uname) return;
+      if (uid && seenIds.has(uid)) return;
+      if (uname && seenUsernames.has(uname)) return;
+
+      if (uid) seenIds.add(uid);
+      if (uname) seenUsernames.add(uname);
+      deduped.push(c);
+    });
+
+    return deduped;
+  }, [creators]);
+
   const toggleFollow = (id: string) => {
     setFollowingMap((prev) => ({
       ...prev,
@@ -87,7 +109,7 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
       </div>
 
       {/* Suggested Users List (Only real creators from Firebase or clean empty state) */}
-      {creators.length === 0 ? (
+      {uniqueCreators.length === 0 ? (
         <div className="py-4 mb-8 text-left">
           <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
             No suggestions yet. As people join Jhalak and share content, suggestions will appear here.
@@ -95,17 +117,20 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
         </div>
       ) : (
         <div className="space-y-3 mb-8">
-          {creators.map((u) => {
+          {uniqueCreators.map((u, idx) => {
             const isSelf = Boolean(
-              (currentUser?.id && u.id === currentUser.id) ||
-              (currentUser?.username && u.username.toLowerCase().replace(/^@/, '') === currentUser.username.toLowerCase().replace(/^@/, ''))
+              (currentUser?.id && u.id && currentUser.id.toLowerCase() === u.id.toLowerCase()) ||
+              (currentUser?.username && u.username && u.username.toLowerCase().replace(/^@/, '') === currentUser.username.toLowerCase().replace(/^@/, '')) ||
+              (currentUser?.email && (u as any).email && currentUser.email.toLowerCase() === (u as any).email.toLowerCase()) ||
+              u.id === 'user-me' ||
+              u.username.toLowerCase().replace(/^@/, '') === 'you'
             );
             if (isSelf) return null;
 
             const isFollowing = followingMap[u.id];
 
             return (
-              <div key={u.id} className="flex items-center justify-between">
+              <div key={`suggestion-${u.id || 'creator'}-${u.username || ''}-${idx}`} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <img
                     src={u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80'}

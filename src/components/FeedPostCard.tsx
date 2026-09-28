@@ -202,48 +202,105 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     }
   }, [isPlaying, post]);
 
-  const handleMediaClick = () => {
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 260;
+  const fallbackToDirectVideo = (vid?: HTMLVideoElement | null) => {
+    const targetVid = vid || videoRef.current;
+    if (!targetVid) return;
 
-    if (now - lastTapTimeRef.current < DOUBLE_TAP_DELAY) {
-      // Double tap triggered -> cancel pending single tap & Like post
-      if (tapTimeoutRef.current) {
-        clearTimeout(tapTimeoutRef.current);
-        tapTimeoutRef.current = null;
-      }
+    const directUrl =
+      (post.downloadURL && (post.downloadURL.startsWith('blob:') || post.downloadURL.startsWith('http')) && targetVid.src !== post.downloadURL)
+        ? post.downloadURL
+        : (post.mediaUrl && (post.mediaUrl.startsWith('blob:') || post.mediaUrl.startsWith('http')) && targetVid.src !== post.mediaUrl)
+        ? post.mediaUrl
+        : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('blob:') || (post as any).videoUrl.startsWith('http')) && targetVid.src !== (post as any).videoUrl)
+        ? (post as any).videoUrl
+        : null;
+
+    if (directUrl) {
+      targetVid.src = directUrl;
+      targetVid.load();
+      targetVid.play().then(() => {
+        setIsPlaying(true);
+        setIsBuffering(false);
+      }).catch(() => {
+        targetVid.muted = true;
+        targetVid.play().then(() => {
+          setIsPlaying(true);
+          setIsBuffering(false);
+        }).catch(() => {});
+      });
+    } else if (!targetVid.src.includes('sample/ForBiggerBlazes')) {
+      targetVid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+      targetVid.load();
+      targetVid.play().then(() => {
+        setIsPlaying(true);
+        setIsBuffering(false);
+      }).catch(() => setVideoError(true));
+    }
+  };
+
+  const handleTogglePlayPause = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    if (vid.paused) {
+      vid.muted = isMuted;
+      vid
+        .play()
+        .then(() => {
+          setIsPlaying(true);
+          setIsBuffering(false);
+          setShowPlayPauseIcon('play');
+          setTimeout(() => setShowPlayPauseIcon(null), 600);
+        })
+        .catch((err) => {
+          console.warn("Play blocked on click, falling back to muted play:", err);
+          vid.muted = true;
+          vid
+            .play()
+            .then(() => {
+              setIsPlaying(true);
+              setIsBuffering(false);
+              setShowPlayPauseIcon('play');
+              setTimeout(() => setShowPlayPauseIcon(null), 600);
+            })
+            .catch(() => {
+              fallbackToDirectVideo(vid);
+            });
+        });
+    } else {
+      vid.pause();
+      setIsPlaying(false);
+      setShowPlayPauseIcon('pause');
+      setTimeout(() => setShowPlayPauseIcon(null), 600);
+    }
+  };
+
+  const handleMediaClick = (e: React.MouseEvent) => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 280;
+    const isDoubleTap = now - lastTapTimeRef.current < DOUBLE_TAP_DELAY;
+    lastTapTimeRef.current = now;
+
+    if (isDoubleTap) {
+      // Double tap triggered -> Like post & show heart animation
       if (!post.isLiked) {
         onToggleLike(post.id);
         recommendationEngine.recordLanguageInteraction(inferLanguage(post), 'like');
       }
       setShowHeartBurst(true);
       setTimeout(() => setShowHeartBurst(false), 800);
-      lastTapTimeRef.current = 0;
+
+      // If video was paused, resume it on like
+      if (post.mediaType === 'video' && videoRef.current && videoRef.current.paused) {
+        videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
       return;
     }
 
-    lastTapTimeRef.current = now;
-
-    if (tapTimeoutRef.current) {
-      clearTimeout(tapTimeoutRef.current);
-      tapTimeoutRef.current = null;
-    }
-
-    // Video posts: single tap opens full ReelsView directly at that reel
+    // Video posts: single screen click toggles play/pause IMMEDIATELY
     if (post.mediaType === 'video') {
-      tapTimeoutRef.current = setTimeout(() => {
-        if (onOpenReel) {
-          onOpenReel(post);
-        } else if (onOpenFullScreen) {
-          onOpenFullScreen({
-            ...post,
-            mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
-          });
-        } else {
-          onOpenDetail(post);
-        }
-        tapTimeoutRef.current = null;
-      }, 200);
+      handleTogglePlayPause(e);
       return;
     }
 
@@ -290,7 +347,11 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       (currentUser?.username && post?.username && (
         currentUser.username.toLowerCase().replace(/^@/, '').trim() ===
         post.username.toLowerCase().replace(/^@/, '').trim()
-      ))
+      )) ||
+      (currentUser?.email && post?.userEmail && currentUser.email.toLowerCase() === post.userEmail.toLowerCase()) ||
+      post?.userId === 'user-me' ||
+      post?.username === 'you' ||
+      post?.isUserCreated
     )
   );
 
@@ -470,13 +531,13 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           ) : (
             <>
               {(() => {
-                const videoSrc = (post.mediaUrl && !post.mediaUrl.startsWith('blob:'))
-                  ? post.mediaUrl
-                  : (post.downloadURL && !post.downloadURL.startsWith('blob:'))
+                const videoSrc = (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('blob:')))
                   ? post.downloadURL
-                  : ((post as any).videoUrl && !(post as any).videoUrl.startsWith('blob:'))
+                  : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('blob:')))
+                  ? post.mediaUrl
+                  : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('blob:')))
                   ? (post as any).videoUrl
-                  : `/api/media/${post.id}.mp4`;
+                  : post.mediaUrl || post.downloadURL || (post as any).videoUrl || `/api/media/${post.id}.mp4`;
 
                 return (
                   <video
@@ -488,6 +549,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       }
                     }}
                     src={videoSrc}
+                    controlsList="nodownload"
                     playsInline
                     webkit-playsinline="true"
                     autoPlay
@@ -519,6 +581,16 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       }
                     }}
                     onWaiting={() => setIsBuffering(true)}
+                    onStalled={(e) => {
+                      const vid = e.currentTarget;
+                      if (isIntersectingRef.current) {
+                        if (vid.paused) {
+                          vid.play().catch(() => fallbackToDirectVideo(vid));
+                        } else if (vid.readyState < 2) {
+                          fallbackToDirectVideo(vid);
+                        }
+                      }
+                    }}
                     onPlaying={() => {
                       setIsPlaying(true);
                       setIsBuffering(false);
@@ -528,22 +600,9 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       setIsBuffering(false);
                     }}
                     onPause={() => setIsPlaying(false)}
-                    onError={(e) => {
+                    onError={() => {
                       console.warn("Video failed, attempting storage URL fallback", post.downloadURL);
-                      if (post.downloadURL && e.currentTarget.src !== post.downloadURL) {
-                        e.currentTarget.src = post.downloadURL;
-                      } else if (videoRef.current && (!videoRef.current.src || !videoRef.current.src.includes('sample/ForBiggerBlazes'))) {
-                        videoRef.current.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-                        videoRef.current.load();
-                        videoRef.current.play().then(() => {
-                          setIsPlaying(true);
-                          setIsBuffering(false);
-                        }).catch(() => {
-                          setVideoError(true);
-                        });
-                      } else {
-                        setVideoError(true);
-                      }
+                      fallbackToDirectVideo(videoRef.current);
                     }}
                   />
                 );
@@ -643,19 +702,10 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               <div
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (onOpenReel) {
-                    onOpenReel(post);
-                  } else if (onOpenFullScreen) {
-                    onOpenFullScreen({
-                      ...post,
-                      mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
-                    });
-                  } else {
-                    onOpenDetail(post);
-                  }
+                  handleTogglePlayPause(e);
                 }}
                 className="absolute inset-0 flex items-center justify-center cursor-pointer z-20"
-                title="Watch Reel"
+                title="Play Video"
               >
                 <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-xl transition-all hover:scale-110 active:scale-95">
                   <Play className="w-7 h-7 fill-white ml-1 text-white" />

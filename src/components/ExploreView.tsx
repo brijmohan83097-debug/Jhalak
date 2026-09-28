@@ -177,14 +177,28 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   // Derive unique creators and friends from searchableUsers and posts
   const creators = useMemo<CreatorResult[]>(() => {
     const map = new Map<string, CreatorResult>();
+    const seenIds = new Set<string>();
+
+    const addCreator = (c: CreatorResult) => {
+      const uname = (c.username || '').toLowerCase().trim();
+      const uid = String(c.id || '').trim();
+      if (!uname && !uid) return;
+      if (uid && seenIds.has(uid)) return;
+      if (uname && map.has(uname)) return;
+
+      if (uid) seenIds.add(uid);
+      if (uname) {
+        map.set(uname, c);
+      } else if (uid) {
+        map.set(uid, c);
+      }
+    };
 
     // 1. Add registered users & friends first
     if (Array.isArray(searchableUsers)) {
       searchableUsers.forEach((u) => {
-        const uname = (u.username || '').toLowerCase().trim();
-        if (!uname) return;
-        map.set(uname, {
-          id: u.id || uname,
+        addCreator({
+          id: u.id || u.username,
           username: u.username,
           name: u.name || u.username,
           avatar: u.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
@@ -198,10 +212,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     // 2. Add creators from posts
     posts.forEach((p) => {
       const uname = (p.username || '').toLowerCase().trim();
-      if (!uname || map.has(uname)) return;
       if (uname.includes('fanclub') || uname.includes('dummy') || uname.includes('mock') || uname.includes('fake')) return;
 
-      map.set(uname, {
+      addCreator({
         id: p.userId || uname,
         username: p.username,
         name: p.username.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -311,6 +324,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 
   const toggleFollow = (username: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const myUsername = (currentUser?.username || localStorage.getItem('ig_current_username') || '').toLowerCase().replace(/^@/, '').trim();
+    const targetUsername = (username || '').toLowerCase().replace(/^@/, '').trim();
+    if ((myUsername && targetUsername && myUsername === targetUsername) || targetUsername === 'you') return; // disable self-follow
     setFollowedCreators((prev) => ({
       ...prev,
       [username]: !prev[username],
@@ -533,17 +549,22 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {filteredCreators.map((creator) => {
+              {filteredCreators.map((creator, idx) => {
                 const isFollowing = followedCreators[creator.username];
                 const myUsername = (currentUser?.username || localStorage.getItem('ig_current_username') || '').toLowerCase().replace(/^@/, '').trim();
                 const myId = (currentUser?.id || localStorage.getItem('ig_current_user_id') || '').trim();
                 const creatorUsername = (creator.username || '').toLowerCase().replace(/^@/, '').trim();
                 const creatorId = (creator.id || '').trim();
-                const isSelf = Boolean((myId && creatorId && myId === creatorId) || (myUsername && creatorUsername && myUsername === creatorUsername));
+                const isSelf = Boolean(
+                  (myId && creatorId && (myId === creatorId || creatorId === 'user-me')) ||
+                  (myUsername && creatorUsername && myUsername === creatorUsername) ||
+                  creatorUsername === 'you' ||
+                  creatorId === 'user-me'
+                );
 
                 return (
                   <div
-                    key={creator.id}
+                    key={`creator-${creator.id || ''}-${creator.username || ''}-${idx}`}
                     onClick={() => handleSelectCreator(creator.username)}
                     className="p-3 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl flex items-center justify-between gap-3 hover:border-neutral-400 dark:hover:border-neutral-700 transition cursor-pointer shadow-xs"
                   >

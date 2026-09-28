@@ -155,11 +155,11 @@ export const ShareModal: React.FC<ShareModalProps> = ({
             <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider block px-1">
               Send in Direct Message
             </span>
-            {conversations.map((conv) => {
+            {conversations.map((conv, idx) => {
               const isSent = sentMap[conv.id];
               return (
                 <div
-                  key={conv.id}
+                  key={`share-conv-${conv.id}-${idx}`}
                   className="flex items-center justify-between p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition"
                 >
                   <div className="flex items-center gap-2.5">
