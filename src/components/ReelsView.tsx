@@ -174,22 +174,13 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
   const viewedReelsSessionRef = useRef<Set<string>>(new Set());
 
-  const getDeterministicViews = useCallback((id: string): number => {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = (hash << 5) - hash + id.charCodeAt(i);
-      hash |= 0;
-    }
-    return Math.abs(hash % 4500) + 1200; // e.g. 1.2k - 5.7k views
-  }, []);
-
   const incrementReelView = useCallback((reelId: string, baseViews?: number) => {
     if (!reelId || viewedReelsSessionRef.current.has(reelId)) return;
     viewedReelsSessionRef.current.add(reelId);
 
     setReelViewsMap((prev) => {
       const initialCount =
-        prev[reelId] ?? (typeof baseViews === 'number' && baseViews > 0 ? baseViews : getDeterministicViews(reelId));
+        prev[reelId] ?? (typeof baseViews === 'number' && baseViews >= 0 ? baseViews : 0);
       const nextCount = initialCount + 1;
       const updated = { ...prev, [reelId]: nextCount };
       try {
@@ -214,10 +205,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
       return updated;
     });
-  }, [getDeterministicViews]);
+  }, []);
 
   const formatViewsCount = useCallback((count?: number): string => {
-    const val = count && count > 0 ? count : 1200;
+    const val = typeof count === 'number' && count >= 0 ? count : 0;
     if (val >= 1_000_000) {
       return `${(val / 1_000_000).toFixed(1).replace(/\.0$/, '')}M views`;
     }
@@ -273,6 +264,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const t = translations[currentLanguage];
 
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  const prevActiveIndexRef = useRef<number>(activeIndex);
   const containerRef = useRef<HTMLDivElement>(null);
   const reelItemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const lastTapTimeRef = useRef(0);
@@ -520,10 +512,13 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       return;
     }
 
+    const isIndexChanged = prevActiveIndexRef.current !== activeIndex;
+    prevActiveIndexRef.current = activeIndex;
+
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
       if (index === activeIndex) {
-        if (video.currentTime > 0.1) {
+        if (isIndexChanged && video.currentTime > 0.1) {
           try {
             video.currentTime = 0;
           } catch {}
@@ -536,9 +531,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           playPromise
             .then(() => setIsPlaying(true))
             .catch(() => {
-              // If unmuted autoplay without prior interaction is restricted by browser, fallback to muted autoplay for this element ONLY
+              // If unmuted autoplay without prior interaction is restricted by browser, fallback to muted autoplay
               video.muted = true;
-              // Never reset user's global audio preference; keep it unmuted for subsequent reels
               video
                 .play()
                 .then(() => setIsPlaying(true))
@@ -554,8 +548,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
         }
       }
     });
-    setProgress(0);
-    setExpandedCaption(false);
+    if (isIndexChanged) {
+      setProgress(0);
+      setExpandedCaption(false);
+    }
   }, [activeIndex, queue, isActive, isMuted]);
 
   // Sync mute across videos without restarting playback
@@ -1043,6 +1039,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                         setIsPlaying(true);
                       }
                     }}
+                    onWaiting={(e) => {
+                      if (index === activeIndex && isActive) {
+                        e.currentTarget.play().catch(() => {});
+                      }
+                    }}
+                    onStalled={(e) => {
+                      if (index === activeIndex && isActive) {
+                        e.currentTarget.play().catch(() => {});
+                      }
+                    }}
                     onPlay={() => {
                       if (index === activeIndex) setIsPlaying(true);
                     }}
@@ -1370,7 +1376,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   <div className="flex items-center gap-2 text-[11px] text-white/90 font-medium mt-0.5 drop-shadow-sm">
                     <span className="flex items-center gap-1 font-semibold text-rose-300">
                       <Eye className="w-3 h-3 text-rose-400 flex-shrink-0" />
-                      <span>{formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? getDeterministicViews(reel.id))}</span>
+                      <span>{formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? 0)}</span>
                     </span>
                     <span className="text-white/50">•</span>
                     <span className="flex items-center gap-1 text-neutral-300">
@@ -1462,13 +1468,13 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               {/* View Count Badge */}
               <div
                 className="flex flex-col items-center group transition"
-                title={`${formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? getDeterministicViews(reel.id))}`}
+                title={`${formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? 0)}`}
               >
                 <div className="p-2.5 rounded-full bg-black/40 backdrop-blur-md">
                   <Eye className="w-6 h-6 text-rose-400 stroke-[2]" />
                 </div>
                 <span className="text-[11px] font-semibold mt-0.5 drop-shadow-md">
-                  {formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? getDeterministicViews(reel.id)).replace(' views', '')}
+                  {formatViewsCount(reelViewsMap[reel.id] ?? (reel as any).viewsCount ?? 0).replace(' views', '')}
                 </span>
               </div>
 

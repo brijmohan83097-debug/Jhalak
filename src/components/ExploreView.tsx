@@ -28,6 +28,7 @@ import { BHOJPURI_MUSIC_LIBRARY, BhojpuriTrack, playSyntheticTrackPreview } from
 
 interface ExploreViewProps {
   posts: Post[];
+  currentUser?: User;
   onSelectPost: (post: Post) => void;
   onViewUser?: (username: string) => void;
   onUseAudio?: (audioTitle: string, artist?: string) => void;
@@ -75,6 +76,7 @@ const POPULAR_HASHTAGS = [
 
 export const ExploreView: React.FC<ExploreViewProps> = ({
   posts,
+  currentUser,
   onSelectPost,
   onViewUser,
   onUseAudio,
@@ -533,6 +535,12 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {filteredCreators.map((creator) => {
                 const isFollowing = followedCreators[creator.username];
+                const myUsername = (currentUser?.username || localStorage.getItem('ig_current_username') || '').toLowerCase().replace(/^@/, '').trim();
+                const myId = (currentUser?.id || localStorage.getItem('ig_current_user_id') || '').trim();
+                const creatorUsername = (creator.username || '').toLowerCase().replace(/^@/, '').trim();
+                const creatorId = (creator.id || '').trim();
+                const isSelf = Boolean((myId && creatorId && myId === creatorId) || (myUsername && creatorUsername && myUsername === creatorUsername));
+
                 return (
                   <div
                     key={creator.id}
@@ -563,17 +571,19 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={(e) => toggleFollow(creator.username, e)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex-shrink-0 cursor-pointer ${
-                        isFollowing
-                          ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200'
-                          : 'bg-rose-500 hover:bg-rose-600 text-white shadow-xs'
-                      }`}
-                    >
-                      {isFollowing ? 'Following' : 'Follow'}
-                    </button>
+                    {!isSelf && (
+                      <button
+                        type="button"
+                        onClick={(e) => toggleFollow(creator.username, e)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex-shrink-0 cursor-pointer ${
+                          isFollowing
+                            ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200'
+                            : 'bg-rose-500 hover:bg-rose-600 text-white shadow-xs'
+                        }`}
+                      >
+                        {isFollowing ? 'Following' : 'Follow'}
+                      </button>
+                    )}
                   </div>
                 );
               })}

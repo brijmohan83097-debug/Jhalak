@@ -96,6 +96,12 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
       ) : (
         <div className="space-y-3 mb-8">
           {creators.map((u) => {
+            const isSelf = Boolean(
+              (currentUser?.id && u.id === currentUser.id) ||
+              (currentUser?.username && u.username.toLowerCase().replace(/^@/, '') === currentUser.username.toLowerCase().replace(/^@/, ''))
+            );
+            if (isSelf) return null;
+
             const isFollowing = followingMap[u.id];
 
             return (

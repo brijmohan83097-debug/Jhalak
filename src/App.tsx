@@ -3331,6 +3331,7 @@ export default function App() {
             <ErrorBoundary compact fallbackTitle="Explore Feed">
               <ExploreView
                 posts={allExploreItems}
+                currentUser={currentUser}
                 searchableUsers={allSearchableUsers}
                 onSelectPost={(p) => {
                   if (p.mediaType === 'video') {
@@ -3728,6 +3729,7 @@ export default function App() {
             <ErrorBoundary compact fallbackTitle="Search & Explore" onReset={() => setIsSearchOverlayOpen(false)}>
               <ExploreView
                 posts={allExploreItems}
+                currentUser={currentUser}
                 searchableUsers={allSearchableUsers}
                 initialQuery={searchOverlayInitialQuery}
                 onSelectPost={(p) => {

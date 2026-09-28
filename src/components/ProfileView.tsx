@@ -16,7 +16,6 @@ import {
   Trash2,
   ArrowLeft,
   Lock,
-  Globe,
   X,
   Users,
   UserCheck,
@@ -286,33 +285,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const [postToDeleteConfirm, setPostToDeleteConfirm] = useState<Post | null>(null);
 
-  // Helper to determine if a post belongs to the current profile user
+  // Helper to determine if a post belongs strictly to current profile user
   const isMatchingUser = (p: any): boolean => {
     if (!p || typeof p !== 'object' || !p.id) return false;
-    if (isOwnProfile && isSuperAdmin(user)) return true;
-    const targetId = (user?.id || '').trim().toLowerCase();
-    const targetUsername = (user?.username || '').replace(/^@/, '').trim().toLowerCase();
-
-    const postUserId = (p.userId || '').trim().toLowerCase();
-    const postAuthorId = (p.authorId || '').trim().toLowerCase();
-    const postUsername = (p.username || '').replace(/^@/, '').trim().toLowerCase();
-
-    // 1. Direct match by user ID or author ID
-    if (targetId && (targetId === postUserId || targetId === postAuthorId)) return true;
-
-    // 2. Direct match by username
-    if (targetUsername && postUsername && targetUsername === postUsername) return true;
-
-    // 3. Match by user created flag or email (for own profile)
-    if (isOwnProfile && p.isUserCreated) return true;
-    if (isOwnProfile && user?.email && (p.userEmail || p.email) && user.email.toLowerCase() === (p.userEmail || p.email).toLowerCase()) return true;
-
-    return false;
+    const targetUserId = (isOwnProfile ? (currentUser?.id || user?.id) : user?.id || '').trim();
+    if (!targetUserId) return false;
+    const postUserId = (p.userId || '').trim();
+    return postUserId === targetUserId;
   };
 
-  // Load and display this profile user's uploaded posts
+  // Load and display this profile user's uploaded posts (strictly filtered by current user)
   const resolvedUserPosts = React.useMemo(() => {
-    if (!user) return [];
+    const targetUserId = (isOwnProfile ? (currentUser?.id || user?.id) : user?.id || '').trim();
+    if (!targetUserId) return [];
     const postMap = new Map<string, Post>();
 
     const addIfMatching = (p: any) => {
@@ -323,67 +308,42 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
     };
 
-    // 1. Check Firestore remote posts
+    // 1. Check user-specific localStorage key
+    try {
+      const userPostsKey = `ig_user_posts_${targetUserId}`;
+      const raw = localStorage.getItem(userPostsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(addIfMatching);
+        }
+      }
+    } catch {}
+
+    // 2. Check Firestore remote posts
     (firestoreUserPosts || []).forEach(addIfMatching);
 
-    // 2. Check user-specific localStorage key for own profile
-    if (isOwnProfile && user.id) {
-      try {
-        const userPostsKey = `ig_user_posts_${user.id}`;
-        const raw = localStorage.getItem(userPostsKey);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            parsed.forEach(addIfMatching);
-          }
-        }
-
-        // Global uploaded posts & reels cache
-        const rawAll = localStorage.getItem('jhalak_uploaded_posts_v1');
-        if (rawAll) {
-          const parsedAll = JSON.parse(rawAll);
-          if (Array.isArray(parsedAll)) {
-            parsedAll.forEach(addIfMatching);
-          }
-        }
-
-        // Legacy fallback exclusively for Super Admin
-        if (isSuperAdmin(user)) {
-          const legacyMe = localStorage.getItem('ig_user_posts_user-me');
-          if (legacyMe) {
-            const parsed = JSON.parse(legacyMe);
-            if (Array.isArray(parsed)) parsed.forEach(addIfMatching);
-          }
-          const legacyBrij = localStorage.getItem('ig_user_posts_brijmohan');
-          if (legacyBrij) {
-            const parsed = JSON.parse(legacyBrij);
-            if (Array.isArray(parsed)) parsed.forEach(addIfMatching);
-          }
-        }
-      } catch {
-        // safe fallback
-      }
-    }
-
-    // 3. Posts from props that match this user
+    // 3. Posts from props that match this user strictly
     (userPosts || []).forEach(addIfMatching);
-
-    // If viewing another user and no posts matched by strict matching, but userPosts were provided:
-    if (!isOwnProfile && postMap.size === 0 && Array.isArray(userPosts)) {
-      userPosts.forEach((p) => {
-        if (p && p.id && !moderationService.isPermanentlyDeleted(p.id)) {
-          postMap.set(p.id, p);
-        }
-      });
-    }
 
     // 4. Posts directly attached to profile user object
     (user.userPosts || user.posts || []).forEach(addIfMatching);
 
+    // 5. Global uploaded posts strictly matching target user ID
+    try {
+      const rawAll = localStorage.getItem('jhalak_uploaded_posts_v1');
+      if (rawAll) {
+        const parsedAll = JSON.parse(rawAll);
+        if (Array.isArray(parsedAll)) {
+          parsedAll.forEach(addIfMatching);
+        }
+      }
+    } catch {}
+
     const allPosts = Array.from(postMap.values());
     const uniquePosts = Array.from(new Map(allPosts.map((p) => [p.id, p])).values());
     return uniquePosts;
-  }, [userPosts, user, isOwnProfile, firestoreUserPosts]);
+  }, [userPosts, user, currentUser, isOwnProfile, firestoreUserPosts]);
 
   const [deletedPostIds, setDeletedPostIds] = useState<string[]>([]);
 
@@ -435,11 +395,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   const safeResolvedPosts = React.useMemo(() => {
+    const targetUserId = (isOwnProfile ? (currentUser?.id || user?.id) : user?.id || '').trim();
     const list = (Array.isArray(resolvedUserPosts) ? resolvedUserPosts : []).filter(
-      (p) => !deletedPostIds.includes(p.id) && !moderationService.isPermanentlyDeleted(p.id)
+      (p) =>
+        (!targetUserId || p.userId === targetUserId) &&
+        !deletedPostIds.includes(p.id) &&
+        !moderationService.isPermanentlyDeleted(p.id)
     );
     return Array.from(new Map(list.map((p) => [p.id, p])).values());
-  }, [resolvedUserPosts, deletedPostIds]);
+  }, [resolvedUserPosts, deletedPostIds, currentUser?.id, user?.id, isOwnProfile]);
 
   const safeSavedPosts = React.useMemo(() => {
     const list = (Array.isArray(savedPosts) ? savedPosts : []).filter(
@@ -1045,31 +1009,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   <span>{Array.isArray(post.comments) ? post.comments.length : 0}</span>
                 </div>
               </div>
-
-              {/* Quick Privacy Toggle Button (Owner Only) */}
-              {onUpdatePostPrivacy && (isOwnProfile || isSuperAdmin(currentUser)) && isMatchingUser(post) && (
-                <button
-                  id={`profile-privacy-toggle-btn-${post.id}`}
-                  type="button"
-                  title={
-                    post.privacy === 'private' || post.isPrivate
-                      ? 'Post is Private (Only you see it). Tap to make Public'
-                      : 'Post is Public. Tap to make Private'
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const nextPrivacy = post.privacy === 'private' || post.isPrivate ? 'public' : 'private';
-                    onUpdatePostPrivacy(post.id, nextPrivacy);
-                  }}
-                  className="absolute bottom-2 right-2 z-20 p-1.5 rounded-full bg-black/80 hover:bg-black text-white shadow-lg transition opacity-90 md:opacity-0 md:group-hover:opacity-100 cursor-pointer border border-white/20"
-                >
-                  {post.privacy === 'private' || post.isPrivate ? (
-                    <Lock className="w-3.5 h-3.5 text-amber-400" />
-                  ) : (
-                    <Globe className="w-3.5 h-3.5 text-emerald-400" />
-                  )}
-                </button>
-              )}
             </div>
           );
         })}
