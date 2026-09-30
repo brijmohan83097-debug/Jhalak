@@ -43,6 +43,9 @@ import {
   Film,
   Tag,
   CheckCircle2,
+  Infinity,
+  LayoutGrid,
+  ChevronDown,
 } from 'lucide-react';
 import { User, Post, Reel, ContentCategory } from '../types';
 import {
@@ -219,9 +222,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     [selectedFilter]
   );
 
-  // Camera aspect ratio and fit mode ('contain' for normal wide 1x upper body view, 'cover' for full bleed)
-  const [cameraFit, setCameraFit] = useState<'contain' | 'cover'>('contain');
-
   // Audio state
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
   const [selectedAudio, setSelectedAudio] = useState<BhojpuriTrack | null>(() => {
@@ -243,6 +243,11 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [recordingSpeed, setRecordingSpeed] = useState<'0.3x' | '0.5x' | '1x' | '2x' | '3x'>('1x');
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+
+  // Left side Instagram vertical toolstrip: Aa, Boomerang (∞), Layout grid, Down arrow
+  const [isBoomerang, setIsBoomerang] = useState(false);
+  const [isLayoutMode, setIsLayoutMode] = useState(false);
+  const [showExtraLeftTools, setShowExtraLeftTools] = useState(false);
 
   // Live session state
   const [isLiveActive, setIsLiveActive] = useState(false);
@@ -593,44 +598,32 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       const ctx = canvas.getContext('2d');
 
       if (ctx) {
-        if (cameraFit === 'contain' && mode !== 'POST') {
-          // Preserve 100% full wide sensor without cropping upper body
-          canvas.width = vWidth;
-          canvas.height = vHeight;
-          if (isFrontCamera) {
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-          }
-          ctx.filter = activeFilterPreset.canvasFilter;
-          ctx.drawImage(vid, 0, 0, vWidth, vHeight);
+        const targetRatio = targetWidth / targetHeight;
+        const currentRatio = vWidth / vHeight;
+
+        let sWidth = vWidth;
+        let sHeight = vHeight;
+        let sx = 0;
+        let sy = 0;
+
+        if (currentRatio > targetRatio) {
+          sWidth = vHeight * targetRatio;
+          sx = (vWidth - sWidth) / 2;
         } else {
-          const targetRatio = targetWidth / targetHeight;
-          const currentRatio = vWidth / vHeight;
-
-          let sWidth = vWidth;
-          let sHeight = vHeight;
-          let sx = 0;
-          let sy = 0;
-
-          if (currentRatio > targetRatio) {
-            sWidth = vHeight * targetRatio;
-            sx = (vWidth - sWidth) / 2;
-          } else {
-            sHeight = vWidth / targetRatio;
-            sy = (vHeight - sHeight) / 2;
-          }
-
-          // Mirror front camera
-          if (isFrontCamera) {
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-          }
-
-          // Apply active Instagram filter
-          ctx.filter = activeFilterPreset.canvasFilter;
-
-          ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
+          sHeight = vWidth / targetRatio;
+          sy = (vHeight - sHeight) / 2;
         }
+
+        // Mirror front camera
+        if (isFrontCamera) {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
+
+        // Apply active Instagram filter
+        ctx.filter = activeFilterPreset.canvasFilter;
+
+        ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
 
         canvas.toBlob(
           (blob) => {
@@ -1185,7 +1178,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   return (
     <div
       id="instagram-camera-modal"
-      className="fixed inset-0 z-50 w-screen h-screen overflow-hidden bg-black select-none touch-none flex flex-col justify-between"
+      className="fixed inset-0 z-50 w-screen h-screen overflow-hidden bg-black select-none touch-none"
       onTouchStart={isEditing ? undefined : handleTouchStart}
       onTouchEnd={isEditing ? undefined : handleTouchEnd}
     >
@@ -1217,127 +1210,106 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       {/* ======================================================== */}
       {!isEditing && (
         <>
-          {/* True edge-to-edge camera background layer with natural aspect ratio without extra cropping */}
-          <div className="absolute inset-0 w-full h-full overflow-hidden bg-black flex items-center justify-center">
-            <video
-              ref={videoLiveRef}
-              playsInline
-              webkit-playsinline="true"
-              controlsList="nodownload"
-              autoPlay
-              muted
-              style={{
-                objectFit: cameraFit,
-                transform: isFrontCamera ? 'scaleX(-1)' : 'none',
-              }}
-              className={`w-full h-full transition-opacity duration-200 ${
-                isFlipping ? 'opacity-50' : 'opacity-100'
-              } ${activeFilterPreset.cssClass}`}
-            />
+          {/* 100% Fullscreen Camera Video: width: 100vw, height: 100vh, position: fixed, top: 0, left: 0, object-fit: cover */}
+          <video
+            ref={videoLiveRef}
+            playsInline
+            webkit-playsinline="true"
+            controlsList="nodownload"
+            autoPlay
+            muted
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              objectFit: 'cover',
+              transform: isFrontCamera ? 'scaleX(-1)' : 'none',
+            }}
+            className={`fixed top-0 left-0 w-screen h-screen object-cover z-0 transition-opacity duration-200 ${
+              isFlipping ? 'opacity-50' : 'opacity-100'
+            } ${activeFilterPreset.cssClass}`}
+          />
 
-            {/* Optional 1:1 square framing guide for POST mode (subtle border, no black bars) */}
-            {mode === 'POST' && (
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-[88vw] max-w-[420px] aspect-square rounded-2xl border-2 border-dashed border-white/40 shadow-2xl relative">
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold text-white uppercase tracking-wider border border-white/20">
-                    Post 1:1 Frame
-                  </div>
-                  {showGrid && (
-                    <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
-                      <div className="border-r border-b border-white/20" />
-                      <div className="border-r border-b border-white/20" />
-                      <div className="border-b border-white/20" />
-                      <div className="border-r border-b border-white/20" />
-                      <div className="border-r border-b border-white/20" />
-                      <div className="border-b border-white/20" />
-                      <div className="border-r border-b border-white/20" />
-                      <div className="border-r border-b border-white/20" />
-                      <div />
-                    </div>
-                  )}
-                </div>
+          {/* 3x3 Grid Overlay */}
+          {showGrid && (
+            <div className="fixed inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none z-10">
+              <div className="border-r border-b border-white/20" />
+              <div className="border-r border-b border-white/20" />
+              <div className="border-b border-white/20" />
+              <div className="border-r border-b border-white/20" />
+              <div className="border-r border-b border-white/20" />
+              <div className="border-b border-white/20" />
+              <div className="border-r border-b border-white/20" />
+              <div className="border-r border-b border-white/20" />
+              <div />
+            </div>
+          )}
+
+          {/* Error or Fallback View */}
+          {cameraError && (
+            <div className="fixed inset-0 z-40 bg-neutral-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
+              <div className="w-16 h-16 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-4">
+                <AlertCircle className="w-8 h-8" />
               </div>
-            )}
-
-            {/* 3x3 Grid Overlay in Story / Reel mode */}
-            {showGrid && mode !== 'POST' && (
-              <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none z-10">
-                <div className="border-r border-b border-white/20" />
-                <div className="border-r border-b border-white/20" />
-                <div className="border-b border-white/20" />
-                <div className="border-r border-b border-white/20" />
-                <div className="border-r border-b border-white/20" />
-                <div className="border-b border-white/20" />
-                <div className="border-r border-b border-white/20" />
-                <div className="border-r border-b border-white/20" />
-                <div />
+              <h3 className="font-bold text-lg mb-2">Camera Access Notice</h3>
+              <p className="text-xs text-neutral-300 max-w-sm mb-6 leading-relaxed">
+                {cameraError}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+                <button
+                  type="button"
+                  onClick={() => startCamera()}
+                  disabled={cameraLoading}
+                  className="flex-1 py-3 px-4 rounded-xl bg-white text-black font-semibold text-xs flex items-center justify-center gap-2 hover:bg-neutral-200 transition active:scale-95 cursor-pointer shadow-lg"
+                >
+                  <RefreshCw className={`w-4 h-4 ${cameraLoading ? 'animate-spin' : ''}`} />
+                  <span>{cameraLoading ? 'Connecting...' : 'Retry Camera'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileFallbackInputRef.current?.click()}
+                  className="flex-1 py-3 px-4 rounded-xl bg-neutral-800 text-white font-semibold text-xs flex items-center justify-center gap-2 hover:bg-neutral-700 transition active:scale-95 border border-white/20 cursor-pointer shadow-lg"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Select Media</span>
+                </button>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Error or Fallback View */}
-            {cameraError && (
-              <div className="absolute inset-0 z-30 bg-neutral-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
-                <div className="w-16 h-16 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-4">
-                  <AlertCircle className="w-8 h-8" />
-                </div>
-                <h3 className="font-bold text-lg mb-2">Camera Access Notice</h3>
-                <p className="text-xs text-neutral-300 max-w-sm mb-6 leading-relaxed">
-                  {cameraError}
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
-                  <button
-                    type="button"
-                    onClick={() => startCamera()}
-                    disabled={cameraLoading}
-                    className="flex-1 py-3 px-4 rounded-xl bg-white text-black font-semibold text-xs flex items-center justify-center gap-2 hover:bg-neutral-200 transition active:scale-95 cursor-pointer shadow-lg"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${cameraLoading ? 'animate-spin' : ''}`} />
-                    <span>{cameraLoading ? 'Connecting...' : 'Retry Camera'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileFallbackInputRef.current?.click()}
-                    className="flex-1 py-3 px-4 rounded-xl bg-neutral-800 text-white font-semibold text-xs flex items-center justify-center gap-2 hover:bg-neutral-700 transition active:scale-95 border border-white/20 cursor-pointer shadow-lg"
-                  >
-                    <Upload className="w-4 h-4" />
-                    <span>Select Media</span>
-                  </button>
-                </div>
+          {/* LIVE MODE: Real Active Camera Preview */}
+          {mode === 'LIVE' && (
+            <div className="fixed top-20 inset-x-4 z-20 flex flex-col items-center pointer-events-none">
+              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/60 border border-white/25 backdrop-blur-md text-white shadow-xl">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    isLiveActive ? 'bg-red-500 animate-ping' : 'bg-emerald-400'
+                  }`}
+                />
+                <span className="font-bold text-xs tracking-wider">
+                  {isLiveActive ? 'LIVE ON AIR' : 'LIVE READY • ACTIVE SENSOR'}
+                </span>
               </div>
-            )}
 
-            {/* LIVE MODE: Real Active Camera Preview */}
-            {mode === 'LIVE' && (
-              <div className="absolute top-20 inset-x-4 z-20 flex flex-col items-center pointer-events-none">
-                <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/60 border border-white/25 backdrop-blur-md text-white shadow-xl">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full ${
-                      isLiveActive ? 'bg-red-500 animate-ping' : 'bg-emerald-400'
-                    }`}
-                  />
-                  <span className="font-bold text-xs tracking-wider">
-                    {isLiveActive ? 'LIVE ON AIR' : 'LIVE READY • ACTIVE SENSOR'}
+              {isLiveActive && (
+                <div className="mt-3 flex items-center gap-3 px-3 py-1.5 rounded-full bg-black/70 text-white text-xs font-semibold backdrop-blur-md border border-white/20 shadow-lg">
+                  <span className="font-mono text-red-400 font-bold">
+                    {formatTimer(liveDurationSeconds)}
                   </span>
-                </div>
-
-                {isLiveActive && (
-                  <div className="mt-3 flex items-center gap-3 px-3 py-1.5 rounded-full bg-black/70 text-white text-xs font-semibold backdrop-blur-md border border-white/20 shadow-lg">
-                    <span className="font-mono text-red-400 font-bold">
-                      {formatTimer(liveDurationSeconds)}
-                    </span>
-                    <span className="text-white/40">•</span>
-                    <div className="flex items-center gap-1 text-emerald-400">
-                      <Wifi className="w-3.5 h-3.5" />
-                      <span className="text-[11px]">1080p 60fps</span>
-                    </div>
+                  <span className="text-white/40">•</span>
+                  <div className="flex items-center gap-1 text-emerald-400">
+                    <Wifi className="w-3.5 h-3.5" />
+                    <span className="text-[11px]">1080p 60fps</span>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* OVERLAY 1: Transparent Top Controls Header */}
-          <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 pt-safe bg-gradient-to-b from-black/80 via-black/35 to-transparent pointer-events-auto">
+          <div className="fixed top-0 inset-x-0 z-30 flex items-center justify-between p-4 pt-safe bg-gradient-to-b from-black/75 via-black/25 to-transparent pointer-events-auto">
             {/* Close camera button */}
             <button
               type="button"
@@ -1363,24 +1335,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             )}
 
-            {/* Right Tools (1x Wide / Fill, Flash, Grid, Timer) */}
+            {/* Right Tools (Flash, Grid, Timer) */}
             <div className="flex items-center gap-2">
-              {/* 1x Wide vs Fill toggle */}
-              <button
-                type="button"
-                onClick={() => setCameraFit((prev) => (prev === 'contain' ? 'cover' : 'contain'))}
-                aria-label="Toggle camera 1x Wide or Fill view"
-                className={`px-2.5 py-1.5 rounded-full backdrop-blur-md border text-xs font-bold transition active:scale-95 cursor-pointer shadow-lg flex items-center gap-1.5 ${
-                  cameraFit === 'contain'
-                    ? 'bg-amber-400 text-black border-amber-300'
-                    : 'bg-black/40 text-white border-white/10 hover:bg-black/70'
-                }`}
-                title={cameraFit === 'contain' ? 'Normal Wide 1x (Full Upper Body)' : 'Fill Screen'}
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-                <span>{cameraFit === 'contain' ? '1x Wide' : 'Fill'}</span>
-              </button>
-
               <button
                 type="button"
                 onClick={toggleFlash}
@@ -1425,58 +1381,134 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             </div>
           </div>
 
-          {/* OVERLAY 2: Transparent Left Toolstrip (Reel Speed / Mic) */}
-          {mode === 'REEL' && (
-            <div className="absolute left-4 top-24 z-30 flex flex-col items-center gap-3 pointer-events-auto">
-              {/* Speed Selector */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowSpeedMenu((s) => !s)}
-                  className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center text-white text-xs font-bold shadow-lg active:scale-95 cursor-pointer"
-                >
-                  {recordingSpeed}
-                </button>
-                {showSpeedMenu && (
-                  <div className="absolute left-12 top-0 bg-neutral-900/90 border border-white/20 rounded-xl p-1 flex flex-col gap-1 backdrop-blur-md z-40 shadow-2xl">
-                    {(['0.3x', '0.5x', '1x', '2x', '3x'] as const).map((spd) => (
-                      <button
-                        key={spd}
-                        type="button"
-                        onClick={() => {
-                          setRecordingSpeed(spd);
-                          setShowSpeedMenu(false);
-                        }}
-                        className={`px-3 py-1.5 text-xs rounded-lg font-bold text-left transition cursor-pointer ${
-                          recordingSpeed === spd
-                            ? 'bg-rose-500 text-white'
-                            : 'text-neutral-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {spd}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+          {/* OVERLAY 2: Left Side Vertical Icons [Aa (Text) | ∞ (Boomerang) | Layout Grid | Down Arrow] */}
+          <div className="fixed left-3 sm:left-5 top-24 z-30 flex flex-col items-center gap-3.5 pointer-events-auto">
+            {/* 1. Aa (Text / Create Tool) */}
+            <button
+              type="button"
+              id="camera-text-tool-btn"
+              onClick={() => {
+                setActiveEditorDrawer((prev) => (prev === 'text' ? 'none' : 'text'));
+                if (onShowToast) onShowToast('Text overlay ready ✍️');
+              }}
+              className="w-10 h-10 rounded-full bg-black/45 hover:bg-black/75 backdrop-blur-md border border-white/20 flex items-center justify-center text-white transition active:scale-90 shadow-xl cursor-pointer"
+              title="Aa (Text)"
+            >
+              <span className="font-serif font-black text-sm tracking-tight select-none">Aa</span>
+            </button>
 
-              {/* Mic Toggle */}
+            {/* 2. ∞ (Boomerang Mode) */}
+            <button
+              type="button"
+              id="camera-boomerang-btn"
+              onClick={() => {
+                const next = !isBoomerang;
+                setIsBoomerang(next);
+                if (onShowToast) {
+                  onShowToast(next ? 'Boomerang mode ON ♾️' : 'Standard video mode');
+                }
+              }}
+              className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
+                isBoomerang
+                  ? 'bg-gradient-to-tr from-rose-500 to-amber-500 border-rose-300 text-white ring-2 ring-rose-400/50'
+                  : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
+              }`}
+              title="∞ (Boomerang)"
+            >
+              <Infinity className="w-5 h-5" />
+            </button>
+
+            {/* 3. Layout Grid */}
+            <button
+              type="button"
+              id="camera-layout-grid-btn"
+              onClick={() => {
+                const next = !isLayoutMode;
+                setIsLayoutMode(next);
+                setShowGrid(next);
+                if (onShowToast) {
+                  onShowToast(next ? 'Layout Grid active 🔲' : 'Grid off');
+                }
+              }}
+              className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
+                isLayoutMode
+                  ? 'bg-white text-black border-white ring-2 ring-white/50'
+                  : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
+              }`}
+              title="Layout Grid"
+            >
+              <LayoutGrid className="w-5 h-5" />
+            </button>
+
+            {/* 4. Down Arrow (Expand extra tools: Speed, Timer, Mic) */}
+            <div className="relative flex flex-col items-center">
               <button
                 type="button"
-                onClick={() => setIsMicMuted((m) => !m)}
-                className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-95 cursor-pointer shadow-lg ${
-                  isMicMuted
-                    ? 'bg-rose-500 text-white border-rose-400'
-                    : 'bg-black/50 text-white border-white/20'
+                id="camera-more-tools-btn"
+                onClick={() => setShowExtraLeftTools((prev) => !prev)}
+                className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
+                  showExtraLeftTools
+                    ? 'bg-white/25 border-white text-white'
+                    : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
                 }`}
+                title="More Tools"
               >
-                {isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                <ChevronDown
+                  className={`w-5 h-5 transition-transform duration-200 ${
+                    showExtraLeftTools ? 'rotate-180' : ''
+                  }`}
+                />
               </button>
+
+              {/* Expanded Sub-Tools Menu */}
+              {showExtraLeftTools && (
+                <div className="absolute left-12 top-0 bg-neutral-900/95 border border-white/20 rounded-2xl p-2 flex flex-col gap-2 backdrop-blur-xl z-40 shadow-2xl min-w-[130px]">
+                  {/* Speed Selector */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-bold text-neutral-400 px-1">Speed</span>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(['0.5x', '1x', '2x'] as const).map((spd) => (
+                        <button
+                          key={spd}
+                          type="button"
+                          onClick={() => {
+                            setRecordingSpeed(spd);
+                            if (onShowToast) onShowToast(`Speed set to ${spd}`);
+                          }}
+                          className={`py-1 text-[11px] rounded-lg font-bold text-center transition cursor-pointer ${
+                            recordingSpeed === spd
+                              ? 'bg-rose-500 text-white'
+                              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                          }`}
+                        >
+                          {spd}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Mic Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isMicMuted;
+                      setIsMicMuted(next);
+                      if (onShowToast) onShowToast(next ? 'Microphone muted 🔇' : 'Microphone unmuted 🎙️');
+                    }}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      isMicMuted ? 'bg-rose-500/20 text-rose-300' : 'text-neutral-300 hover:bg-white/10'
+                    }`}
+                  >
+                    {isMicMuted ? <MicOff className="w-4 h-4 text-rose-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+                    <span>{isMicMuted ? 'Mic Off' : 'Mic On'}</span>
+                  </button>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* OVERLAY 3: Transparent Bottom Controls (Filters, Shutter, Tabs) */}
-          <div className="absolute bottom-0 inset-x-0 z-30 flex flex-col items-center pb-safe pb-6 pt-10 px-4 bg-gradient-to-t from-black/95 via-black/50 to-transparent pointer-events-auto">
+          <div className="fixed bottom-0 inset-x-0 z-30 flex flex-col items-center pb-safe pb-6 pt-12 px-4 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-auto">
             {/* 10 Trending Instagram-Style Filters Shelf */}
             <div className="w-full max-w-md mb-3 flex items-center justify-center gap-3 overflow-x-auto no-scrollbar py-1 px-4">
               {FILTER_PRESETS.map((filter) => {
@@ -1510,21 +1542,21 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               })}
             </div>
 
-            {/* Shutter Dock Row: [Gallery Button | Circular Shutter / Live Button | Flip Camera] */}
-            <div className="w-full max-w-md flex items-center justify-between px-6 mb-4">
-              {/* Gallery / File Picker */}
+            {/* Shutter Dock Row: [Gallery (Bottom-Left) | Big White Round Record Button (Center) | Camera Flip (Bottom-Right)] */}
+            <div className="w-full max-w-sm flex items-center justify-between px-6 mb-3">
+              {/* Bottom-Left: Gallery Thumbnail Picker */}
               <button
                 type="button"
                 id="camera-gallery-picker-btn"
                 onClick={() => fileFallbackInputRef.current?.click()}
                 disabled={isRecording}
-                className="w-12 h-12 rounded-xl bg-neutral-900 border border-white/20 flex items-center justify-center text-white hover:bg-neutral-800 transition active:scale-95 shadow-lg overflow-hidden group cursor-pointer"
+                className="w-12 h-12 rounded-xl bg-neutral-900/80 border border-white/30 flex items-center justify-center text-white hover:bg-neutral-800 transition active:scale-90 shadow-xl overflow-hidden cursor-pointer"
                 title="Choose from Gallery"
               >
-                <ImageIcon className="w-6 h-6 text-white/80 group-hover:text-white transition" />
+                <ImageIcon className="w-6 h-6 text-white/90" />
               </button>
 
-              {/* Shutter Button */}
+              {/* Center: Bada Safed Gol Record Button */}
               {mode === 'LIVE' ? (
                 <button
                   type="button"
@@ -1541,6 +1573,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 </button>
               ) : (
                 <div className="relative flex items-center justify-center">
+                  {/* Circular Recording Progress Ring */}
                   {isRecording && (
                     <svg className="absolute w-[96px] h-[96px] -rotate-90 pointer-events-none">
                       <circle
@@ -1580,17 +1613,20 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                         ? 'Tap to start recording, or hold'
                         : 'Tap to capture photo'
                     }
-                    className={`relative w-[84px] h-[84px] rounded-full flex items-center justify-center transition-transform duration-150 focus:outline-hidden cursor-pointer ${
-                      isShutterPressed || isRecording ? 'scale-110' : 'active:scale-95'
+                    className={`relative w-[86px] h-[86px] rounded-full flex items-center justify-center transition-transform duration-150 focus:outline-hidden cursor-pointer ${
+                      isShutterPressed || isRecording ? 'scale-105' : 'active:scale-95'
                     }`}
                   >
+                    {/* Bada Safed Gol Outer Ring */}
                     <div
                       className={`absolute inset-0 rounded-full border-[4px] transition-all duration-200 ${
                         isRecording
                           ? 'border-red-500 scale-105'
-                          : 'border-white/80 shadow-2xl hover:border-white'
+                          : 'border-white/95 shadow-2xl hover:border-white'
                       }`}
                     />
+
+                    {/* Bada Safed Gol Inner White Button */}
                     <div
                       className={`transition-all duration-200 flex items-center justify-center ${
                         isRecording
@@ -1610,13 +1646,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 </div>
               )}
 
-              {/* Flip Camera */}
+              {/* Bottom-Right: Camera Flip Icon */}
               <button
                 type="button"
                 id="camera-flip-btn"
                 onClick={handleFlipCamera}
                 disabled={isRecording}
-                className="w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-white hover:bg-black/70 transition active:scale-95 shadow-lg cursor-pointer"
+                className="w-12 h-12 rounded-full bg-black/45 hover:bg-black/75 border border-white/30 flex items-center justify-center text-white backdrop-blur-md shadow-xl transition active:scale-90 cursor-pointer"
                 title="Flip Camera (Front/Back)"
               >
                 <RefreshCw
@@ -1627,32 +1663,39 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             </div>
 
-            {/* Bottom Swipeable Modes Bar: POST | STORY | REEL | LIVE */}
+            {/* Sabse Neeche Menu: POST | STORY | REEL | LIVE (REEL bold white dikhe) */}
             <div
               ref={modesScrollRef}
-              className="w-full flex items-center justify-center gap-6 overflow-x-auto no-scrollbar py-2 px-10 cursor-pointer"
+              className="w-full flex items-center justify-center gap-5 sm:gap-7 overflow-x-auto no-scrollbar py-2 px-6 cursor-pointer"
             >
-              {modes.map((m) => {
+              {(['POST', 'STORY', 'REEL', 'LIVE'] as const).map((m, idx, arr) => {
                 const isActive = mode === m;
+                const isReel = m === 'REEL';
                 return (
-                  <button
-                    key={m}
-                    type="button"
-                    data-mode={m}
-                    onClick={() => {
-                      if (!isRecording) setMode(m);
-                    }}
-                    className={`relative px-2 py-1 text-xs tracking-widest font-black transition-all duration-200 flex flex-col items-center cursor-pointer ${
-                      isActive
-                        ? 'text-white scale-110 drop-shadow-md'
-                        : 'text-white/40 hover:text-white/70'
-                    }`}
-                  >
-                    <span>{m}</span>
-                    {isActive && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-white mt-1 shadow-xs" />
+                  <React.Fragment key={m}>
+                    <button
+                      type="button"
+                      data-mode={m}
+                      onClick={() => {
+                        if (!isRecording) setMode(m);
+                      }}
+                      className={`relative px-2 py-1 transition-all duration-200 flex flex-col items-center cursor-pointer ${
+                        isActive
+                          ? 'text-white font-black scale-110 drop-shadow-md'
+                          : isReel
+                          ? 'text-white font-black opacity-95'
+                          : 'text-white/50 hover:text-white/80 font-bold'
+                      } text-xs tracking-widest`}
+                    >
+                      <span className={isReel ? 'font-black tracking-widest' : ''}>{m}</span>
+                      {isActive && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-white mt-1 shadow-xs" />
+                      )}
+                    </button>
+                    {idx < arr.length - 1 && (
+                      <span className="text-white/30 text-xs font-light select-none">|</span>
                     )}
-                  </button>
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -1687,20 +1730,18 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 onLoadedMetadata={handleEditorVideoLoadedMetadata}
                 onTimeUpdate={handleEditorVideoTimeUpdate}
                 style={{
-                  objectFit: cameraFit,
+                  objectFit: 'cover',
                 }}
-                className={`w-full h-full transition-all duration-200 ${activeFilterPreset.cssClass}`}
+                className={`w-full h-full object-cover transition-all duration-200 ${activeFilterPreset.cssClass}`}
               />
             ) : capturedPhotoUrl ? (
               <img
                 src={capturedPhotoUrl}
                 alt="Captured review"
                 style={{
-                  objectFit: cameraFit,
+                  objectFit: 'cover',
                 }}
-                className={`w-full h-full ${
-                  mode === 'POST' ? 'object-contain max-h-[90vh]' : ''
-                } ${activeFilterPreset.cssClass}`}
+                className={`w-full h-full object-cover ${activeFilterPreset.cssClass}`}
               />
             ) : null}
 
