@@ -2256,16 +2256,18 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   </p>
                 </div>
 
-                {/* Primary Publish Button */}
-                <button
-                  id="create-post-publish-main-btn"
-                  type="button"
-                  onClick={handleShare}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-bold text-sm shadow-md transition active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Check className="w-4 h-4 stroke-[2.5]" />
-                  <span>Publish {mediaType === 'video' ? 'Reel' : 'Post'}</span>
-                </button>
+                {/* Primary Publish / Share Button - Sticky Bottom Bar */}
+                <div className="sticky bottom-0 z-20 -mx-4 -mb-4 p-3.5 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md border-t border-neutral-200 dark:border-neutral-800 shadow-[0_-8px_20px_rgba(0,0,0,0.15)] rounded-b-2xl">
+                  <button
+                    id="create-post-publish-main-btn"
+                    type="button"
+                    onClick={handleShare}
+                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-bold text-sm shadow-md transition active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Check className="w-4 h-4 stroke-[2.5]" />
+                    <span>Share / Upload {mediaType === 'video' ? 'Reel' : 'Post'}</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

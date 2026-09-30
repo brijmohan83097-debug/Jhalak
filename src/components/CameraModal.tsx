@@ -61,42 +61,45 @@ export type CameraMode = 'POST' | 'STORY' | 'REEL' | 'LIVE';
 
 export type FilterId =
   | 'normal'
-  | 'smooth_beauty_glow'
   | 'cinematic_warm'
   | 'cyberpunk_neon'
   | 'retro_vhs_tape'
   | 'golden_hour'
   | 'bw_high_contrast'
-  | 'soft_dreamy_blur'
   | 'party_sparkle'
-  | 'vignette_moody';
+  | 'vignette_moody'
+  | 'smooth_beauty_glow'
+  | 'soft_dreamy_blur'
+  | 'rosy_blush'
+  | 'sun_kissed_bronze'
+  | 'pearl_radiance';
 
 export interface FilterPreset {
   id: FilterId;
   name: string;
+  category: 'trending' | 'appearance';
+  tag: string;
   cssClass: string;
   canvasFilter: string;
   bubbleClass: string;
 }
 
 export const FILTER_PRESETS: FilterPreset[] = [
+  // Trending Category Filters
   {
     id: 'normal',
     name: 'Normal',
+    category: 'trending',
+    tag: 'Original',
     cssClass: '',
     canvasFilter: 'none',
     bubbleClass: 'bg-neutral-800/90 border border-white/30',
   },
   {
-    id: 'smooth_beauty_glow',
-    name: 'Smooth Beauty Glow',
-    cssClass: 'brightness-[1.08] contrast-[1.03] saturate-[1.18]',
-    canvasFilter: 'brightness(1.08) contrast(1.03) saturate(1.18)',
-    bubbleClass: 'bg-gradient-to-tr from-pink-400 via-rose-300 to-amber-200',
-  },
-  {
     id: 'cinematic_warm',
     name: 'Cinematic Warm',
+    category: 'trending',
+    tag: '35mm Film',
     cssClass: 'sepia-[0.38] saturate-[1.4] contrast-[1.12] brightness-[1.02] hue-rotate-[-4deg]',
     canvasFilter: 'sepia(0.38) saturate(1.4) contrast(1.12) brightness(1.02) hue-rotate(-4deg)',
     bubbleClass: 'bg-gradient-to-tr from-amber-700 via-orange-500 to-yellow-400',
@@ -104,6 +107,8 @@ export const FILTER_PRESETS: FilterPreset[] = [
   {
     id: 'cyberpunk_neon',
     name: 'Cyberpunk Neon',
+    category: 'trending',
+    tag: 'Neon Glow',
     cssClass: 'saturate-[1.85] contrast-[1.28] hue-rotate-[315deg] brightness-[1.12]',
     canvasFilter: 'saturate(1.85) contrast(1.28) hue-rotate(315deg) brightness(1.12)',
     bubbleClass: 'bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-400',
@@ -111,6 +116,8 @@ export const FILTER_PRESETS: FilterPreset[] = [
   {
     id: 'retro_vhs_tape',
     name: 'Retro VHS Tape',
+    category: 'trending',
+    tag: '90s Cassette',
     cssClass: 'contrast-[1.25] saturate-[0.85] sepia-[0.25] brightness-[0.98]',
     canvasFilter: 'contrast(1.25) saturate(0.85) sepia(0.25) brightness(0.98)',
     bubbleClass: 'bg-gradient-to-tr from-cyan-700 via-stone-600 to-amber-600',
@@ -118,27 +125,26 @@ export const FILTER_PRESETS: FilterPreset[] = [
   {
     id: 'golden_hour',
     name: 'Golden Hour',
+    category: 'trending',
+    tag: 'Warm Sunset',
     cssClass: 'sepia-[0.45] saturate-[1.5] contrast-[1.1] brightness-[1.06] hue-rotate-[8deg]',
     canvasFilter: 'sepia(0.45) saturate(1.5) contrast(1.1) brightness(1.06) hue-rotate(8deg)',
     bubbleClass: 'bg-gradient-to-tr from-amber-500 via-yellow-400 to-orange-400',
   },
   {
     id: 'bw_high_contrast',
-    name: 'B&W High-Contrast',
+    name: 'B&W Contrast',
+    category: 'trending',
+    tag: 'Noir Drama',
     cssClass: 'grayscale contrast-[1.55] brightness-[0.92]',
     canvasFilter: 'grayscale(1) contrast(1.55) brightness(0.92)',
     bubbleClass: 'bg-gradient-to-tr from-black via-neutral-700 to-white',
   },
   {
-    id: 'soft_dreamy_blur',
-    name: 'Soft Dreamy Blur',
-    cssClass: 'brightness-[1.12] contrast-[0.96] saturate-[1.22]',
-    canvasFilter: 'brightness(1.12) contrast(0.96) saturate(1.22)',
-    bubbleClass: 'bg-gradient-to-tr from-purple-300 via-pink-300 to-sky-200',
-  },
-  {
     id: 'party_sparkle',
     name: 'Party Sparkle',
+    category: 'trending',
+    tag: 'Pop Vibe',
     cssClass: 'brightness-[1.15] contrast-[1.2] saturate-[1.4] hue-rotate-[15deg]',
     canvasFilter: 'brightness(1.15) contrast(1.2) saturate(1.4) hue-rotate(15deg)',
     bubbleClass: 'bg-gradient-to-tr from-yellow-300 via-rose-500 to-indigo-500',
@@ -146,9 +152,57 @@ export const FILTER_PRESETS: FilterPreset[] = [
   {
     id: 'vignette_moody',
     name: 'Vignette Moody',
+    category: 'trending',
+    tag: 'Cinematic Shade',
     cssClass: 'contrast-[1.3] brightness-[0.88] saturate-[0.9] sepia-[0.15]',
     canvasFilter: 'contrast(1.3) brightness(0.88) saturate(0.9) sepia(0.15)',
     bubbleClass: 'bg-gradient-to-tr from-neutral-950 via-stone-800 to-amber-900',
+  },
+  // Appearance / Face & Glow Category
+  {
+    id: 'smooth_beauty_glow',
+    name: 'Smooth Beauty Glow',
+    category: 'appearance',
+    tag: 'Flawless Face',
+    cssClass: 'brightness-[1.08] contrast-[1.03] saturate-[1.18]',
+    canvasFilter: 'brightness(1.08) contrast(1.03) saturate(1.18)',
+    bubbleClass: 'bg-gradient-to-tr from-pink-400 via-rose-300 to-amber-200',
+  },
+  {
+    id: 'soft_dreamy_blur',
+    name: 'Soft Dreamy Blur',
+    category: 'appearance',
+    tag: 'Velvet Glow',
+    cssClass: 'brightness-[1.12] contrast-[0.96] saturate-[1.22]',
+    canvasFilter: 'brightness(1.12) contrast(0.96) saturate(1.22)',
+    bubbleClass: 'bg-gradient-to-tr from-purple-300 via-pink-300 to-sky-200',
+  },
+  {
+    id: 'rosy_blush',
+    name: 'Rosy Blush',
+    category: 'appearance',
+    tag: 'Cheek Pink',
+    cssClass: 'saturate-[1.32] brightness-[1.06] contrast-[1.04] hue-rotate-[-6deg]',
+    canvasFilter: 'saturate(1.32) brightness(1.06) contrast(1.04) hue-rotate(-6deg)',
+    bubbleClass: 'bg-gradient-to-tr from-rose-500 via-pink-400 to-red-300',
+  },
+  {
+    id: 'sun_kissed_bronze',
+    name: 'Sun-Kissed Bronze',
+    category: 'appearance',
+    tag: 'Golden Tan',
+    cssClass: 'sepia-[0.28] saturate-[1.38] brightness-[1.05] contrast-[1.08]',
+    canvasFilter: 'sepia(0.28) saturate(1.38) brightness(1.05) contrast(1.08)',
+    bubbleClass: 'bg-gradient-to-tr from-amber-600 via-orange-400 to-yellow-300',
+  },
+  {
+    id: 'pearl_radiance',
+    name: 'Pearl Radiance',
+    category: 'appearance',
+    tag: 'Pure Bright',
+    cssClass: 'brightness-[1.14] contrast-[1.06] saturate-[1.08]',
+    canvasFilter: 'brightness(1.14) contrast(1.06) saturate(1.08)',
+    bubbleClass: 'bg-gradient-to-tr from-sky-200 via-white to-pink-200',
   },
 ];
 
@@ -277,8 +331,10 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const [countdownTimer, setCountdownTimer] = useState<number>(0);
   const [activeCountdown, setActiveCountdown] = useState<number | null>(null);
 
-  // Filter effect selection
+  // Filter effect selection & Instagram Effects Drawer
   const [selectedFilter, setSelectedFilter] = useState<FilterId>('normal');
+  const [isEffectsDrawerOpen, setIsEffectsDrawerOpen] = useState(false);
+  const [effectsTab, setEffectsTab] = useState<'trending' | 'appearance'>('trending');
   const activeFilterPreset = useMemo(
     () => FILTER_PRESETS.find((f) => f.id === selectedFilter) || FILTER_PRESETS[0],
     [selectedFilter]
@@ -1489,133 +1545,39 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             </div>
           )}
 
-          {/* OVERLAY 1: Transparent Top Controls Header */}
-          <div className="fixed top-0 inset-x-0 z-30 flex items-center justify-between p-4 pt-safe bg-gradient-to-b from-black/75 via-black/25 to-transparent pointer-events-auto">
-            {/* Close camera button */}
+          {/* OVERLAY 1: Clean Top Bar (Keep ONLY 'X' and Flashlight - All badges removed) */}
+          <div className="fixed top-0 inset-x-0 z-30 flex items-center justify-between p-4 pt-safe pointer-events-auto">
+            {/* Close camera button ('X') */}
             <button
               type="button"
               id="close-camera-modal-btn"
               onClick={onClose}
               aria-label="Close camera"
               className="p-2.5 rounded-full bg-black/40 hover:bg-black/70 backdrop-blur-md text-white transition active:scale-95 border border-white/10 cursor-pointer shadow-lg"
+              title="Close Camera"
             >
               <X className="w-6 h-6" />
             </button>
 
-            {/* Audio / Music Selector Pill */}
-            {(mode === 'REEL' || mode === 'STORY') && (
-              <button
-                type="button"
-                onClick={() => setIsAudioDrawerOpen(true)}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md border border-white/20 text-white text-xs font-semibold shadow-md active:scale-95 transition cursor-pointer"
-              >
-                <Music className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
-                <span className="max-w-[140px] truncate">
-                  {selectedAudio ? selectedAudio.title : 'Bhojpuri Audio 🎵'}
-                </span>
-              </button>
-            )}
-
-            {/* Right Tools (Size Selector, Flash, Grid, Timer) */}
-            <div className="flex items-center gap-2">
-              {/* Camera Size Selector Button & Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  id="camera-size-toggle-btn"
-                  onClick={() => setShowSizeMenu((prev) => !prev)}
-                  aria-label="Change camera aspect ratio size"
-                  className={`px-3 py-1.5 rounded-full backdrop-blur-md border text-xs font-bold transition active:scale-95 cursor-pointer shadow-lg flex items-center gap-1.5 ${
-                    cameraSize === 'free'
-                      ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 hover:bg-emerald-500/35'
-                      : 'bg-black/40 text-white border-white/10 hover:bg-black/70'
-                  }`}
-                  title="Camera Size / Framing"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  <span>{cameraSize === 'free' ? 'Free Size' : cameraSize}</span>
-                </button>
-
-                {/* Size Menu Dropdown */}
-                {showSizeMenu && (
-                  <div className="absolute right-0 top-12 bg-neutral-900/95 border border-white/20 rounded-2xl p-2 flex flex-col gap-1 backdrop-blur-xl z-50 shadow-2xl min-w-[210px]">
-                    <div className="px-2.5 py-1 text-[10px] font-bold text-neutral-400 uppercase tracking-wider flex items-center justify-between">
-                      <span>Camera Size & Framing</span>
-                    </div>
-                    {CAMERA_SIZE_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => handleSelectCameraSize(opt.id)}
-                        className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition cursor-pointer text-left ${
-                          cameraSize === opt.id
-                            ? 'bg-rose-500 text-white font-bold'
-                            : 'text-neutral-200 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-xs">{opt.label}</span>
-                          <span
-                            className={`text-[10px] ${
-                              cameraSize === opt.id ? 'text-white/80' : 'text-neutral-400'
-                            }`}
-                          >
-                            {opt.description}
-                          </span>
-                        </div>
-                        {cameraSize === opt.id && <Check className="w-4 h-4 ml-2 flex-shrink-0" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={toggleFlash}
-                aria-label={isFlashOn ? 'Turn off flash' : 'Turn on flash'}
-                className={`p-2.5 rounded-full backdrop-blur-md border transition active:scale-95 cursor-pointer shadow-lg ${
-                  isFlashOn
-                    ? 'bg-amber-400 text-black border-amber-300'
-                    : 'bg-black/40 text-white border-white/10 hover:bg-black/70'
-                }`}
-              >
-                {isFlashOn ? <Zap className="w-5 h-5 fill-black" /> : <ZapOff className="w-5 h-5" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowGrid((g) => !g)}
-                aria-label="Toggle camera grid"
-                className={`p-2.5 rounded-full backdrop-blur-md border transition active:scale-95 cursor-pointer shadow-lg ${
-                  showGrid
-                    ? 'bg-white text-black border-white'
-                    : 'bg-black/40 text-white border-white/10 hover:bg-black/70'
-                }`}
-              >
-                <Grid className="w-5 h-5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (countdownTimer === 0) setCountdownTimer(3);
-                  else if (countdownTimer === 3) setCountdownTimer(10);
-                  else setCountdownTimer(0);
-                }}
-                className={`px-2.5 py-1.5 rounded-full backdrop-blur-md border text-xs font-bold transition active:scale-95 cursor-pointer shadow-lg ${
-                  countdownTimer > 0
-                    ? 'bg-rose-500 text-white border-rose-400'
-                    : 'bg-black/40 text-white border-white/10 hover:bg-black/70'
-                }`}
-              >
-                {countdownTimer > 0 ? `${countdownTimer}s` : <Timer className="w-5 h-5" />}
-              </button>
-            </div>
+            {/* Flashlight button */}
+            <button
+              type="button"
+              id="camera-flash-toggle-btn"
+              onClick={toggleFlash}
+              aria-label={isFlashOn ? 'Turn off flash' : 'Turn on flash'}
+              className={`p-2.5 rounded-full backdrop-blur-md border transition active:scale-95 cursor-pointer shadow-lg ${
+                isFlashOn
+                  ? 'bg-amber-400 text-black border-amber-300'
+                  : 'bg-black/40 text-white border-white/10 hover:bg-black/70'
+              }`}
+              title={isFlashOn ? 'Turn off flash' : 'Turn on flash'}
+            >
+              {isFlashOn ? <Zap className="w-6 h-6 fill-black" /> : <ZapOff className="w-6 h-6" />}
+            </button>
           </div>
 
-          {/* OVERLAY 2: Left Side Vertical Icons [Aa (Text) | ∞ (Boomerang) | Layout Grid | Down Arrow] */}
-          <div className="fixed left-3 sm:left-5 top-24 z-30 flex flex-col items-center gap-3.5 pointer-events-auto">
+          {/* OVERLAY 2: Left Side Vertical Icons [Aa (Text) | ∞ (Boomerang) | Layout Grid | ✨ Effects | 📐 Size | Down Arrow] */}
+          <div className="fixed left-3 sm:left-5 top-20 z-30 flex flex-col items-center gap-3 pointer-events-auto">
             {/* 1. Aa (Text / Create Tool) */}
             <button
               type="button"
@@ -1673,7 +1635,22 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <LayoutGrid className="w-5 h-5" />
             </button>
 
-            {/* 4. Camera Size Button (Free Size, 9:16, 1:1, 4:5, 16:9) */}
+            {/* 4. Instagram Effects Drawer Button (Live Filters: Trending & Appearance) */}
+            <button
+              type="button"
+              id="camera-effects-drawer-btn"
+              onClick={() => setIsEffectsDrawerOpen((prev) => !prev)}
+              className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
+                isEffectsDrawerOpen || selectedFilter !== 'normal'
+                  ? 'bg-gradient-to-tr from-amber-400 via-rose-500 to-purple-600 border-rose-300 text-white ring-2 ring-rose-400/50 shadow-rose-500/30'
+                  : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
+              }`}
+              title="Instagram Effects (Trending & Appearance Filters)"
+            >
+              <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
+            </button>
+
+            {/* 5. Camera Size Button (Free Size, 9:16, 1:1, 4:5, 16:9) */}
             <button
               type="button"
               id="camera-size-left-tool-btn"
@@ -1688,7 +1665,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <Crop className="w-5 h-5" />
             </button>
 
-            {/* 5. Down Arrow (Expand extra tools: Size, Speed, Timer, Mic) */}
+            {/* 6. Down Arrow (Expand extra tools: Timer, Speed, Mic) */}
             <div className="relative flex flex-col items-center">
               <button
                 type="button"
@@ -1710,7 +1687,31 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
               {/* Expanded Sub-Tools Menu */}
               {showExtraLeftTools && (
-                <div className="absolute left-12 top-0 bg-neutral-900/95 border border-white/20 rounded-2xl p-2.5 flex flex-col gap-2.5 backdrop-blur-xl z-40 shadow-2xl min-w-[150px]">
+                <div className="absolute left-12 top-0 bg-neutral-900/95 border border-white/20 rounded-2xl p-2.5 flex flex-col gap-2.5 backdrop-blur-xl z-40 shadow-2xl min-w-[160px]">
+                  {/* Timer Selector */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-bold text-neutral-400 px-1">Timer</span>
+                    <div className="grid grid-cols-3 gap-1">
+                      {[0, 3, 10].map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            setCountdownTimer(t);
+                            if (onShowToast) onShowToast(t === 0 ? 'Timer off' : `Timer set to ${t}s ⏱️`);
+                          }}
+                          className={`py-1 text-[11px] rounded-lg font-bold text-center transition cursor-pointer ${
+                            countdownTimer === t
+                              ? 'bg-rose-500 text-white'
+                              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                          }`}
+                        >
+                          {t === 0 ? 'Off' : `${t}s`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Framing Size Selector */}
                   <div className="flex flex-col gap-1">
                     <span className="text-[10px] font-bold text-neutral-400 px-1">Framing Size</span>
@@ -1775,6 +1776,144 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               )}
             </div>
           </div>
+
+          {/* INSTAGRAM EFFECTS DRAWER (Live Filters: Trending & Appearance) */}
+          {isEffectsDrawerOpen && (
+            <div className="fixed inset-x-0 bottom-0 z-40 bg-neutral-950/95 backdrop-blur-2xl border-t border-white/15 rounded-t-3xl pt-3 pb-safe pb-6 px-4 shadow-[0_-15px_35px_rgba(0,0,0,0.85)] pointer-events-auto animate-in slide-in-from-bottom duration-300 max-h-[65vh] flex flex-col">
+              {/* Drawer Handle */}
+              <div className="w-12 h-1 bg-white/25 rounded-full mx-auto mb-3" />
+
+              {/* Drawer Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 via-rose-500 to-purple-600 flex items-center justify-center shadow-lg">
+                    <Sparkles className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white tracking-wide flex items-center gap-1.5">
+                      <span>Instagram Effects</span>
+                    </h3>
+                    <p className="text-[11px] text-white/60">
+                      Live Effect: <span className="text-rose-400 font-bold">{activeFilterPreset.name}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {selectedFilter !== 'normal' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedFilter('normal');
+                        if (onShowToast) onShowToast('Reset to Normal effect');
+                      }}
+                      className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80 text-xs font-semibold transition cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsEffectsDrawerOpen(false)}
+                    className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                    aria-label="Close Effects Drawer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Category Switcher Tabs: Trending | Appearance */}
+              <div className="flex items-center gap-2 py-3 shrink-0">
+                <button
+                  type="button"
+                  id="effects-tab-trending-btn"
+                  onClick={() => setEffectsTab('trending')}
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    effectsTab === 'trending'
+                      ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-lg shadow-rose-500/25 ring-1 ring-white/30'
+                      : 'bg-neutral-900/90 text-neutral-400 hover:text-white border border-white/10'
+                  }`}
+                >
+                  <span>🔥 Trending</span>
+                  <span className="text-[10px] opacity-75">
+                    ({FILTER_PRESETS.filter((f) => f.category === 'trending').length})
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  id="effects-tab-appearance-btn"
+                  onClick={() => setEffectsTab('appearance')}
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    effectsTab === 'appearance'
+                      ? 'bg-gradient-to-r from-rose-500 to-purple-600 text-white shadow-lg shadow-purple-500/25 ring-1 ring-white/30'
+                      : 'bg-neutral-900/90 text-neutral-400 hover:text-white border border-white/10'
+                  }`}
+                >
+                  <span>✨ Appearance & Glow</span>
+                  <span className="text-[10px] opacity-75">
+                    ({FILTER_PRESETS.filter((f) => f.category === 'appearance').length})
+                  </span>
+                </button>
+              </div>
+
+              {/* Filter Cards Grid */}
+              <div className="flex-1 overflow-y-auto pr-1 py-1 grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                {FILTER_PRESETS.filter((f) => f.category === effectsTab).map((filter) => {
+                  const isSelected = selectedFilter === filter.id;
+                  return (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedFilter(filter.id);
+                        if (onShowToast) onShowToast(`${filter.name} effect applied ✨`);
+                      }}
+                      className={`relative p-2.5 rounded-2xl flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer border ${
+                        isSelected
+                          ? 'bg-white/15 border-rose-400 ring-2 ring-rose-500/50 scale-[1.02] shadow-xl'
+                          : 'bg-neutral-900/70 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      {/* Effect Icon Bubble */}
+                      <div
+                        className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-transform ${
+                          isSelected ? 'scale-110 ring-2 ring-white ring-offset-2 ring-offset-neutral-950' : ''
+                        } ${filter.bubbleClass}`}
+                      >
+                        {isSelected ? (
+                          <Check className="w-5 h-5 text-white stroke-[3]" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-white/80" />
+                        )}
+                      </div>
+
+                      {/* Filter Name */}
+                      <span
+                        className={`text-[11px] leading-tight font-bold line-clamp-1 ${
+                          isSelected ? 'text-white' : 'text-neutral-200'
+                        }`}
+                      >
+                        {filter.name}
+                      </span>
+
+                      {/* Tag pill */}
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                          isSelected
+                            ? 'bg-rose-500/40 text-rose-200 font-bold'
+                            : 'bg-white/5 text-neutral-400'
+                        }`}
+                      >
+                        {filter.tag}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* OVERLAY 3: Transparent Bottom Controls (Filters, Shutter, Tabs) */}
           <div className="fixed bottom-0 inset-x-0 z-30 flex flex-col items-center pb-safe pb-6 pt-12 px-4 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-auto">
@@ -2590,13 +2729,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           {/* EDITOR VIEW STATE B: PUBLISH & SHARE DETAILS SCREEN */}
           {/* =================================================== */}
           {editorView === 'publish' && (
-            <div className="relative z-40 w-full h-full flex flex-col justify-between bg-neutral-950/98 backdrop-blur-2xl p-4 overflow-y-auto">
-              {/* Top Navigation */}
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+            <div className="fixed inset-0 z-40 w-full h-full flex flex-col bg-neutral-950/98 backdrop-blur-2xl overflow-hidden">
+              {/* Top Navigation (Fixed / Sticky Header) */}
+              <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/10 bg-neutral-950/90 backdrop-blur-md pt-safe z-20">
                 <button
                   type="button"
                   onClick={() => setEditorView('edit')}
-                  className="flex items-center gap-1 text-white/80 hover:text-white text-xs font-bold cursor-pointer"
+                  className="flex items-center gap-1 text-white/80 hover:text-white text-xs font-bold cursor-pointer transition active:scale-95"
                 >
                   <ChevronLeft className="w-5 h-5" />
                   <span>Back to Editor</span>
@@ -2611,8 +2750,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 <div className="w-16" />
               </div>
 
-              {/* Main Publish Form */}
-              <div className="flex-1 flex flex-col gap-4 py-4 max-w-lg mx-auto w-full">
+              {/* Main Publish Form (Scrollable body) */}
+              <div className="flex-1 overflow-y-auto px-4 py-4 max-w-lg mx-auto w-full flex flex-col gap-4 pb-6">
                 {/* Media Preview Thumbnail & Caption */}
                 <div className="flex gap-3">
                   <div className="w-24 h-32 rounded-xl overflow-hidden bg-neutral-900 border border-white/20 flex-shrink-0 relative shadow-md">
@@ -2744,30 +2883,32 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 )}
               </div>
 
-              {/* Bottom Final Share Button */}
-              <div className="w-full max-w-lg mx-auto pt-3 border-t border-white/10 flex flex-col gap-2">
-                <button
-                  type="button"
-                  id="final-share-button"
-                  onClick={handleFinalPublish}
-                  disabled={isSharing}
-                  className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-black text-sm flex items-center justify-center gap-2 shadow-2xl shadow-rose-500/30 active:scale-95 transition cursor-pointer"
-                >
-                  {isSharing ? (
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5 fill-white" />
-                  )}
-                  <span>
-                    {isSharing
-                      ? 'Publishing...'
-                      : mode === 'REEL' || recordedVideoUrl
-                      ? 'Share to Reels 🚀'
-                      : mode === 'STORY'
-                      ? 'Add to Story 🌟'
-                      : 'Share Post 📸'}
-                  </span>
-                </button>
+              {/* Sticky Bottom Final Share / Upload Action Bar (Guaranteed Never Cut Off) */}
+              <div className="shrink-0 sticky bottom-0 inset-x-0 w-full bg-neutral-950/95 backdrop-blur-xl border-t border-white/15 px-4 pt-3 pb-safe pb-4 shadow-[0_-12px_30px_rgba(0,0,0,0.85)] z-50">
+                <div className="max-w-lg mx-auto w-full flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    id="final-share-button"
+                    onClick={handleFinalPublish}
+                    disabled={isSharing}
+                    className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-black text-sm flex items-center justify-center gap-2 shadow-2xl shadow-rose-500/30 active:scale-[0.98] transition cursor-pointer"
+                  >
+                    {isSharing ? (
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Send className="w-5 h-5 fill-white" />
+                    )}
+                    <span>
+                      {isSharing
+                        ? 'Publishing...'
+                        : mode === 'REEL' || recordedVideoUrl
+                        ? 'Share / Upload to Reels 🚀'
+                        : mode === 'STORY'
+                        ? 'Add to Story 🌟'
+                        : 'Share / Upload Post 📸'}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
