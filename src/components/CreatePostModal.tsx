@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Post, User, Reel } from '../types';
 import { GoLiveStudio } from './GoLiveStudio';
+import { CameraModal } from './CameraModal';
 import { ReelsCamera } from './ReelsCamera';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ReelsAudioSelector } from './ReelsAudioSelector';
@@ -553,6 +554,19 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     await processSelectedVideo(videoBlob, thumbnail, audioTitle);
     if (onShowToast) {
       onShowToast('🎬 Reel ready!');
+    }
+  };
+
+  const handlePhotoCaptured = async (photoBlob: Blob, photoUrl: string) => {
+    setMediaType('image');
+    setShareAsReel(false);
+    setIsCameraOpen(false);
+    setSelectedMediaUrl(photoUrl);
+    setThumbnailDataUrl(photoUrl);
+    setPendingUploadFile(photoBlob);
+    setStep('edit');
+    if (onShowToast) {
+      onShowToast('📸 High-res photo captured!');
     }
   };
 
@@ -2259,15 +2273,17 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       )}
     </div>
 
-    {/* Reels Camera Modal */}
+    {/* Instagram Camera Modal */}
     {isCameraOpen && (
       <ErrorBoundary
-        fallbackTitle="Reels Camera Error"
+        fallbackTitle="Instagram Camera Error"
         onReset={() => setIsCameraOpen(false)}
       >
-        <ReelsCamera
+        <CameraModal
           currentUser={currentUser}
+          initialMode="POST"
           onCaptureVideo={handleVideoRecorded}
+          onCapturePhoto={handlePhotoCaptured}
           onClose={() => setIsCameraOpen(false)}
         />
       </ErrorBoundary>

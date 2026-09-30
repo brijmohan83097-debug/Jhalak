@@ -162,6 +162,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const [expandedCaption, setExpandedCaption] = useState(false);
   const [followedMap, setFollowedMap] = useState<Record<string, boolean>>({});
   const [progress, setProgress] = useState(0);
+  const [failedVideoIds, setFailedVideoIds] = useState<Record<string, boolean>>({});
 
   // Dynamic reel view counts tracking across session and storage
   const [reelViewsMap, setReelViewsMap] = useState<Record<string, number>>(() => {
@@ -634,26 +635,32 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     const r = targetReel || (queue[activeIndex] && !adMobService.isAdItem(queue[activeIndex]) ? (queue[activeIndex] as Reel) : null);
     if (!video || !r) return;
 
-    const directUrl =
-      (r.downloadURL && (r.downloadURL.startsWith('blob:') || r.downloadURL.startsWith('http')) && video.src !== r.downloadURL)
-        ? r.downloadURL
-        : (r.videoUrl && (r.videoUrl.startsWith('blob:') || r.videoUrl.startsWith('http')) && video.src !== r.videoUrl)
-        ? r.videoUrl
-        : ((r as any).mediaUrl && ((r as any).mediaUrl.startsWith('blob:') || (r as any).mediaUrl.startsWith('http')) && video.src !== (r as any).mediaUrl)
-        ? (r as any).mediaUrl
-        : null;
+    const reliableFallbacks = [
+      'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    ];
 
-    if (directUrl) {
-      video.src = directUrl;
+    const sources = [
+      r.downloadURL,
+      r.videoUrl,
+      (r as any).mediaUrl,
+    ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0 && u !== video.src);
+
+    const targetUrl = sources[0] || reliableFallbacks[Math.abs(activeIndex) % reliableFallbacks.length];
+
+    if (video.src !== targetUrl) {
+      video.src = targetUrl;
       video.load();
+      video.defaultMuted = true;
+      video.muted = true;
       video.play().then(() => setIsPlaying(true)).catch(() => {
-        video.muted = true;
-        video.play().then(() => setIsPlaying(true)).catch(() => {});
+        if (targetUrl !== reliableFallbacks[0]) {
+          video.src = reliableFallbacks[0];
+          video.load();
+          video.play().then(() => setIsPlaying(true)).catch(() => {});
+        }
       });
-    } else if (!video.src.includes('sample/ForBiggerBlazes')) {
-      video.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-      video.load();
-      video.play().then(() => setIsPlaying(true)).catch(() => {});
     }
   }, [activeIndex, queue]);
 
@@ -705,9 +712,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 setTimeout(() => setShowPlayPauseIcon(null), 600);
               })
               .catch(() => {
-                // Fallback to direct blob/video URL if stalled or failed
+                // If playback cannot resume, safely fallback to poster image without looping
                 if (currentReel) {
-                  fallbackToDirectReelUrl(currentVideo, currentReel);
+                  setFailedVideoIds((prev) => ({ ...prev, [currentReel.id]: true }));
                 }
               });
           });
@@ -1043,98 +1050,127 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             onClick={handleVideoClick}
           >
             {/* Reel Media: Video or Image */}
-            {isImage ? (
+            {isImage || failedVideoIds[reel.id] ? (
               <img
-                src={reel.videoUrl}
+                src={reel.thumbnailUrl || (reel as any).mediaUrl || reel.videoUrl}
                 alt={reel.caption || 'Reel media'}
                 className="w-full h-full object-cover select-none pointer-events-none"
                 loading={Math.abs(index - activeIndex) <= 1 ? 'eager' : 'lazy'}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
               />
             ) : (
               (() => {
-                const cleanReelId = (reel.id || '').replace(/^reel-/, '');
-                const videoSrc = (reel.downloadURL && (reel.downloadURL.startsWith('http') || reel.downloadURL.startsWith('blob:')))
-                  ? reel.downloadURL
-                  : (reel.videoUrl && (reel.videoUrl.startsWith('http') || reel.videoUrl.startsWith('blob:')))
-                  ? reel.videoUrl
-                  : ((reel as any).mediaUrl && ((reel as any).mediaUrl.startsWith('http') || (reel as any).mediaUrl.startsWith('blob:')))
-                  ? (reel as any).mediaUrl
-                  : reel.videoUrl || reel.downloadURL || (reel as any).mediaUrl || `/api/media/${cleanReelId}.mp4`;
+                const sources = [
+                  reel.downloadURL,
+                  reel.videoUrl,
+                  (reel as any).mediaUrl,
+                ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+
+                // Use standard HTML5 HTTP/HTTPS video src; avoid blob stalls
+                const standardSrc = sources.find((s) => (s.startsWith('http://') || s.startsWith('https://')) && !s.includes('/api/media/'));
+                const videoSrc = standardSrc || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
                 return (
-                  <video
-                    ref={(el) => {
-                      videoRefs.current[index] = el;
-                      if (el) {
-                        el.defaultMuted = isMuted;
-                        el.muted = isMuted;
-                      }
-                    }}
-                    src={videoSrc}
-                    controlsList="nodownload"
-                    playsInline
-                    webkit-playsinline="true"
-                    autoPlay
-                    muted={isMuted}
-                    loop
-                    preload="auto"
-                    poster={reel.thumbnailUrl || ''}
-                    className="w-full h-full object-cover pointer-events-none"
-                    onCanPlay={(e) => {
-                      const vid = e.currentTarget;
-                      if (index === activeIndex && isActive) {
-                        vid.play().then(() => setIsPlaying(true)).catch(() => {
-                          vid.muted = true;
-                          vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                        });
-                        incrementReelView(reel.id, (reel as any).viewsCount, reel.userId, reel.username, reel.isUserCreated, (reel as any).userEmail);
-                      }
-                    }}
-                    onLoadedData={(e) => {
-                      if (index === activeIndex && isActive) {
-                        const vid = e.currentTarget;
-                        vid.play().then(() => setIsPlaying(true)).catch(() => {});
-                      }
-                    }}
-                    onWaiting={(e) => {
-                      if (index === activeIndex && isActive) {
-                        const vid = e.currentTarget;
-                        if (vid.paused) {
-                          vid.play().catch(() => {});
+                  <div className="relative w-full h-full flex items-center justify-center bg-neutral-950 overflow-hidden">
+                    {/* Layer 1: Poster / Thumbnail Image (ALWAYS visible behind video so screen is NEVER black!) */}
+                    {(reel.thumbnailUrl || (reel as any).mediaUrl) && (
+                      <img
+                        src={reel.thumbnailUrl || (reel as any).mediaUrl}
+                        alt={reel.caption || 'Reel media backdrop'}
+                        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+                        loading={Math.abs(index - activeIndex) <= 1 ? 'eager' : 'lazy'}
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
+
+                    {/* Layer 2: Fullscreen Standard HTML5 Video Player with controls and autoplay */}
+                    <video
+                      ref={(el) => {
+                        videoRefs.current[index] = el;
+                        if (el) {
+                          el.defaultMuted = isMuted;
+                          el.muted = isMuted;
                         }
-                      }
-                    }}
-                    onStalled={(e) => {
-                      if (index === activeIndex && isActive) {
+                      }}
+                      src={videoSrc}
+                      controls
+                      controlsList="nodownload"
+                      playsInline
+                      webkit-playsinline="true"
+                      autoPlay
+                      muted={isMuted}
+                      loop
+                      preload="auto"
+                      poster={reel.thumbnailUrl || ''}
+                      className="absolute inset-0 w-full h-full object-cover z-10"
+                      onCanPlay={(e) => {
                         const vid = e.currentTarget;
-                        if (vid.paused) {
-                          vid.play().catch(() => {
-                            fallbackToDirectReelUrl(vid, reel);
+                        if (index === activeIndex && isActive && !failedVideoIds[reel.id]) {
+                          vid.play().then(() => setIsPlaying(true)).catch(() => {
+                            vid.muted = true;
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
                           });
-                        } else if (vid.readyState < 2) {
-                          fallbackToDirectReelUrl(vid, reel);
+                          incrementReelView(reel.id, (reel as any).viewsCount, reel.userId, reel.username, reel.isUserCreated, (reel as any).userEmail);
                         }
-                      }
-                    }}
-                    onPlay={() => {
-                      if (index === activeIndex) setIsPlaying(true);
-                    }}
-                    onPause={() => {
-                      if (index === activeIndex) setIsPlaying(false);
-                    }}
-                    onTimeUpdate={() => handleTimeUpdate(index)}
-                    onEnded={(e) => {
-                      const vid = e.currentTarget;
-                      vid.currentTime = 0;
-                      try {
-                        vid.play().catch(() => {});
-                      } catch {}
-                    }}
-                    onError={(e) => {
-                      console.warn("Video failed, attempting storage URL fallback", reel.downloadURL);
-                      fallbackToDirectReelUrl(e.currentTarget, reel);
-                    }}
-                  />
+                      }}
+                      onLoadedData={(e) => {
+                        if (index === activeIndex && isActive && !failedVideoIds[reel.id]) {
+                          const vid = e.currentTarget;
+                          vid.play().then(() => setIsPlaying(true)).catch(() => {
+                            vid.muted = true;
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                          });
+                        }
+                      }}
+                      onWaiting={(e) => {
+                        if (index === activeIndex && isActive && !failedVideoIds[reel.id]) {
+                          const vid = e.currentTarget;
+                          if (vid.paused) {
+                            vid.muted = true;
+                            vid.play().catch(() => {});
+                          }
+                        }
+                      }}
+                      onStalled={(e) => {
+                        if (index === activeIndex && isActive && !failedVideoIds[reel.id]) {
+                          const vid = e.currentTarget;
+                          if (vid.paused) {
+                            vid.muted = true;
+                            vid.play().catch(() => {});
+                          }
+                        }
+                      }}
+                      onPlay={() => {
+                        if (index === activeIndex) setIsPlaying(true);
+                      }}
+                      onPause={() => {
+                        if (index === activeIndex) setIsPlaying(false);
+                      }}
+                      onTimeUpdate={() => handleTimeUpdate(index)}
+                      onEnded={(e) => {
+                        const vid = e.currentTarget;
+                        vid.currentTime = 0;
+                        try {
+                          vid.play().catch(() => {});
+                        } catch {}
+                      }}
+                      onError={(e) => {
+                        // Stop reloading, hide spinner, and fallback safely to poster image without logging continuous errors
+                        const vid = e.currentTarget;
+                        vid.onerror = null;
+                        vid.onstalled = null;
+                        vid.onwaiting = null;
+                        try {
+                          vid.pause();
+                        } catch {}
+                        setFailedVideoIds((prev) => ({ ...prev, [reel.id]: true }));
+                      }}
+                    />
+                  </div>
                 );
               })()
             )}

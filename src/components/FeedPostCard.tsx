@@ -163,6 +163,33 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     };
   }, [post.mediaType]);
 
+  // Ensure <video playsInline webkit-playsinline="true" muted autoPlay loop> plays reliably on render
+  useEffect(() => {
+    if (post.mediaType !== 'video' || videoError) return;
+    const vid = videoRef.current;
+    if (vid) {
+      vid.defaultMuted = isMutedRef.current;
+      vid.muted = isMutedRef.current;
+      const playPromise = vid.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setIsBuffering(false);
+          })
+          .catch(() => {
+            vid.muted = true;
+            vid.play().then(() => {
+              setIsPlaying(true);
+              setIsBuffering(false);
+            }).catch(() => {
+              setIsBuffering(false);
+            });
+          });
+      }
+    }
+  }, [post.id, post.mediaType, videoError]);
+
   // Track video watch time continuously for personalization & automatic Home Feed sorting
   const watchStartTimeRef = useRef<number | null>(null);
 
@@ -206,35 +233,30 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
     const targetVid = vid || videoRef.current;
     if (!targetVid) return;
 
-    const directUrl =
-      (post.downloadURL && (post.downloadURL.startsWith('blob:') || post.downloadURL.startsWith('http')) && targetVid.src !== post.downloadURL)
-        ? post.downloadURL
-        : (post.mediaUrl && (post.mediaUrl.startsWith('blob:') || post.mediaUrl.startsWith('http')) && targetVid.src !== post.mediaUrl)
-        ? post.mediaUrl
-        : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('blob:') || (post as any).videoUrl.startsWith('http')) && targetVid.src !== (post as any).videoUrl)
-        ? (post as any).videoUrl
-        : null;
+    const reliableFallbacks = [
+      'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+    ];
 
-    if (directUrl) {
-      targetVid.src = directUrl;
+    const sources = [
+      post.downloadURL,
+      post.mediaUrl,
+      (post as any).videoUrl,
+    ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0 && u !== targetVid.src);
+
+    const nextSource = sources[0] || reliableFallbacks[0];
+
+    if (targetVid.src !== nextSource) {
+      targetVid.src = nextSource;
       targetVid.load();
+      targetVid.defaultMuted = true;
+      targetVid.muted = true;
       targetVid.play().then(() => {
         setIsPlaying(true);
         setIsBuffering(false);
       }).catch(() => {
-        targetVid.muted = true;
-        targetVid.play().then(() => {
-          setIsPlaying(true);
-          setIsBuffering(false);
-        }).catch(() => {});
+        setIsPlaying(false);
       });
-    } else if (!targetVid.src.includes('sample/ForBiggerBlazes')) {
-      targetVid.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-      targetVid.load();
-      targetVid.play().then(() => {
-        setIsPlaying(true);
-        setIsBuffering(false);
-      }).catch(() => setVideoError(true));
     }
   };
 
@@ -265,7 +287,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               setTimeout(() => setShowPlayPauseIcon(null), 600);
             })
             .catch(() => {
-              fallbackToDirectVideo(vid);
+              setIsBuffering(false);
+              setVideoError(true);
             });
         });
     } else {
@@ -304,17 +327,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       return;
     }
 
-    // Photo posts: single tap opens full-screen viewer as requested
-    if (onOpenFullScreen) {
-      const activeImageUrl = post.mediaUrl || post.thumbnailUrl || '';
-      onOpenFullScreen({
-        ...post,
-        mediaUrl: activeImageUrl,
-      });
-      return;
-    }
-
-    onOpenDetail(post);
+    // Photo posts: locked display - single tap preserves consistent sizing without expanding/shrinking.
+    // The user can open full screen anytime using the dedicated "Full Screen" button.
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {
@@ -496,11 +510,11 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         </div>
       </div>
 
-      {/* Post Media Container (1:1 aspect ratio or natural) */}
+      {/* Post Media Container (Locked Instagram ratio: object-cover, w-full, max-h-[520px]) */}
       <div
         ref={mediaContainerRef}
         onClick={handleMediaClick}
-        className="relative w-full aspect-square bg-neutral-950 flex items-center justify-center cursor-pointer select-none overflow-hidden"
+        className="relative w-full aspect-square max-h-[520px] bg-neutral-950 flex items-center justify-center cursor-pointer select-none overflow-hidden"
       >
         {post.mediaType === 'video' ? (
           videoError || (!post.mediaUrl && !post.thumbnailUrl) ? (
@@ -531,33 +545,47 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           ) : (
             <>
               {(() => {
-                const videoSrc = (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('blob:')))
-                  ? post.downloadURL
-                  : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('blob:')))
-                  ? post.mediaUrl
-                  : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('blob:')))
-                  ? (post as any).videoUrl
-                  : post.mediaUrl || post.downloadURL || (post as any).videoUrl || `/api/media/${post.id}.mp4`;
+                const sources = [
+                  post.downloadURL,
+                  post.mediaUrl,
+                  (post as any).videoUrl,
+                ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+
+                // Strictly prioritize standard HTML5 HTTP/HTTPS video sources to eliminate blob stalls
+                const standardSrc = sources.find((s) => (s.startsWith('http://') || s.startsWith('https://')) && !s.includes('/api/media/'));
+                const videoSrc = standardSrc || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
                 return (
-                  <video
-                    ref={(el) => {
-                      (videoRef as any).current = el;
-                      if (el) {
-                        el.defaultMuted = isMuted;
-                        el.muted = isMuted;
-                      }
-                    }}
-                    src={videoSrc}
-                    controlsList="nodownload"
-                    playsInline
-                    webkit-playsinline="true"
-                    autoPlay
-                    muted={isMuted}
-                    loop
-                    preload="auto"
-                    poster={post.thumbnailUrl || ''}
-                    className={`w-full h-full object-cover pointer-events-none ${post.filter ? post.filter : ''}`}
+                  <div className="relative w-full h-full max-h-[520px] flex items-center justify-center bg-neutral-950 overflow-hidden">
+                    {post.thumbnailUrl && (
+                      <img
+                        src={post.thumbnailUrl}
+                        alt={post.caption || 'Video backdrop'}
+                        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
+                    <video
+                      ref={(el) => {
+                        (videoRef as any).current = el;
+                        if (el) {
+                          el.defaultMuted = isMuted;
+                          el.muted = isMuted;
+                        }
+                      }}
+                      src={videoSrc}
+                      controls
+                      controlsList="nodownload"
+                      playsInline
+                      webkit-playsinline="true"
+                      autoPlay
+                      muted={isMuted}
+                      loop
+                      preload="auto"
+                      poster={post.thumbnailUrl || ''}
+                      className={`w-full h-full max-h-[520px] object-cover z-10 ${post.filter ? post.filter : ''}`}
                     onCanPlay={(e) => {
                       const vid = e.currentTarget;
                       if (isIntersectingRef.current && vid.paused) {
@@ -580,15 +608,16 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                         }).catch(() => {});
                       }
                     }}
-                    onWaiting={() => setIsBuffering(true)}
+                    onWaiting={() => {
+                      if (!videoError) setIsBuffering(true);
+                    }}
                     onStalled={(e) => {
                       const vid = e.currentTarget;
-                      if (isIntersectingRef.current) {
-                        if (vid.paused) {
-                          vid.play().catch(() => fallbackToDirectVideo(vid));
-                        } else if (vid.readyState < 2) {
-                          fallbackToDirectVideo(vid);
-                        }
+                      if (isIntersectingRef.current && vid.paused && !videoError) {
+                        vid.muted = true;
+                        vid.play().catch(() => {
+                          setIsBuffering(false);
+                        });
                       }
                     }}
                     onPlaying={() => {
@@ -599,17 +628,23 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       setIsPlaying(true);
                       setIsBuffering(false);
                     }}
-                    onPause={() => setIsPlaying(false)}
+                    onPause={() => {
+                      setIsPlaying(false);
+                      setIsBuffering(false);
+                    }}
                     onError={() => {
-                      console.warn("Video failed, attempting storage URL fallback", post.downloadURL);
-                      fallbackToDirectVideo(videoRef.current);
+                      // Stop reloading, hide spinner, and fallback safely to poster image without logging continuous errors
+                      setIsBuffering(false);
+                      setIsPlaying(false);
+                      setVideoError(true);
                     }}
                   />
+                  </div>
                 );
               })()}
 
               {/* Buffering Indicator */}
-              {isBuffering && (
+              {isBuffering && !videoError && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
                   <div className="p-2.5 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/20">
                     <Loader2 className="w-5 h-5 animate-spin text-rose-500" />
@@ -731,22 +766,11 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           <img
             src={post.mediaUrl}
             alt={post.caption}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onOpenFullScreen) {
-                onOpenFullScreen({
-                  ...post,
-                  mediaUrl: post.mediaUrl,
-                });
-              } else {
-                onOpenDetail(post);
-              }
-            }}
             onError={(e) => {
               const target = e.currentTarget;
               target.src = createPhotoFallbackDataUrl(post.caption);
             }}
-            className={`w-full h-full object-cover cursor-pointer ${post.filter ? post.filter : ''}`}
+            className={`w-full h-full max-h-[520px] object-cover block select-none pointer-events-none ${post.filter ? post.filter : ''}`}
             loading="lazy"
           />
         )}

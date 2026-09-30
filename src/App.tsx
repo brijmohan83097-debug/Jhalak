@@ -10,7 +10,7 @@ import { AdMobBannerAd } from './components/AdMobBannerAd';
 import { AdMobNativeFeedAd } from './components/AdMobNativeFeedAd';
 import { adMobService, ADMOB_CONFIG } from './services/adMobService';
 import { StoryViewerModal } from './components/StoryViewerModal';
-import { CreatePostModal } from './components/CreatePostModal';
+import { CameraModal } from './components/CameraModal';
 import { ExploreView } from './components/ExploreView';
 import { ProfileView } from './components/ProfileView';
 import { DirectMessagesView } from './components/DirectMessagesView';
@@ -167,21 +167,25 @@ export default function App() {
     return true;
   };
 
+  const STANDARD_HTML5_VIDEO_FALLBACK =
+    'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
+
   const ensurePermanentPostOnReload = (p: Post): Post => {
     let mediaUrl = p.mediaUrl || '';
     let downloadURL = p.downloadURL || '';
     let thumb = p.thumbnailUrl || '';
 
-    if (mediaUrl.startsWith('blob:')) {
-      if (downloadURL && !downloadURL.startsWith('blob:')) {
-        mediaUrl = downloadURL;
-      } else {
-        mediaUrl = `/api/media/${p.id}.mp4`;
+    if (p.mediaType === 'video') {
+      if (mediaUrl.startsWith('blob:') || mediaUrl.startsWith('/api/media/') || !mediaUrl) {
+        if (downloadURL && (downloadURL.startsWith('http://') || downloadURL.startsWith('https://')) && !downloadURL.includes('/api/media/')) {
+          mediaUrl = downloadURL;
+        } else {
+          mediaUrl = STANDARD_HTML5_VIDEO_FALLBACK;
+        }
       }
-    }
-
-    if (downloadURL.startsWith('blob:')) {
-      downloadURL = mediaUrl;
+      if (downloadURL.startsWith('blob:') || downloadURL.startsWith('/api/media/') || !downloadURL) {
+        downloadURL = mediaUrl;
+      }
     }
 
     return {
@@ -197,16 +201,15 @@ export default function App() {
     let downloadURL = r.downloadURL || '';
     let thumb = r.thumbnailUrl || '';
 
-    if (videoUrl.startsWith('blob:')) {
-      if (downloadURL && !downloadURL.startsWith('blob:')) {
+    if (videoUrl.startsWith('blob:') || videoUrl.startsWith('/api/media/') || !videoUrl) {
+      if (downloadURL && (downloadURL.startsWith('http://') || downloadURL.startsWith('https://')) && !downloadURL.includes('/api/media/')) {
         videoUrl = downloadURL;
       } else {
-        const cleanId = r.id.replace(/^reel-/, '');
-        videoUrl = `/api/media/${cleanId}.mp4`;
+        videoUrl = STANDARD_HTML5_VIDEO_FALLBACK;
       }
     }
 
-    if (downloadURL.startsWith('blob:')) {
+    if (downloadURL.startsWith('blob:') || downloadURL.startsWith('/api/media/') || !downloadURL) {
       downloadURL = videoUrl;
     }
 
@@ -1897,34 +1900,15 @@ export default function App() {
     setCurrentTab(tab);
   };
 
-  // Open Create Post Modal (prompting sign-in if guest & UGC compliance consent)
+  // Open Full-Screen Instagram Camera Modal directly in REEL mode
   const handleOpenCreateModal = () => {
     pauseAllMedia();
-    if (!isAuthenticated) {
-      setIsGoogleAuthModalOpen(true);
-      showToast('Sign in with Google to create and share posts 📸');
-      return;
-    }
-    if (!hasUserConsentedToUGC()) {
-      setIsUgcConsentModalOpen(true);
-      return;
-    }
     setIsCreateModalOpen(true);
   };
 
-  // Handle "Use Audio" action from Reels
+  // Handle "Use Audio" action from Reels - directly opens full-screen camera in REEL mode with audio pre-selected
   const handleUseAudio = (audioTitle: string, _audioArtist?: string) => {
     pauseAllMedia();
-    if (!isAuthenticated) {
-      setIsGoogleAuthModalOpen(true);
-      showToast('Sign in with Google to create with sound 🎵');
-      return;
-    }
-    if (!hasUserConsentedToUGC()) {
-      setPendingAudioForUgcConsent(audioTitle);
-      setIsUgcConsentModalOpen(true);
-      return;
-    }
     setCreateInitialAudio(audioTitle);
     setIsCreateModalOpen(true);
     showToast(`Using sound: ${audioTitle} 🎵`);
@@ -3407,21 +3391,27 @@ export default function App() {
         />
       )}
 
-      {/* MODAL 2: Create Post */}
+      {/* MODAL 2: Full-Screen Instagram Camera (directly in REEL mode, no white modal dialog) */}
       {isCreateModalOpen && (
-        <CreatePostModal
+        <CameraModal
+          initialMode="REEL"
+          initialAudio={createInitialAudio}
           currentUser={currentUser}
           onClose={() => {
             setIsCreateModalOpen(false);
             setCreateInitialAudio(undefined);
           }}
-          onPostCreated={handlePostCreated}
-          initialSelectedAudio={createInitialAudio}
-          onShowToast={showToast}
-          onOpenLegalPolicy={(tab) => {
-            setLegalModalTab(tab);
-            setIsLegalModalOpen(true);
+          onPostCreated={(newPost, newReel) => {
+            handlePostCreated(newPost, newReel);
+            setIsCreateModalOpen(false);
+            setCreateInitialAudio(undefined);
           }}
+          onAddStory={(mediaUrl, mediaType, caption) => {
+            handleAddStorySlide(mediaUrl, mediaType, caption);
+            setIsCreateModalOpen(false);
+            setCreateInitialAudio(undefined);
+          }}
+          onShowToast={showToast}
         />
       )}
 

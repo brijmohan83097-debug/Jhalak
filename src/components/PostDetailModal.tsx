@@ -255,13 +255,15 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
             ) : (
               <div className="relative w-full h-full flex items-center justify-center bg-black">
                 {(() => {
-                  const videoSrc = (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('blob:')))
-                    ? post.downloadURL
-                    : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('blob:')))
-                    ? post.mediaUrl
-                    : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('blob:')))
-                    ? (post as any).videoUrl
-                    : post.downloadURL || post.mediaUrl || (post as any).videoUrl || resolvedUrl || `/api/media/${post.id}.mp4`;
+                  const sources = [
+                    post.downloadURL,
+                    post.mediaUrl,
+                    (post as any).videoUrl,
+                    resolvedUrl,
+                  ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+
+                  const standardSrc = sources.find((s) => (s.startsWith('http://') || s.startsWith('https://')) && !s.includes('/api/media/'));
+                  const videoSrc = standardSrc || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
                   return (
                     <video

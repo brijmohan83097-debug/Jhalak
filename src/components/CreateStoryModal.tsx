@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SupportedLanguage, translations } from '../translations';
 import { User } from '../types';
+import { CameraModal } from './CameraModal';
 import { compressImage } from '../utils/imageCompressor';
 import {
   compressVideo,
@@ -67,6 +68,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
   const [caption, setCaption] = useState('');
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [pendingFile, setPendingFile] = useState<File | Blob | null>(null);
   const [videoCompression, setVideoCompression] = useState<{
@@ -460,14 +462,24 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <p className="text-xs text-neutral-500 mb-4 max-w-xs">
                 Uploads directly to Cloud Storage. No offline browser quota limits.
               </p>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-1.5"
-              >
-                <Camera className="w-4 h-4" />
-                <span>Choose Media</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCameraOpen(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-90 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Open Camera</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Choose Media</span>
+                </button>
+              </div>
 
               <div className="w-full flex items-center gap-2 my-4">
                 <div className="flex-1 h-px bg-neutral-200 dark:border-neutral-800" />
@@ -573,6 +585,27 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           )}
         </form>
       </div>
+
+      {/* Instagram Camera Modal for Story */}
+      {isCameraOpen && (
+        <CameraModal
+          initialMode="STORY"
+          currentUser={currentUser}
+          onCapturePhoto={(blob, url) => {
+            setMediaType('image');
+            setMediaUrl(url);
+            setPendingFile(blob);
+            setIsCameraOpen(false);
+          }}
+          onCaptureVideo={(blob, url) => {
+            setMediaType('video');
+            setMediaUrl(url);
+            setPendingFile(blob);
+            setIsCameraOpen(false);
+          }}
+          onClose={() => setIsCameraOpen(false)}
+        />
+      )}
     </div>
   );
 };
