@@ -369,15 +369,14 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
       let newStream: MediaStream | null = null;
 
-      // Tier 1: Portrait 1080x1920 with standard wide 1x angle and audio
+      // Tier 1: Portrait 720x1280 with 9/16 aspect ratio (standard 1x wide view without landscape crop)
       try {
         newStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: isFrontCamera ? 'user' : 'environment',
-            width: { ideal: 1080 },
-            height: { ideal: 1920 },
-            // Request standard 1x wide angle (no digital zoom)
-            ...({ zoom: 1 } as any),
+            width: { ideal: 720 },
+            height: { ideal: 1280 },
+            aspectRatio: 9 / 16,
           },
           audio: isMicMuted
             ? false
@@ -388,31 +387,35 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               },
         });
       } catch (err1) {
-        console.warn('Tier 1 portrait wide failed, trying Tier 2 (standard portrait)...', err1);
+        console.warn('Tier 1 (720x1280, 9/16) failed, trying fallback...', err1);
         try {
-          // Tier 2: 1080x1920 portrait with audio
+          // Tier 2: Basic 720x1280 9/16 with audio
           newStream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: isFrontCamera ? 'user' : 'environment',
-              width: { ideal: 1080 },
-              height: { ideal: 1920 },
+              width: 720,
+              height: 1280,
+              aspectRatio: 9 / 16,
             },
             audio: isMicMuted ? false : true,
           });
         } catch (err2) {
-          console.warn('Tier 2 failed, trying video-only unconstrained...', err2);
+          console.warn('Tier 2 failed, trying video only (720x1280, 9/16)...', err2);
           try {
             newStream = await navigator.mediaDevices.getUserMedia({
               video: {
                 facingMode: isFrontCamera ? 'user' : 'environment',
-                width: { ideal: 1080 },
-                height: { ideal: 1920 },
+                width: 720,
+                height: 1280,
+                aspectRatio: 9 / 16,
               },
               audio: false,
             });
           } catch (err3) {
             newStream = await navigator.mediaDevices.getUserMedia({
-              video: true,
+              video: {
+                aspectRatio: 9 / 16,
+              },
               audio: false,
             });
           }
@@ -422,22 +425,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       if (newStream) {
         streamRef.current = newStream;
         setStream(newStream);
-
-        // Hardware Wide 1x: reset any digital zoom to standard wide 1x angle
-        try {
-          const videoTrack = newStream.getVideoTracks()[0];
-          if (videoTrack && typeof (videoTrack as any).getCapabilities === 'function') {
-            const caps = (videoTrack as any).getCapabilities();
-            const minZoom = (caps && caps.zoom && typeof caps.zoom.min === 'number') ? caps.zoom.min : 1;
-            if (typeof (videoTrack as any).applyConstraints === 'function') {
-              await (videoTrack as any).applyConstraints({
-                advanced: [{ zoom: minZoom }],
-              });
-            }
-          }
-        } catch (zoomErr) {
-          console.log('Hardware zoom 1x constraint not supported by device:', zoomErr);
-        }
 
         if (videoLiveRef.current) {
           videoLiveRef.current.srcObject = newStream;
@@ -579,18 +566,18 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
     try {
       const canvas = document.createElement('canvas');
-      const vWidth = vid.videoWidth || 1080;
-      const vHeight = vid.videoHeight || 1920;
+      const vWidth = vid.videoWidth || 720;
+      const vHeight = vid.videoHeight || 1280;
 
-      let targetWidth = 1080;
-      let targetHeight = 1920;
+      let targetWidth = 720;
+      let targetHeight = 1280;
 
       if (mode === 'POST') {
-        targetWidth = 1080;
-        targetHeight = 1080;
+        targetWidth = 720;
+        targetHeight = 720;
       } else {
-        targetWidth = 1080;
-        targetHeight = 1920;
+        targetWidth = 720;
+        targetHeight = 1280;
       }
 
       canvas.width = targetWidth;
@@ -1210,27 +1197,26 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       {/* ======================================================== */}
       {!isEditing && (
         <>
-          {/* 100% Fullscreen Camera Video: width: 100vw, height: 100vh, position: fixed, top: 0, left: 0, object-fit: cover */}
-          <video
-            ref={videoLiveRef}
-            playsInline
-            webkit-playsinline="true"
-            controlsList="nodownload"
-            autoPlay
-            muted
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              width: '100vw',
-              height: '100vh',
-              objectFit: 'cover',
-              transform: isFrontCamera ? 'scaleX(-1)' : 'none',
-            }}
-            className={`fixed top-0 left-0 w-screen h-screen object-cover z-0 transition-opacity duration-200 ${
-              isFlipping ? 'opacity-50' : 'opacity-100'
-            } ${activeFilterPreset.cssClass}`}
-          />
+          {/* 100% Fullscreen Camera Video: width: 100%, height: 100%, object-fit: cover */}
+          <div className="fixed inset-0 w-full h-full overflow-hidden bg-black z-0 pointer-events-none">
+            <video
+              ref={videoLiveRef}
+              playsInline
+              webkit-playsinline="true"
+              controlsList="nodownload"
+              autoPlay
+              muted
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                transform: isFrontCamera ? 'scaleX(-1)' : 'none',
+              }}
+              className={`w-full h-full object-cover transition-opacity duration-200 ${
+                isFlipping ? 'opacity-50' : 'opacity-100'
+              } ${activeFilterPreset.cssClass}`}
+            />
+          </div>
 
           {/* 3x3 Grid Overlay */}
           {showGrid && (
