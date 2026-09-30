@@ -26,6 +26,23 @@ import {
   Camera,
   Activity,
   Wifi,
+  Type,
+  Smile,
+  Scissors,
+  Sliders,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+  Hash,
+  Layers,
+  ArrowRight,
+  Maximize2,
+  Sparkle,
+  Gauge,
+  Film,
+  Tag,
+  CheckCircle2,
 } from 'lucide-react';
 import { User, Post, Reel, ContentCategory } from '../types';
 import {
@@ -130,6 +147,24 @@ export const FILTER_PRESETS: FilterPreset[] = [
   },
 ];
 
+export interface TextOverlay {
+  id: string;
+  text: string;
+  font: 'modern' | 'classic' | 'neon' | 'bhojpuri' | 'handwriting' | 'typewriter';
+  color: string;
+  bgMode: 'none' | 'solid' | 'glass';
+  x: number; // percentage 0 - 100
+  y: number; // percentage 0 - 100
+}
+
+export interface StickerOverlay {
+  id: string;
+  content: string;
+  isBadge: boolean;
+  x: number;
+  y: number;
+}
+
 export interface CameraModalProps {
   initialMode?: CameraMode;
   initialAudio?: string;
@@ -166,87 +201,114 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const [mode, setMode] = useState<CameraMode>(initialMode);
   const modes: CameraMode[] = ['POST', 'STORY', 'REEL', 'LIVE'];
 
-  // Stream & Hardware
+  // Camera stream and devices
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const [cameraLoading, setCameraLoading] = useState(true);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isFrontCamera, setIsFrontCamera] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
-  const [isMicMuted, setIsMicMuted] = useState(false);
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
-  const [cameraLoading, setCameraLoading] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-
-  // Trending Filters & Tools (10 popular effects)
-  const [selectedFilter, setSelectedFilter] = useState<FilterId>('normal');
-  const [recordingSpeed, setRecordingSpeed] = useState<'0.3x' | '0.5x' | '1x' | '2x' | '3x'>('1x');
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [countdownTimer, setCountdownTimer] = useState<0 | 3 | 10>(0);
+  const [countdownTimer, setCountdownTimer] = useState<number>(0);
   const [activeCountdown, setActiveCountdown] = useState<number | null>(null);
 
-  // Audio state
-  const [selectedAudio, setSelectedAudio] = useState<{
-    id?: string;
-    title: string;
-    artist?: string;
-    audioUrl?: string;
-  } | null>(() => {
-    if (initialAudio) {
-      const match = BHOJPURI_MUSIC_LIBRARY.find((t) => t.title === initialAudio);
-      if (match) return match;
-      return { title: initialAudio, artist: 'Original Audio' };
-    }
-    return null;
-  });
-  const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
-
-  // Recording & Shutter states
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [maxRecordingSeconds, setMaxRecordingSeconds] = useState<number>(60);
-  const [isShutterPressed, setIsShutterPressed] = useState(false);
-  const [showFlashBurst, setShowFlashBurst] = useState(false);
-
-  // Captured Media review state
-  const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null);
-  const [capturedPhotoBlob, setCapturedPhotoBlob] = useState<Blob | null>(null);
-  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
-  const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null);
-  const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
-  const [isPreviewPlaying, setIsPreviewPlaying] = useState(true);
-  const [isPreviewMuted, setIsPreviewMuted] = useState(false);
-
-  // Review & Sharing Metadata
-  const [postCaption, setPostCaption] = useState('');
-  const [isSharing, setIsSharing] = useState(false);
-
-  // Live session state (clean active preview, no fake comments/viewers)
-  const [isLiveActive, setIsLiveActive] = useState(false);
-  const [liveDurationSeconds, setLiveDurationSeconds] = useState(0);
-
-  // Refs
-  const videoLiveRef = useRef<HTMLVideoElement>(null);
-  const videoPreviewRef = useRef<HTMLVideoElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<number | null>(null);
-  const liveTimerRef = useRef<number | null>(null);
-  const pressHoldTimerRef = useRef<number | null>(null);
-  const isPressAndHoldingRef = useRef(false);
-  const fileFallbackInputRef = useRef<HTMLInputElement>(null);
-  const modesScrollRef = useRef<HTMLDivElement>(null);
-  const isRetryingCameraRef = useRef(false);
-  const touchStartXRef = useRef<number | null>(null);
-
+  // Filter effect selection
+  const [selectedFilter, setSelectedFilter] = useState<FilterId>('normal');
   const activeFilterPreset = useMemo(
     () => FILTER_PRESETS.find((f) => f.id === selectedFilter) || FILTER_PRESETS[0],
     [selectedFilter]
   );
 
-  // Adjust max seconds by mode
+  // Audio state
+  const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
+  const [selectedAudio, setSelectedAudio] = useState<BhojpuriTrack | null>(() => {
+    if (!initialAudio) return null;
+    return (
+      BHOJPURI_MUSIC_LIBRARY.find(
+        (t) =>
+          t.title.toLowerCase().includes(initialAudio.toLowerCase()) ||
+          t.id.toLowerCase() === initialAudio.toLowerCase()
+      ) || null
+    );
+  });
+
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [maxRecordingSeconds, setMaxRecordingSeconds] = useState(30);
+  const [isShutterPressed, setIsShutterPressed] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [recordingSpeed, setRecordingSpeed] = useState<'0.3x' | '0.5x' | '1x' | '2x' | '3x'>('1x');
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+
+  // Live session state
+  const [isLiveActive, setIsLiveActive] = useState(false);
+  const [liveDurationSeconds, setLiveDurationSeconds] = useState(0);
+
+  // Flash burst animation
+  const [showFlashBurst, setShowFlashBurst] = useState(false);
+
+  // Media capture results
+  const [capturedPhotoBlob, setCapturedPhotoBlob] = useState<Blob | null>(null);
+  const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null);
+  const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null);
+  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
+  const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
+
+  // ==========================================
+  // POST-RECORDING VIDEO EDITOR SCREEN STATES
+  // ==========================================
+  const [editorView, setEditorView] = useState<'edit' | 'publish'>('edit');
+  const [editorPlaying, setEditorPlaying] = useState(true);
+  const [editorMuted, setEditorMuted] = useState(false);
+  const [editorSpeed, setEditorSpeed] = useState<number>(1.0);
+  const [videoDuration, setVideoDuration] = useState<number>(15);
+  const [videoCurrentTime, setVideoCurrentTime] = useState<number>(0);
+  const [trimStart, setTrimStart] = useState<number>(0);
+  const [trimEnd, setTrimEnd] = useState<number>(15);
+  const [activeEditorDrawer, setActiveEditorDrawer] = useState<
+    'none' | 'filters' | 'trim' | 'speed' | 'text' | 'stickers'
+  >('none');
+
+  // Text Overlays
+  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
+  const [newTextString, setNewTextString] = useState('');
+  const [newTextFont, setNewTextFont] = useState<TextOverlay['font']>('modern');
+  const [newTextColor, setNewTextColor] = useState('#FFFFFF');
+  const [newTextBgMode, setNewTextBgMode] = useState<TextOverlay['bgMode']>('solid');
+
+  // Stickers / Emojis Overlays
+  const [stickerOverlays, setStickerOverlays] = useState<StickerOverlay[]>([]);
+  const [activeStickerTab, setActiveStickerTab] = useState<'badges' | 'emojis'>('badges');
+
+  // Publishing / Metadata states
+  const [postCaption, setPostCaption] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<ContentCategory>('Bhojpuri');
+  const [alsoShareToFeed, setAlsoShareToFeed] = useState(true);
+  const [isSharing, setIsSharing] = useState(false);
+
+  // Dragging overlay support
+  const [draggingOverlayId, setDraggingOverlayId] = useState<string | null>(null);
+  const editorViewportRef = useRef<HTMLDivElement | null>(null);
+
+  // DOM Refs
+  const videoLiveRef = useRef<HTMLVideoElement | null>(null);
+  const videoEditorPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const fileFallbackInputRef = useRef<HTMLInputElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
+  const liveTimerRef = useRef<number | null>(null);
+  const pressHoldTimerRef = useRef<number | null>(null);
+  const modesScrollRef = useRef<HTMLDivElement | null>(null);
+  const isRetryingCameraRef = useRef(false);
+  const touchStartXRef = useRef<number | null>(null);
+
+  // Set default max recording length by mode
   useEffect(() => {
-    if (mode === 'STORY') setMaxRecordingSeconds(15);
-    else if (mode === 'REEL') setMaxRecordingSeconds(60);
+    if (mode === 'REEL') setMaxRecordingSeconds(60);
+    else if (mode === 'STORY') setMaxRecordingSeconds(15);
     else setMaxRecordingSeconds(30);
   }, [mode]);
 
@@ -272,18 +334,18 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       }
     }
 
-    if (videoPreviewRef.current) {
+    if (videoEditorPreviewRef.current) {
       try {
-        videoPreviewRef.current.pause();
-        videoPreviewRef.current.removeAttribute('src');
-        videoPreviewRef.current.load();
+        videoEditorPreviewRef.current.pause();
+        videoEditorPreviewRef.current.removeAttribute('src');
+        videoEditorPreviewRef.current.load();
       } catch {
         // ignore
       }
     }
   }, []);
 
-  // Initialize High-Definition 1080p Camera Stream with robust Audio capture
+  // Initialize True Fullscreen 1080p Camera Stream with robust Audio capture
   const startCamera = useCallback(async () => {
     if (isRetryingCameraRef.current) return;
     isRetryingCameraRef.current = true;
@@ -308,11 +370,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             height: { ideal: 1920, min: 640 },
             aspectRatio: { ideal: 9 / 16 },
           },
-          audio: isMicMuted ? false : {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
+          audio: isMicMuted
+            ? false
+            : {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
         });
       } catch (err1) {
         console.warn('Tier 1 (1080p + audio) failed, trying Tier 2 (720p HD)...', err1);
@@ -359,11 +423,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       console.error('Camera Hardware Initialization Failed:', err);
       let errorMsg = 'Unable to access camera. Check device permissions or select a photo/video.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        errorMsg = 'Camera access was blocked. Please allow camera permissions in browser settings, or select a photo/video from your gallery.';
+        errorMsg =
+          'Camera access was blocked. Please allow camera permissions in browser settings, or select a photo/video from your gallery.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         errorMsg = 'No camera sensor was detected. You can select a photo or video from your device library.';
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        errorMsg = 'Camera sensor is currently occupied by another app. Please close other camera apps and tap "Retry Camera".';
+        errorMsg =
+          'Camera sensor is currently occupied by another app. Please close other camera apps and tap "Retry Camera".';
       }
       setCameraError(errorMsg);
     } finally {
@@ -373,14 +439,17 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   }, [isFrontCamera, isMicMuted, cleanupHardwareResources]);
 
   useEffect(() => {
-    startCamera();
+    // Only run live camera when not editing
+    if (!capturedPhotoUrl && !recordedVideoUrl) {
+      startCamera();
+    }
     return () => {
       cleanupHardwareResources();
       if (timerRef.current) clearInterval(timerRef.current);
       if (liveTimerRef.current) clearInterval(liveTimerRef.current);
       if (pressHoldTimerRef.current) clearTimeout(pressHoldTimerRef.current);
     };
-  }, [startCamera, cleanupHardwareResources]);
+  }, [startCamera, cleanupHardwareResources, capturedPhotoUrl, recordedVideoUrl]);
 
   // Live session timer tracking
   useEffect(() => {
@@ -403,7 +472,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   // Format seconds to mm:ss
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60);
-    const s = sec % 60;
+    const s = Math.floor(sec % 60);
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
@@ -444,9 +513,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       if (activeBtn) {
         const container = modesScrollRef.current;
         const scrollLeft =
-          activeBtn.offsetLeft -
-          container.clientWidth / 2 +
-          activeBtn.clientWidth / 2;
+          activeBtn.offsetLeft - container.clientWidth / 2 + activeBtn.clientWidth / 2;
         container.scrollTo({ left: scrollLeft, behavior: 'smooth' });
       }
     }
@@ -537,6 +604,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               const photoUrl = URL.createObjectURL(blob);
               setCapturedPhotoBlob(blob);
               setCapturedPhotoUrl(photoUrl);
+              setEditorView('edit');
             }
           },
           'image/jpeg',
@@ -590,6 +658,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
         const videoUrl = URL.createObjectURL(blob);
         setRecordedVideoBlob(blob);
         setRecordedVideoUrl(videoUrl);
+        setEditorView('edit');
 
         // Capture thumbnail
         captureThumbnail();
@@ -655,104 +724,190 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     }
   };
 
-  // Modes Shutter Handling:
-  // - 'POST' & 'STORY': Shutter click takes instant photo
-  // - 'REEL': Press-and-hold (or single tap toggle) records actual video with audio
-  // - 'LIVE': Toggles Start/End Live session
+  // Shutter pointer handlers
   const handleShutterPointerDown = () => {
-    if (mode === 'LIVE') {
-      setIsLiveActive((prev) => !prev);
-      return;
-    }
+    setIsShutterPressed(true);
 
     if (mode === 'POST' || mode === 'STORY') {
-      // Instant Photo Capture
       if (countdownTimer > 0) {
-        runCountdown();
+        setActiveCountdown(countdownTimer);
+        let currentSec = countdownTimer;
+        const countInterval = setInterval(() => {
+          currentSec -= 1;
+          if (currentSec <= 0) {
+            clearInterval(countInterval);
+            setActiveCountdown(null);
+            captureHighResPhoto();
+          } else {
+            setActiveCountdown(currentSec);
+          }
+        }, 1000);
       } else {
         captureHighResPhoto();
       }
-      return;
+    } else if (mode === 'REEL') {
+      if (isRecording) {
+        stopRecording();
+      } else {
+        pressHoldTimerRef.current = window.setTimeout(() => {
+          startRecording();
+        }, 220);
+      }
     }
-
-    // In REEL mode:
-    if (isRecording) {
-      // Tap while recording stops recording
-      stopRecording();
-      return;
-    }
-
-    setIsShutterPressed(true);
-    isPressAndHoldingRef.current = false;
-
-    // Start hold timer: if held for > 200ms, start recording video!
-    pressHoldTimerRef.current = window.setTimeout(() => {
-      isPressAndHoldingRef.current = true;
-      startRecording();
-    }, 200);
   };
 
   const handleShutterPointerUp = () => {
     setIsShutterPressed(false);
-
-    if (pressHoldTimerRef.current) {
-      clearTimeout(pressHoldTimerRef.current);
-      pressHoldTimerRef.current = null;
-    }
-
-    if (mode === 'POST' || mode === 'STORY') {
-      // Already handled in pointer down for instant capture
-      return;
-    }
-
     if (mode === 'REEL') {
-      if (isPressAndHoldingRef.current) {
-        // Was holding to record -> stop on release!
-        isPressAndHoldingRef.current = false;
-        stopRecording();
-      } else if (!isRecording) {
-        // Was a quick single tap -> start recording video!
+      if (pressHoldTimerRef.current) {
+        clearTimeout(pressHoldTimerRef.current);
+        pressHoldTimerRef.current = null;
+      }
+      if (!isRecording && recordingSeconds === 0) {
         startRecording();
       }
     }
   };
 
-  // Run Countdown (3s or 10s)
-  const runCountdown = () => {
-    setActiveCountdown(countdownTimer);
-    let current = countdownTimer;
-    const interval = setInterval(() => {
-      current -= 1;
-      if (current <= 0) {
-        clearInterval(interval);
-        setActiveCountdown(null);
-        captureHighResPhoto();
-      } else {
-        setActiveCountdown(current);
-      }
-    }, 1000);
-  };
-
-  // Retake captured media
+  // Discard & Retake media
   const handleRetake = () => {
-    if (capturedPhotoUrl) {
-      URL.revokeObjectURL(capturedPhotoUrl);
-      setCapturedPhotoUrl(null);
-      setCapturedPhotoBlob(null);
-    }
     if (recordedVideoUrl) {
       URL.revokeObjectURL(recordedVideoUrl);
-      setRecordedVideoUrl(null);
-      setRecordedVideoBlob(null);
-      setVideoThumbnail(null);
     }
-    setRecordingSeconds(0);
+    if (capturedPhotoUrl) {
+      URL.revokeObjectURL(capturedPhotoUrl);
+    }
+    setRecordedVideoUrl(null);
+    setRecordedVideoBlob(null);
+    setCapturedPhotoUrl(null);
+    setCapturedPhotoBlob(null);
+    setVideoThumbnail(null);
+    setTextOverlays([]);
+    setStickerOverlays([]);
+    setActiveEditorDrawer('none');
+    setEditorView('edit');
     setPostCaption('');
+    setTrimStart(0);
+    setTrimEnd(15);
+    setEditorSpeed(1.0);
     startCamera();
   };
 
-  // Direct 1-Tap Share Post / Reel / Story
-  const handleDirectShare = () => {
+  // Editor Video Loaded Metadata
+  const handleEditorVideoLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const vid = e.currentTarget;
+    if (vid) {
+      const dur = vid.duration || 15;
+      setVideoDuration(dur);
+      setTrimEnd(dur);
+      vid.playbackRate = editorSpeed;
+      vid.play().then(() => setEditorPlaying(true)).catch(() => {});
+    }
+  };
+
+  // Video Time Update (Enforce Trim looping)
+  const handleEditorVideoTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const vid = e.currentTarget;
+    if (vid) {
+      setVideoCurrentTime(vid.currentTime);
+      if (vid.currentTime >= trimEnd) {
+        vid.currentTime = trimStart;
+        vid.play().catch(() => {});
+      } else if (vid.currentTime < trimStart) {
+        vid.currentTime = trimStart;
+      }
+    }
+  };
+
+  // Toggle Video Play / Pause in Editor
+  const toggleEditorPlayPause = () => {
+    const vid = videoEditorPreviewRef.current;
+    if (vid) {
+      if (vid.paused) {
+        vid.play().then(() => setEditorPlaying(true)).catch(() => {});
+      } else {
+        vid.pause();
+        setEditorPlaying(false);
+      }
+    }
+  };
+
+  // Speed Adjustment in Editor
+  const handleSetEditorSpeed = (spd: number) => {
+    setEditorSpeed(spd);
+    if (videoEditorPreviewRef.current) {
+      videoEditorPreviewRef.current.playbackRate = spd;
+    }
+  };
+
+  // Add Text Overlay
+  const handleAddTextOverlay = () => {
+    if (!newTextString.trim()) return;
+    const newOverlay: TextOverlay = {
+      id: `text-${Date.now()}`,
+      text: newTextString.trim(),
+      font: newTextFont,
+      color: newTextColor,
+      bgMode: newTextBgMode,
+      x: 50,
+      y: 40 + (textOverlays.length * 8) % 30,
+    };
+    setTextOverlays((prev) => [...prev, newOverlay]);
+    setNewTextString('');
+    setActiveEditorDrawer('none');
+  };
+
+  // Add Sticker Overlay
+  const handleAddSticker = (content: string, isBadge: boolean) => {
+    const newSticker: StickerOverlay = {
+      id: `sticker-${Date.now()}`,
+      content,
+      isBadge,
+      x: 50,
+      y: 50 + (stickerOverlays.length * 6) % 25,
+    };
+    setStickerOverlays((prev) => [...prev, newSticker]);
+    setActiveEditorDrawer('none');
+  };
+
+  // Dragging support for overlays
+  const handleOverlayPointerDown = (id: string, e: React.PointerEvent) => {
+    e.stopPropagation();
+    setDraggingOverlayId(id);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handleOverlayPointerMove = (id: string, e: React.PointerEvent) => {
+    if (draggingOverlayId !== id || !editorViewportRef.current) return;
+    const rect = editorViewportRef.current.getBoundingClientRect();
+    const newX = Math.max(10, Math.min(90, ((e.clientX - rect.left) / rect.width) * 100));
+    const newY = Math.max(10, Math.min(90, ((e.clientY - rect.top) / rect.height) * 100));
+
+    setTextOverlays((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, x: newX, y: newY } : item))
+    );
+    setStickerOverlays((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, x: newX, y: newY } : item))
+    );
+  };
+
+  const handleOverlayPointerUp = (e: React.PointerEvent) => {
+    setDraggingOverlayId(null);
+  };
+
+  // Remove Overlay
+  const handleRemoveTextOverlay = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTextOverlays((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleRemoveStickerOverlay = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setStickerOverlays((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // Final Publish Handler
+  const handleFinalPublish = () => {
     if (isSharing) return;
     setIsSharing(true);
 
@@ -763,7 +918,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
     const permanentVideoUrl =
-      recordedVideoUrl && (recordedVideoUrl.startsWith('http://') || recordedVideoUrl.startsWith('https://'))
+      recordedVideoUrl &&
+      (recordedVideoUrl.startsWith('http://') || recordedVideoUrl.startsWith('https://'))
         ? recordedVideoUrl
         : STANDARD_REEL_VIDEO_URL;
 
@@ -803,9 +959,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       mediaUrl: mediaUrl,
       mediaType: isVideo ? 'video' : 'image',
       thumbnailUrl: effectiveThumbnail,
-      caption: postCaption.trim() || (isVideo ? 'New Bhojpuri Reel! 🔥 #Jhalak' : 'Captured on Jhalak 📸 #Bhojpuri'),
-      tags: ['Bhojpuri', 'Jhalak', mode.toLowerCase()],
-      category: 'Bhojpuri' as ContentCategory,
+      caption:
+        postCaption.trim() ||
+        (isVideo
+          ? 'New Bhojpuri Reel! 🔥 #Jhalak #Bhojpuri'
+          : 'Captured on Jhalak 📸 #Bhojpuri'),
+      tags: ['Bhojpuri', 'Jhalak', selectedCategory.toLowerCase()],
+      category: selectedCategory,
       likesCount: 0,
       isLiked: false,
       isSaved: false,
@@ -813,7 +973,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       timestamp: 'Just now',
       filter: activeFilterPreset.name,
       audioTitle: isVideo ? effectiveAudio : undefined,
-      audioArtist: isVideo ? (selectedAudio?.artist || author.username) : undefined,
+      audioArtist: isVideo ? selectedAudio?.artist || author.username : undefined,
       audioUrl: selectedAudio?.audioUrl,
       createdAt: now,
       isUserCreated: true,
@@ -830,7 +990,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
         videoUrl: permanentVideoUrl,
         thumbnailUrl: effectiveThumbnail,
         caption: newPost.caption,
-        category: 'Bhojpuri' as ContentCategory,
+        category: selectedCategory,
         audioTitle: effectiveAudio,
         audioArtist: selectedAudio?.artist || author.username,
         audioUrl: selectedAudio?.audioUrl,
@@ -850,10 +1010,19 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     if (onPostCreated) {
       onPostCreated(newPost, newReel);
       if (onShowToast) {
-        onShowToast(isVideo ? 'Reel uploaded to feed & reels! 🚀' : 'Post shared successfully! 📸');
+        onShowToast(
+          isVideo
+            ? 'Reel uploaded to feed & reels! 🚀'
+            : 'Post shared successfully! 📸'
+        );
       }
     } else if (isVideo && onCaptureVideo && recordedVideoBlob) {
-      onCaptureVideo(recordedVideoBlob, mediaUrl, videoThumbnail || undefined, effectiveAudio);
+      onCaptureVideo(
+        recordedVideoBlob,
+        mediaUrl,
+        videoThumbnail || undefined,
+        effectiveAudio
+      );
     } else if (!isVideo && onCapturePhoto && capturedPhotoBlob) {
       onCapturePhoto(capturedPhotoBlob, mediaUrl, mediaUrl);
     }
@@ -870,19 +1039,121 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       if (isVideo) {
         setRecordedVideoBlob(file);
         setRecordedVideoUrl(url);
+        setEditorView('edit');
       } else {
         setCapturedPhotoBlob(file);
         setCapturedPhotoUrl(url);
+        setEditorView('edit');
       }
     }
   };
 
+  const trendingHashtags = [
+    '#Bhojpuri',
+    '#Jhalak',
+    '#BhojpuriReel',
+    '#Bawaal',
+    '#PawanSingh',
+    '#KhesariLal',
+    '#DesiVibes',
+    '#Purvanchal',
+    '#Superhit',
+    '#Chhapra',
+  ];
+
+  const bhojpuriBadges = [
+    '🔥 बवाल रील',
+    '💃 कमरिया करे लपालप',
+    '🪕 भोजपुरी स्टार',
+    '⚡ सुपरहिट धमाका',
+    '👑 राजा जी',
+    '✨ जलवा बा',
+    '🌟 Jhalak Vibes',
+    '🎉 रंगदार भोजपुरिया',
+    '🕶️ Desi Swag',
+    '🚆 Chhapra to Patna',
+  ];
+
+  const popularEmojis = [
+    '🔥',
+    '❤️',
+    '🤩',
+    '💃',
+    '🕺',
+    '🎉',
+    '👏',
+    '🎬',
+    '💯',
+    '✨',
+    '🇮🇳',
+    '🎵',
+    '💥',
+    '😎',
+    '🥳',
+    '🙌',
+    '⭐',
+    '💣',
+  ];
+
+  const fontOptions: { id: TextOverlay['font']; name: string; styleClass: string }[] = [
+    { id: 'modern', name: 'Modern', styleClass: 'font-sans font-black' },
+    { id: 'classic', name: 'Classic', styleClass: 'font-serif font-bold italic' },
+    {
+      id: 'neon',
+      name: 'Neon',
+      styleClass:
+        'font-mono font-black drop-shadow-[0_0_10px_rgba(236,72,153,0.9)] text-pink-300',
+    },
+    {
+      id: 'bhojpuri',
+      name: 'Bhojpuri Bold',
+      styleClass:
+        'font-black tracking-wider uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]',
+    },
+    { id: 'handwriting', name: 'Cursive', styleClass: 'font-serif italic font-extrabold' },
+    { id: 'typewriter', name: 'Typewriter', styleClass: 'font-mono tracking-widest' },
+  ];
+
+  const colorOptions = [
+    '#FFFFFF',
+    '#FACC15',
+    '#EF4444',
+    '#EC4899',
+    '#38BDF8',
+    '#4ADE80',
+    '#A855F7',
+    '#F97316',
+    '#000000',
+  ];
+
+  // Helper font class for overlays
+  const getFontClass = (f: TextOverlay['font']) => {
+    switch (f) {
+      case 'modern':
+        return 'font-sans font-black tracking-tight';
+      case 'classic':
+        return 'font-serif font-bold italic';
+      case 'neon':
+        return 'font-mono font-black drop-shadow-[0_0_12px_rgba(236,72,153,0.9)] text-pink-200';
+      case 'bhojpuri':
+        return 'font-black tracking-widest uppercase drop-shadow-[0_3px_6px_rgba(0,0,0,0.9)]';
+      case 'handwriting':
+        return 'font-serif italic font-extrabold';
+      case 'typewriter':
+        return 'font-mono tracking-widest';
+      default:
+        return 'font-sans font-bold';
+    }
+  };
+
+  const isEditing = !!(capturedPhotoUrl || recordedVideoUrl);
+
   return (
     <div
       id="instagram-camera-modal"
-      className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-between overflow-hidden select-none touch-none"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
+      className="fixed inset-0 z-50 w-screen h-screen overflow-hidden bg-black select-none touch-none flex flex-col justify-between"
+      onTouchStart={isEditing ? undefined : handleTouchStart}
+      onTouchEnd={isEditing ? undefined : handleTouchEnd}
     >
       {/* Hidden file input for gallery fallback */}
       <input
@@ -895,119 +1166,25 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
       {/* Screen Shutter Flash Burst Animation */}
       {showFlashBurst && (
-        <div className="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-200 opacity-90 animate-out fade-out" />
+        <div className="absolute inset-0 bg-white z-50 pointer-events-none transition-opacity duration-200 opacity-90 animate-out fade-out" />
       )}
 
       {/* Countdown overlay (3... 2... 1...) */}
       {activeCountdown !== null && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 pointer-events-none">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 pointer-events-none">
           <span className="text-8xl font-black text-white drop-shadow-2xl animate-ping">
             {activeCountdown}
           </span>
         </div>
       )}
 
-      {/* MAIN VIEWPORT */}
-      <div className="relative w-full flex-1 flex items-center justify-center overflow-hidden bg-black">
-        {capturedPhotoUrl ? (
-          /* STATE A: Captured High-Res Photo Review */
-          <div className="relative w-full h-full flex items-center justify-center bg-black">
-            <img
-              src={capturedPhotoUrl}
-              alt="Captured Instagram Photo"
-              className={`w-full h-full ${
-                mode === 'POST' ? 'object-contain max-h-[520px] aspect-square' : 'object-cover'
-              }`}
-            />
-            {/* Top Retake Bar */}
-            <div className="absolute top-4 left-4 z-30">
-              <button
-                type="button"
-                onClick={handleRetake}
-                className="p-3 rounded-full bg-black/60 text-white backdrop-blur-md border border-white/20 hover:bg-black/80 transition active:scale-95 cursor-pointer shadow-lg"
-                title="Retake photo"
-              >
-                <RotateCcw className="w-5 h-5" />
-              </button>
-            </div>
-            {/* Filter badge */}
-            <div className="absolute top-4 right-4 z-30 px-3 py-1 rounded-full bg-black/60 text-white text-xs font-bold border border-white/20 backdrop-blur-md flex items-center gap-1.5 shadow-lg">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>{activeFilterPreset.name}</span>
-            </div>
-          </div>
-        ) : recordedVideoUrl ? (
-          /* STATE B: Recorded Video Review */
-          <div className="relative w-full h-full flex items-center justify-center bg-black">
-            <video
-              ref={videoPreviewRef}
-              src={recordedVideoUrl}
-              controls
-              playsInline
-              webkit-playsinline="true"
-              controlsList="nodownload"
-              autoPlay
-              loop
-              muted={isPreviewMuted}
-              className="w-full h-full object-cover"
-              onClick={() => {
-                const vid = videoPreviewRef.current;
-                if (vid) {
-                  if (vid.paused) {
-                    vid.play().then(() => setIsPreviewPlaying(true));
-                  } else {
-                    vid.pause();
-                    setIsPreviewPlaying(false);
-                  }
-                }
-              }}
-            />
-            {/* Retake & Sound controls */}
-            <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleRetake}
-                className="p-3 rounded-full bg-black/60 text-white backdrop-blur-md border border-white/20 hover:bg-black/80 transition active:scale-95 cursor-pointer shadow-lg"
-                title="Retake video"
-              >
-                <RotateCcw className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsPreviewMuted((m) => !m)}
-                className="p-3 rounded-full bg-black/60 text-white backdrop-blur-md border border-white/20 hover:bg-black/80 transition active:scale-95 cursor-pointer shadow-lg"
-              >
-                {isPreviewMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-              </button>
-            </div>
-
-            {/* Filter & Audio tags */}
-            <div className="absolute top-4 right-4 z-30 flex flex-col items-end gap-1.5">
-              <div className="px-3 py-1 rounded-full bg-black/60 text-white text-xs font-bold border border-white/20 backdrop-blur-md flex items-center gap-1.5 shadow-lg">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>{activeFilterPreset.name}</span>
-              </div>
-              {selectedAudio && (
-                <div className="px-3 py-1 rounded-full bg-rose-500/80 text-white text-xs font-semibold backdrop-blur-md flex items-center gap-1.5 shadow-lg max-w-[180px] truncate">
-                  <Music className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">{selectedAudio.title}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Play/Pause indicator */}
-            {!isPreviewPlaying && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-16 h-16 rounded-full bg-black/60 flex items-center justify-center text-white border border-white/30 backdrop-blur-md">
-                  <Play className="w-8 h-8 fill-white ml-1" />
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          /* STATE C: Live Full-Screen 1080p Camera Stream */
-          <div className="relative w-full h-full flex items-center justify-center bg-neutral-950 overflow-hidden">
-            {/* Live Video Feed with Smooth Flip & Filter */}
+      {/* ======================================================== */}
+      {/* SECTION 1: TRUE FULLSCREEN LIVE CAMERA STREAM (100vw x 100vh) */}
+      {/* ======================================================== */}
+      {!isEditing && (
+        <>
+          {/* True edge-to-edge camera background layer without letterboxing */}
+          <div className="absolute inset-0 w-full h-full overflow-hidden bg-black">
             <video
               ref={videoLiveRef}
               playsInline
@@ -1015,31 +1192,32 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               controlsList="nodownload"
               autoPlay
               muted
-              className={`w-full h-full object-cover transition-all duration-300 ease-in-out ${
+              className={`absolute inset-0 w-full h-full object-cover transition-all duration-300 ease-in-out ${
                 isFlipping ? 'scale-90 opacity-60 rotate-6' : ''
               } ${isFrontCamera ? 'scale-x-[-1]' : 'scale-x-100'} ${activeFilterPreset.cssClass}`}
             />
 
-            {/* Mode-Specific Framing Guide */}
+            {/* Optional 1:1 square framing guide for POST mode (subtle border, no black bars) */}
             {mode === 'POST' && (
-              <div className="absolute inset-0 pointer-events-none flex flex-col justify-between">
-                <div className="w-full bg-black/60 backdrop-blur-xs flex-1 border-b border-white/20" />
-                <div className="w-full aspect-square max-h-[520px] border-2 border-white/30 relative">
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="w-[88vw] max-w-[420px] aspect-square rounded-2xl border-2 border-dashed border-white/40 shadow-2xl relative">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold text-white uppercase tracking-wider border border-white/20">
+                    Post 1:1 Frame
+                  </div>
                   {showGrid && (
                     <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
-                      <div className="border-r border-b border-white/25" />
-                      <div className="border-r border-b border-white/25" />
-                      <div className="border-b border-white/25" />
-                      <div className="border-r border-b border-white/25" />
-                      <div className="border-r border-b border-white/25" />
-                      <div className="border-b border-white/25" />
-                      <div className="border-r border-b border-white/25" />
-                      <div className="border-r border-b border-white/25" />
+                      <div className="border-r border-b border-white/20" />
+                      <div className="border-r border-b border-white/20" />
+                      <div className="border-b border-white/20" />
+                      <div className="border-r border-b border-white/20" />
+                      <div className="border-r border-b border-white/20" />
+                      <div className="border-b border-white/20" />
+                      <div className="border-r border-b border-white/20" />
+                      <div className="border-r border-b border-white/20" />
                       <div />
                     </div>
                   )}
                 </div>
-                <div className="w-full bg-black/60 backdrop-blur-xs flex-1 border-t border-white/20" />
               </div>
             )}
 
@@ -1090,19 +1268,25 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </div>
             )}
 
-            {/* LIVE MODE: Real Active Camera Preview (No fake comments or fake viewer count) */}
+            {/* LIVE MODE: Real Active Camera Preview */}
             {mode === 'LIVE' && (
-              <div className="absolute top-16 inset-x-4 z-20 flex flex-col items-center pointer-events-none">
+              <div className="absolute top-20 inset-x-4 z-20 flex flex-col items-center pointer-events-none">
                 <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/60 border border-white/25 backdrop-blur-md text-white shadow-xl">
-                  <span className={`w-2.5 h-2.5 rounded-full ${isLiveActive ? 'bg-red-500 animate-ping' : 'bg-emerald-400'}`} />
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      isLiveActive ? 'bg-red-500 animate-ping' : 'bg-emerald-400'
+                    }`}
+                  />
                   <span className="font-bold text-xs tracking-wider">
-                    {isLiveActive ? 'LIVE ON AIR' : 'LIVE READY • CAMERA ACTIVE'}
+                    {isLiveActive ? 'LIVE ON AIR' : 'LIVE READY • ACTIVE SENSOR'}
                   </span>
                 </div>
 
                 {isLiveActive && (
                   <div className="mt-3 flex items-center gap-3 px-3 py-1.5 rounded-full bg-black/70 text-white text-xs font-semibold backdrop-blur-md border border-white/20 shadow-lg">
-                    <span className="font-mono text-red-400 font-bold">{formatTimer(liveDurationSeconds)}</span>
+                    <span className="font-mono text-red-400 font-bold">
+                      {formatTimer(liveDurationSeconds)}
+                    </span>
                     <span className="text-white/40">•</span>
                     <div className="flex items-center gap-1 text-emerald-400">
                       <Wifi className="w-3.5 h-3.5" />
@@ -1113,12 +1297,10 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </div>
             )}
           </div>
-        )}
 
-        {/* TOP BAR CONTROLS (Live stream view) */}
-        {!capturedPhotoUrl && !recordedVideoUrl && (
-          <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
-            {/* Left: Close button */}
+          {/* OVERLAY 1: Transparent Top Controls Header */}
+          <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 pt-safe bg-gradient-to-b from-black/80 via-black/35 to-transparent pointer-events-auto">
+            {/* Close camera button */}
             <button
               type="button"
               id="close-camera-modal-btn"
@@ -1129,7 +1311,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <X className="w-6 h-6" />
             </button>
 
-            {/* Center: Music / Audio Track Pill (Reel & Story modes) */}
+            {/* Audio / Music Selector Pill */}
             {(mode === 'REEL' || mode === 'STORY') && (
               <button
                 type="button"
@@ -1143,9 +1325,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             )}
 
-            {/* Right: Quick Tools (Flash, Grid, Timer) */}
+            {/* Right Tools (Flash, Grid, Timer) */}
             <div className="flex items-center gap-2">
-              {/* Flash Toggle */}
               <button
                 type="button"
                 onClick={toggleFlash}
@@ -1159,7 +1340,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 {isFlashOn ? <Zap className="w-5 h-5 fill-black" /> : <ZapOff className="w-5 h-5" />}
               </button>
 
-              {/* Grid Toggle */}
               <button
                 type="button"
                 onClick={() => setShowGrid((g) => !g)}
@@ -1173,7 +1353,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 <Grid className="w-5 h-5" />
               </button>
 
-              {/* Countdown Timer (Off, 3s, 10s) */}
               <button
                 type="button"
                 onClick={() => {
@@ -1191,131 +1370,61 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             </div>
           </div>
-        )}
 
-        {/* LEFT TOOLSTRIP (Reel Speed / Mic) */}
-        {!capturedPhotoUrl && !recordedVideoUrl && mode === 'REEL' && (
-          <div className="absolute left-4 top-24 z-20 flex flex-col items-center gap-3">
-            {/* Speed Selector */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowSpeedMenu((s) => !s)}
-                className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center text-white text-xs font-bold shadow-lg active:scale-95 cursor-pointer"
-              >
-                {recordingSpeed}
-              </button>
-              {showSpeedMenu && (
-                <div className="absolute left-12 top-0 bg-neutral-900/90 border border-white/20 rounded-xl p-1 flex flex-col gap-1 backdrop-blur-md z-30 shadow-2xl">
-                  {(['0.3x', '0.5x', '1x', '2x', '3x'] as const).map((spd) => (
-                    <button
-                      key={spd}
-                      type="button"
-                      onClick={() => {
-                        setRecordingSpeed(spd);
-                        setShowSpeedMenu(false);
-                      }}
-                      className={`px-3 py-1.5 text-xs rounded-lg font-bold text-left transition cursor-pointer ${
-                        recordingSpeed === spd
-                          ? 'bg-rose-500 text-white'
-                          : 'text-neutral-300 hover:bg-white/10'
-                      }`}
-                    >
-                      {spd}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Mic Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsMicMuted((m) => !m)}
-              className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-95 cursor-pointer shadow-lg ${
-                isMicMuted
-                  ? 'bg-rose-500 text-white border-rose-400'
-                  : 'bg-black/50 text-white border-white/20'
-              }`}
-            >
-              {isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* BOTTOM CONTROLS & DOCK */}
-      <div className="w-full bg-gradient-to-t from-black via-black/95 to-transparent pb-6 pt-3 px-4 flex flex-col items-center z-30">
-        {capturedPhotoUrl || recordedVideoUrl ? (
-          /* Captured Media Review & 1-Tap Share Bar */
-          <div className="w-full max-w-md flex flex-col gap-3">
-            {/* Inline Caption Bar */}
-            <div className="w-full flex items-center gap-2 px-3 py-2 bg-neutral-900/90 rounded-2xl border border-white/20 backdrop-blur-md shadow-2xl">
-              <input
-                type="text"
-                value={postCaption}
-                onChange={(e) => setPostCaption(e.target.value)}
-                placeholder={
-                  mode === 'REEL'
-                    ? 'Write a reel caption... (e.g. Bawaal reel 🔥)'
-                    : mode === 'STORY'
-                    ? 'Add text to story...'
-                    : 'Write a caption...'
-                }
-                className="flex-1 bg-transparent text-white text-xs placeholder-white/40 focus:outline-hidden"
-              />
-              <div className="flex items-center gap-1.5">
-                {['🔥', '❤️', '🎬', '✨'].map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => setPostCaption((p) => p + ' ' + emoji)}
-                    className="text-sm hover:scale-125 transition active:scale-95 cursor-pointer"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Action Buttons: [Retake | Direct 1-Tap Share] */}
-            <div className="w-full flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleRetake}
-                className="flex-1 py-3 px-4 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs transition active:scale-95 border border-white/20 cursor-pointer shadow-lg"
-              >
-                Retake
-              </button>
-              <button
-                type="button"
-                id="direct-share-camera-btn"
-                onClick={handleDirectShare}
-                disabled={isSharing}
-                className="flex-2 py-3 px-6 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xl shadow-rose-500/30 active:scale-95 transition cursor-pointer"
-              >
-                {isSharing ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4 fill-white" />
+          {/* OVERLAY 2: Transparent Left Toolstrip (Reel Speed / Mic) */}
+          {mode === 'REEL' && (
+            <div className="absolute left-4 top-24 z-30 flex flex-col items-center gap-3 pointer-events-auto">
+              {/* Speed Selector */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSpeedMenu((s) => !s)}
+                  className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center text-white text-xs font-bold shadow-lg active:scale-95 cursor-pointer"
+                >
+                  {recordingSpeed}
+                </button>
+                {showSpeedMenu && (
+                  <div className="absolute left-12 top-0 bg-neutral-900/90 border border-white/20 rounded-xl p-1 flex flex-col gap-1 backdrop-blur-md z-40 shadow-2xl">
+                    {(['0.3x', '0.5x', '1x', '2x', '3x'] as const).map((spd) => (
+                      <button
+                        key={spd}
+                        type="button"
+                        onClick={() => {
+                          setRecordingSpeed(spd);
+                          setShowSpeedMenu(false);
+                        }}
+                        className={`px-3 py-1.5 text-xs rounded-lg font-bold text-left transition cursor-pointer ${
+                          recordingSpeed === spd
+                            ? 'bg-rose-500 text-white'
+                            : 'text-neutral-300 hover:bg-white/10'
+                        }`}
+                      >
+                        {spd}
+                      </button>
+                    ))}
+                  </div>
                 )}
-                <span>
-                  {isSharing
-                    ? 'Posting...'
-                    : mode === 'REEL' || recordedVideoUrl
-                    ? 'Share to Reels ⚡'
-                    : mode === 'STORY'
-                    ? 'Add to Story 🌟'
-                    : 'Share Post 📸'}
-                </span>
+              </div>
+
+              {/* Mic Toggle */}
+              <button
+                type="button"
+                onClick={() => setIsMicMuted((m) => !m)}
+                className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-95 cursor-pointer shadow-lg ${
+                  isMicMuted
+                    ? 'bg-rose-500 text-white border-rose-400'
+                    : 'bg-black/50 text-white border-white/20'
+                }`}
+              >
+                {isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
             </div>
-          </div>
-        ) : (
-          /* Live Camera Viewfinder Dock */
-          <div className="w-full max-w-md flex flex-col items-center">
-            {/* Instagram-Style Trending Live Filters/Effects (10 popular presets) */}
-            <div className="w-full mb-3 flex items-center justify-center gap-3 overflow-x-auto no-scrollbar py-1 px-4">
+          )}
+
+          {/* OVERLAY 3: Transparent Bottom Controls (Filters, Shutter, Tabs) */}
+          <div className="absolute bottom-0 inset-x-0 z-30 flex flex-col items-center pb-safe pb-6 pt-10 px-4 bg-gradient-to-t from-black/95 via-black/50 to-transparent pointer-events-auto">
+            {/* 10 Trending Instagram-Style Filters Shelf */}
+            <div className="w-full max-w-md mb-3 flex items-center justify-center gap-3 overflow-x-auto no-scrollbar py-1 px-4">
               {FILTER_PRESETS.map((filter) => {
                 const isSelected = selectedFilter === filter.id;
                 return (
@@ -1348,8 +1457,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             </div>
 
             {/* Shutter Dock Row: [Gallery Button | Circular Shutter / Live Button | Flip Camera] */}
-            <div className="w-full flex items-center justify-between px-6 mb-4">
-              {/* Left: Gallery Thumbnail / File Picker */}
+            <div className="w-full max-w-md flex items-center justify-between px-6 mb-4">
+              {/* Gallery / File Picker */}
               <button
                 type="button"
                 id="camera-gallery-picker-btn"
@@ -1361,10 +1470,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 <ImageIcon className="w-6 h-6 text-white/80 group-hover:text-white transition" />
               </button>
 
-              {/* Center Shutter Button:
-                  - In POST & STORY: Instant Photo Shutter Click
-                  - In REEL: Single Tap Toggle or Hold to Record Video with circular progress border
-                  - In LIVE: Clear Start/End Live Session Button */}
+              {/* Shutter Button */}
               {mode === 'LIVE' ? (
                 <button
                   type="button"
@@ -1381,7 +1487,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 </button>
               ) : (
                 <div className="relative flex items-center justify-center">
-                  {/* SVG Progress Ring during video recording in REEL mode */}
                   {isRecording && (
                     <svg className="absolute w-[96px] h-[96px] -rotate-90 pointer-events-none">
                       <circle
@@ -1425,7 +1530,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                       isShutterPressed || isRecording ? 'scale-110' : 'active:scale-95'
                     }`}
                   >
-                    {/* Outer Ring */}
                     <div
                       className={`absolute inset-0 rounded-full border-[4px] transition-all duration-200 ${
                         isRecording
@@ -1433,8 +1537,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                           : 'border-white/80 shadow-2xl hover:border-white'
                       }`}
                     />
-
-                    {/* Inner Solid White Shutter Button */}
                     <div
                       className={`transition-all duration-200 flex items-center justify-center ${
                         isRecording
@@ -1454,7 +1556,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 </div>
               )}
 
-              {/* Right: Flip Camera Button with smooth transition */}
+              {/* Flip Camera */}
               <button
                 type="button"
                 id="camera-flip-btn"
@@ -1471,7 +1573,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             </div>
 
-            {/* BOTTOM SWIPEABLE MODES BAR: [POST, STORY, REEL, LIVE] */}
+            {/* Bottom Swipeable Modes Bar: POST | STORY | REEL | LIVE */}
             <div
               ref={modesScrollRef}
               className="w-full flex items-center justify-center gap-6 overflow-x-auto no-scrollbar py-2 px-10 cursor-pointer"
@@ -1501,8 +1603,764 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               })}
             </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {/* ======================================================== */}
+      {/* SECTION 2: POST-RECORDING VIDEO / MEDIA EDITOR SCREEN     */}
+      {/* ======================================================== */}
+      {isEditing && (
+        <div
+          ref={editorViewportRef}
+          onPointerUp={handleOverlayPointerUp}
+          className="relative w-full h-full flex flex-col justify-between overflow-hidden bg-black"
+        >
+          {/* MEDIA BACKGROUND LOOP */}
+          <div
+            className="absolute inset-0 w-full h-full overflow-hidden bg-black cursor-pointer"
+            onClick={toggleEditorPlayPause}
+          >
+            {recordedVideoUrl ? (
+              <video
+                ref={videoEditorPreviewRef}
+                src={recordedVideoUrl}
+                playsInline
+                webkit-playsinline="true"
+                controlsList="nodownload"
+                autoPlay
+                loop
+                muted={editorMuted}
+                onLoadedMetadata={handleEditorVideoLoadedMetadata}
+                onTimeUpdate={handleEditorVideoTimeUpdate}
+                className={`absolute inset-0 w-full h-full object-cover transition-all duration-200 ${activeFilterPreset.cssClass}`}
+              />
+            ) : capturedPhotoUrl ? (
+              <img
+                src={capturedPhotoUrl}
+                alt="Captured review"
+                className={`absolute inset-0 w-full h-full ${
+                  mode === 'POST' ? 'object-contain max-h-[90vh]' : 'object-cover'
+                } ${activeFilterPreset.cssClass}`}
+              />
+            ) : null}
+
+            {/* Play / Pause Animated Badge overlay */}
+            {!editorPlaying && recordedVideoUrl && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-18 h-18 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 text-white shadow-2xl">
+                  <Play className="w-8 h-8 fill-white ml-1" />
+                </div>
+              </div>
+            )}
+
+            {/* Audio attribution sticker if audio selected */}
+            {selectedAudio && (
+              <div className="absolute top-18 left-4 z-20 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white text-xs font-semibold flex items-center gap-2 shadow-lg">
+                <Music className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                <span className="max-w-[160px] truncate">{selectedAudio.title}</span>
+              </div>
+            )}
+
+            {/* Filter Name Badge */}
+            {selectedFilter !== 'normal' && (
+              <div className="absolute top-18 right-4 z-20 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>{activeFilterPreset.name}</span>
+              </div>
+            )}
+
+            {/* DYNAMIC TEXT OVERLAYS */}
+            {textOverlays.map((item) => (
+              <div
+                key={item.id}
+                onPointerDown={(e) => handleOverlayPointerDown(item.id, e)}
+                onPointerMove={(e) => handleOverlayPointerMove(item.id, e)}
+                style={{
+                  left: `${item.x}%`,
+                  top: `${item.y}%`,
+                  transform: 'translate(-50%, -50%)',
+                  color: item.color,
+                }}
+                className={`absolute z-30 cursor-grab active:cursor-grabbing select-none group px-3 py-1.5 transition-shadow ${getFontClass(
+                  item.font
+                )} ${
+                  item.bgMode === 'solid'
+                    ? 'bg-black/75 rounded-xl shadow-lg border border-white/10'
+                    : item.bgMode === 'glass'
+                    ? 'backdrop-blur-md bg-white/20 rounded-xl border border-white/30 shadow-lg'
+                    : 'drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]'
+                } text-base sm:text-xl`}
+              >
+                <span>{item.text}</span>
+                <button
+                  type="button"
+                  onClick={(e) => handleRemoveTextOverlay(item.id, e)}
+                  className="hidden group-hover:flex absolute -top-2 -right-2 w-5 h-5 rounded-full bg-rose-600 text-white items-center justify-center text-[10px] shadow-md hover:scale-110 transition cursor-pointer"
+                  title="Remove text"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+
+            {/* DYNAMIC STICKER / BADGE OVERLAYS */}
+            {stickerOverlays.map((item) => (
+              <div
+                key={item.id}
+                onPointerDown={(e) => handleOverlayPointerDown(item.id, e)}
+                onPointerMove={(e) => handleOverlayPointerMove(item.id, e)}
+                style={{
+                  left: `${item.x}%`,
+                  top: `${item.y}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+                className={`absolute z-30 cursor-grab active:cursor-grabbing select-none group ${
+                  item.isBadge
+                    ? 'px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 text-white font-black text-sm tracking-wide shadow-xl border border-white/40 drop-shadow-md'
+                    : 'text-4xl drop-shadow-xl hover:scale-110 transition'
+                }`}
+              >
+                <span>{item.content}</span>
+                <button
+                  type="button"
+                  onClick={(e) => handleRemoveStickerOverlay(item.id, e)}
+                  className="hidden group-hover:flex absolute -top-2 -right-2 w-5 h-5 rounded-full bg-rose-600 text-white items-center justify-center text-[10px] shadow-md hover:scale-110 transition cursor-pointer"
+                  title="Remove sticker"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* =================================================== */}
+          {/* EDITOR VIEW STATE A: EDITING TOOLS (Text, Stickers, Trim, Speed, Filters) */}
+          {/* =================================================== */}
+          {editorView === 'edit' && (
+            <>
+              {/* TOP EDITOR BAR: [Retake | Top Tools (Text, Sticker, Music, Mute) | Next] */}
+              <div className="relative z-30 flex items-center justify-between p-4 pt-safe bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+                {/* Back / Retake Button */}
+                <button
+                  type="button"
+                  onClick={handleRetake}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/50 hover:bg-black/80 text-white text-xs font-bold backdrop-blur-md border border-white/20 transition active:scale-95 shadow-lg cursor-pointer"
+                  title="Discard and retake"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Retake</span>
+                </button>
+
+                {/* Top Action Tools: Text, Stickers, Music, Mute */}
+                <div className="flex items-center gap-2">
+                  {/* Add Text Tool */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveEditorDrawer((d) => (d === 'text' ? 'none' : 'text'))
+                    }
+                    className={`p-2.5 rounded-full backdrop-blur-md border transition active:scale-95 shadow-lg cursor-pointer ${
+                      activeEditorDrawer === 'text'
+                        ? 'bg-rose-500 text-white border-rose-400'
+                        : 'bg-black/50 text-white border-white/20 hover:bg-black/80'
+                    }`}
+                    title="Add Text"
+                  >
+                    <Type className="w-5 h-5" />
+                  </button>
+
+                  {/* Add Stickers Tool */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveEditorDrawer((d) => (d === 'stickers' ? 'none' : 'stickers'))
+                    }
+                    className={`p-2.5 rounded-full backdrop-blur-md border transition active:scale-95 shadow-lg cursor-pointer ${
+                      activeEditorDrawer === 'stickers'
+                        ? 'bg-rose-500 text-white border-rose-400'
+                        : 'bg-black/50 text-white border-white/20 hover:bg-black/80'
+                    }`}
+                    title="Add Stickers / Emojis"
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+
+                  {/* Audio / Music Selector */}
+                  <button
+                    type="button"
+                    onClick={() => setIsAudioDrawerOpen(true)}
+                    className="p-2.5 rounded-full bg-black/50 text-white hover:bg-black/80 backdrop-blur-md border border-white/20 transition active:scale-95 shadow-lg cursor-pointer"
+                    title="Add Music / Audio"
+                  >
+                    <Music className="w-5 h-5 text-rose-400" />
+                  </button>
+
+                  {/* Mute Video Sound Toggle */}
+                  {recordedVideoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setEditorMuted((m) => !m)}
+                      className={`p-2.5 rounded-full backdrop-blur-md border transition active:scale-95 shadow-lg cursor-pointer ${
+                        editorMuted
+                          ? 'bg-rose-500 text-white border-rose-400'
+                          : 'bg-black/50 text-white border-white/20 hover:bg-black/80'
+                      }`}
+                      title={editorMuted ? 'Unmute' : 'Mute'}
+                    >
+                      {editorMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                    </button>
+                  )}
+                </div>
+
+                {/* Next Button (To Final Publish details) */}
+                <button
+                  type="button"
+                  id="editor-next-btn"
+                  onClick={() => {
+                    setActiveEditorDrawer('none');
+                    setEditorView('publish');
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 text-white font-bold text-xs shadow-lg shadow-rose-500/30 active:scale-95 transition cursor-pointer"
+                >
+                  <span>Next</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* FLOATING DRAWERS / SUB-MENUS */}
+              {/* 1. TEXT TOOL MODAL */}
+              {activeEditorDrawer === 'text' && (
+                <div className="absolute inset-x-4 top-20 z-40 bg-neutral-900/95 backdrop-blur-xl border border-white/20 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Type className="w-4 h-4 text-rose-400" />
+                      Add Text Overlay
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveEditorDrawer('none')}
+                      className="text-white/60 hover:text-white p-1"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    autoFocus
+                    value={newTextString}
+                    onChange={(e) => setNewTextString(e.target.value)}
+                    placeholder="Type text... (e.g. बवाल धमाका 🔥)"
+                    className="w-full bg-neutral-800 text-white text-sm px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-hidden focus:border-rose-500"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddTextOverlay();
+                    }}
+                  />
+
+                  {/* Fonts Selector */}
+                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                    {fontOptions.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setNewTextFont(f.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+                          newTextFont === f.id
+                            ? 'bg-rose-500 text-white'
+                            : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                        } ${f.styleClass}`}
+                      >
+                        {f.name}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Color Palette */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {colorOptions.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setNewTextColor(c)}
+                          style={{ backgroundColor: c }}
+                          className={`w-6 h-6 rounded-full border border-white/30 transition-transform cursor-pointer ${
+                            newTextColor === c ? 'scale-125 ring-2 ring-white' : 'hover:scale-110'
+                          }`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Box style toggle */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewTextBgMode((m) =>
+                          m === 'solid' ? 'glass' : m === 'glass' ? 'none' : 'solid'
+                        )
+                      }
+                      className="px-2 py-1 rounded-md bg-neutral-800 border border-white/20 text-[10px] font-bold text-white capitalize cursor-pointer"
+                    >
+                      Bg: {newTextBgMode}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddTextOverlay}
+                    disabled={!newTextString.trim()}
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 text-white font-bold text-xs disabled:opacity-50 cursor-pointer shadow-md"
+                  >
+                    Add to Video
+                  </button>
+                </div>
+              )}
+
+              {/* 2. STICKERS / EMOJIS DRAWER */}
+              {activeEditorDrawer === 'stickers' && (
+                <div className="absolute inset-x-4 top-20 z-40 bg-neutral-900/95 backdrop-blur-xl border border-white/20 rounded-2xl p-4 shadow-2xl flex flex-col gap-3 max-h-[360px] overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveStickerTab('badges')}
+                        className={`text-xs font-bold px-3 py-1 rounded-full cursor-pointer transition ${
+                          activeStickerTab === 'badges'
+                            ? 'bg-rose-500 text-white'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        Bhojpuri Badges
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveStickerTab('emojis')}
+                        className={`text-xs font-bold px-3 py-1 rounded-full cursor-pointer transition ${
+                          activeStickerTab === 'emojis'
+                            ? 'bg-rose-500 text-white'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        Emojis
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveEditorDrawer('none')}
+                      className="text-white/60 hover:text-white p-1"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Badges tab */}
+                  {activeStickerTab === 'badges' ? (
+                    <div className="grid grid-cols-2 gap-2 overflow-y-auto max-h-[260px] py-1">
+                      {bhojpuriBadges.map((badge) => (
+                        <button
+                          key={badge}
+                          type="button"
+                          onClick={() => handleAddSticker(badge, true)}
+                          className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-600/30 via-rose-600/30 to-purple-600/30 border border-white/20 text-white font-bold text-xs text-left hover:scale-[1.02] active:scale-95 transition cursor-pointer shadow-md"
+                        >
+                          {badge}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-6 gap-3 overflow-y-auto max-h-[260px] py-2 text-center text-3xl">
+                      {popularEmojis.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => handleAddSticker(emoji, false)}
+                          className="hover:scale-125 active:scale-95 transition cursor-pointer p-1"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* BOTTOM EDITING DOCK (Filters, Trim, Speed) */}
+              <div className="relative z-30 w-full flex flex-col items-center pb-safe pb-6 pt-3 px-4 bg-gradient-to-t from-black via-black/90 to-transparent">
+                {/* 3. TRIM TIMELINE DRAWER */}
+                {activeEditorDrawer === 'trim' && recordedVideoUrl && (
+                  <div className="w-full max-w-md bg-neutral-900/90 border border-white/20 rounded-2xl p-3 mb-3 backdrop-blur-md shadow-2xl flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-white">
+                      <span className="flex items-center gap-1.5">
+                        <Scissors className="w-4 h-4 text-amber-400" />
+                        Trim Clip Length
+                      </span>
+                      <span className="text-amber-400 font-mono">
+                        {formatTimer(trimStart)} - {formatTimer(trimEnd)} (
+                        {Math.max(1, Math.round(trimEnd - trimStart))}s)
+                      </span>
+                    </div>
+
+                    {/* Trim Range Slider Inputs */}
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] text-neutral-400 w-10">Start:</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max={Math.max(0, trimEnd - 1)}
+                          step="0.5"
+                          value={trimStart}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setTrimStart(val);
+                            if (videoEditorPreviewRef.current) {
+                              videoEditorPreviewRef.current.currentTime = val;
+                            }
+                          }}
+                          className="flex-1 accent-amber-500 cursor-pointer"
+                        />
+                        <span className="text-[10px] font-mono text-white w-8">
+                          {trimStart.toFixed(1)}s
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] text-neutral-400 w-10">End:</span>
+                        <input
+                          type="range"
+                          min={Math.min(videoDuration, trimStart + 1)}
+                          max={videoDuration}
+                          step="0.5"
+                          value={trimEnd}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setTrimEnd(val);
+                            if (videoEditorPreviewRef.current) {
+                              videoEditorPreviewRef.current.currentTime = val;
+                            }
+                          }}
+                          className="flex-1 accent-rose-500 cursor-pointer"
+                        />
+                        <span className="text-[10px] font-mono text-white w-8">
+                          {trimEnd.toFixed(1)}s
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. SPEED ADJUSTMENT DRAWER */}
+                {activeEditorDrawer === 'speed' && recordedVideoUrl && (
+                  <div className="w-full max-w-md bg-neutral-900/90 border border-white/20 rounded-2xl p-3 mb-3 backdrop-blur-md shadow-2xl flex items-center justify-between">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Gauge className="w-4 h-4 text-sky-400" />
+                      Playback Speed
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {[0.5, 1.0, 1.5, 2.0].map((spd) => (
+                        <button
+                          key={spd}
+                          type="button"
+                          onClick={() => handleSetEditorSpeed(spd)}
+                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer ${
+                            editorSpeed === spd
+                              ? 'bg-rose-500 text-white shadow-md'
+                              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                          }`}
+                        >
+                          {spd}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. FILTER SELECTOR SHELF */}
+                {(activeEditorDrawer === 'filters' || activeEditorDrawer === 'none') && (
+                  <div className="w-full max-w-md mb-3 flex items-center justify-center gap-3 overflow-x-auto no-scrollbar py-1 px-4">
+                    {FILTER_PRESETS.map((filter) => {
+                      const isSelected = selectedFilter === filter.id;
+                      return (
+                        <button
+                          key={filter.id}
+                          type="button"
+                          onClick={() => setSelectedFilter(filter.id)}
+                          className="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer flex-shrink-0 group focus:outline-hidden"
+                          aria-label={`Select ${filter.name} filter`}
+                        >
+                          <div
+                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 shadow-md ${
+                              isSelected
+                                ? 'ring-2 ring-white ring-offset-2 ring-offset-black scale-110'
+                                : 'opacity-65 hover:opacity-90 hover:scale-105'
+                            } ${filter.bubbleClass}`}
+                          >
+                            {isSelected && <Sparkles className="w-3.5 h-3.5 text-white" />}
+                          </div>
+                          <span
+                            className={`text-[9px] font-semibold tracking-wide transition-colors whitespace-nowrap ${
+                              isSelected ? 'text-white font-bold' : 'text-white/50'
+                            }`}
+                          >
+                            {filter.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Dock Quick Tools: [Filters | Trim | Speed | Music] */}
+                <div className="w-full max-w-md flex items-center justify-around bg-neutral-900/80 rounded-2xl p-1.5 border border-white/10 backdrop-blur-md">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveEditorDrawer((d) => (d === 'filters' ? 'none' : 'filters'))
+                    }
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      activeEditorDrawer === 'filters' || activeEditorDrawer === 'none'
+                        ? 'bg-white/15 text-white'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span>Filters</span>
+                  </button>
+
+                  {recordedVideoUrl && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveEditorDrawer((d) => (d === 'trim' ? 'none' : 'trim'))
+                        }
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          activeEditorDrawer === 'trim'
+                            ? 'bg-white/15 text-white'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        <Scissors className="w-4 h-4 text-rose-400" />
+                        <span>Trim</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveEditorDrawer((d) => (d === 'speed' ? 'none' : 'speed'))
+                        }
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          activeEditorDrawer === 'speed'
+                            ? 'bg-white/15 text-white'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        <Gauge className="w-4 h-4 text-sky-400" />
+                        <span>Speed</span>
+                      </button>
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setIsAudioDrawerOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-neutral-400 hover:text-white transition cursor-pointer"
+                  >
+                    <Music className="w-4 h-4 text-pink-400" />
+                    <span>Music</span>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* =================================================== */}
+          {/* EDITOR VIEW STATE B: PUBLISH & SHARE DETAILS SCREEN */}
+          {/* =================================================== */}
+          {editorView === 'publish' && (
+            <div className="relative z-40 w-full h-full flex flex-col justify-between bg-neutral-950/98 backdrop-blur-2xl p-4 overflow-y-auto">
+              {/* Top Navigation */}
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setEditorView('edit')}
+                  className="flex items-center gap-1 text-white/80 hover:text-white text-xs font-bold cursor-pointer"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                  <span>Back to Editor</span>
+                </button>
+                <h3 className="font-black text-white text-sm tracking-wide">
+                  {mode === 'REEL' || recordedVideoUrl
+                    ? 'New Bhojpuri Reel'
+                    : mode === 'STORY'
+                    ? 'New Story'
+                    : 'New Post'}
+                </h3>
+                <div className="w-16" />
+              </div>
+
+              {/* Main Publish Form */}
+              <div className="flex-1 flex flex-col gap-4 py-4 max-w-lg mx-auto w-full">
+                {/* Media Preview Thumbnail & Caption */}
+                <div className="flex gap-3">
+                  <div className="w-24 h-32 rounded-xl overflow-hidden bg-neutral-900 border border-white/20 flex-shrink-0 relative shadow-md">
+                    {recordedVideoUrl ? (
+                      <video
+                        src={recordedVideoUrl}
+                        className={`w-full h-full object-cover ${activeFilterPreset.cssClass}`}
+                        muted
+                      />
+                    ) : (
+                      <img
+                        src={capturedPhotoUrl || ''}
+                        alt="Preview"
+                        className={`w-full h-full object-cover ${activeFilterPreset.cssClass}`}
+                      />
+                    )}
+                    <div className="absolute bottom-1 right-1 p-1 rounded-md bg-black/60 text-white text-[10px] font-mono">
+                      {recordedVideoUrl ? `${Math.round(trimEnd - trimStart)}s` : 'Photo'}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 flex flex-col gap-2">
+                    <textarea
+                      value={postCaption}
+                      onChange={(e) => setPostCaption(e.target.value)}
+                      placeholder="Write a catchy caption for your Bhojpuri reel... 🔥 #Jhalak"
+                      rows={4}
+                      className="w-full bg-neutral-900/90 text-white text-xs rounded-xl p-3 border border-white/15 focus:outline-hidden focus:border-rose-500 resize-none placeholder-white/30"
+                    />
+
+                    {/* Quick Emojis Bar */}
+                    <div className="flex items-center gap-2">
+                      {['🔥', '❤️', '💃', '🪕', '👑', '✨'].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => setPostCaption((p) => p + ' ' + emoji)}
+                          className="hover:scale-125 transition text-sm cursor-pointer"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Trending Bhojpuri Hashtags */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-bold text-neutral-400 flex items-center gap-1">
+                    <Hash className="w-3.5 h-3.5 text-rose-400" />
+                    Trending Hashtags (tap to add)
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {trendingHashtags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => {
+                          if (!postCaption.includes(tag)) {
+                            setPostCaption((p) => (p.trim() ? `${p.trim()} ${tag}` : tag));
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-neutral-900 hover:bg-rose-950/40 text-neutral-300 hover:text-rose-300 border border-white/10 text-[11px] font-semibold transition cursor-pointer"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Content Category Selector */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-bold text-neutral-400 flex items-center gap-1">
+                    <Tag className="w-3.5 h-3.5 text-amber-400" />
+                    Category
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['Bhojpuri', 'Music', 'Comedy', 'Dance', 'Folk', 'Lifestyle'] as const).map(
+                      (cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setSelectedCategory(cat as ContentCategory)}
+                          className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                            selectedCategory === cat
+                              ? 'bg-rose-500/20 text-rose-400 border-rose-500'
+                              : 'bg-neutral-900 text-neutral-400 border-white/10 hover:text-white'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Audio Attribution Pill */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-900 border border-white/10">
+                  <div className="flex items-center gap-2 max-w-[240px] truncate">
+                    <Music className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                    <span className="text-xs font-semibold text-white truncate">
+                      {selectedAudio
+                        ? `${selectedAudio.title} • ${selectedAudio.artist}`
+                        : 'Original Sound'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAudioDrawerOpen(true)}
+                    className="text-xs font-bold text-rose-400 hover:underline cursor-pointer"
+                  >
+                    Change
+                  </button>
+                </div>
+
+                {/* Share Options Toggle */}
+                {mode === 'REEL' && (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-900 border border-white/10">
+                    <span className="text-xs font-semibold text-neutral-300">
+                      Also Share to Feed Grid
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={alsoShareToFeed}
+                      onChange={(e) => setAlsoShareToFeed(e.target.checked)}
+                      className="accent-rose-500 w-4 h-4 cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Final Share Button */}
+              <div className="w-full max-w-lg mx-auto pt-3 border-t border-white/10 flex flex-col gap-2">
+                <button
+                  type="button"
+                  id="final-share-button"
+                  onClick={handleFinalPublish}
+                  disabled={isSharing}
+                  className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-600 hover:opacity-95 text-white font-black text-sm flex items-center justify-center gap-2 shadow-2xl shadow-rose-500/30 active:scale-95 transition cursor-pointer"
+                >
+                  {isSharing ? (
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5 fill-white" />
+                  )}
+                  <span>
+                    {isSharing
+                      ? 'Publishing...'
+                      : mode === 'REEL' || recordedVideoUrl
+                      ? 'Share to Reels 🚀'
+                      : mode === 'STORY'
+                      ? 'Add to Story 🌟'
+                      : 'Share Post 📸'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bhojpuri Music Selector Drawer */}
       {isAudioDrawerOpen && (
