@@ -219,6 +219,9 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     [selectedFilter]
   );
 
+  // Camera aspect ratio and fit mode ('contain' for normal wide 1x upper body view, 'cover' for full bleed)
+  const [cameraFit, setCameraFit] = useState<'contain' | 'cover'>('contain');
+
   // Audio state
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
   const [selectedAudio, setSelectedAudio] = useState<BhojpuriTrack | null>(() => {
@@ -361,14 +364,15 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
       let newStream: MediaStream | null = null;
 
-      // Tier 1: 1080p Full-Screen Portrait Stream with crystal clear Audio
+      // Tier 1: Portrait 1080x1920 with standard wide 1x angle and audio
       try {
         newStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: isFrontCamera ? 'user' : 'environment',
-            width: { ideal: 1080, min: 480 },
-            height: { ideal: 1920, min: 640 },
-            aspectRatio: { ideal: 9 / 16 },
+            width: { ideal: 1080 },
+            height: { ideal: 1920 },
+            // Request standard 1x wide angle (no digital zoom)
+            ...({ zoom: 1 } as any),
           },
           audio: isMicMuted
             ? false
@@ -379,14 +383,14 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               },
         });
       } catch (err1) {
-        console.warn('Tier 1 (1080p + audio) failed, trying Tier 2 (720p HD)...', err1);
+        console.warn('Tier 1 portrait wide failed, trying Tier 2 (standard portrait)...', err1);
         try {
-          // Tier 2: 720p HD with basic audio
+          // Tier 2: 1080x1920 portrait with audio
           newStream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: isFrontCamera ? 'user' : 'environment',
-              width: { ideal: 720 },
-              height: { ideal: 1280 },
+              width: { ideal: 1080 },
+              height: { ideal: 1920 },
             },
             audio: isMicMuted ? false : true,
           });
@@ -396,6 +400,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             newStream = await navigator.mediaDevices.getUserMedia({
               video: {
                 facingMode: isFrontCamera ? 'user' : 'environment',
+                width: { ideal: 1080 },
+                height: { ideal: 1920 },
               },
               audio: false,
             });
@@ -411,6 +417,22 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       if (newStream) {
         streamRef.current = newStream;
         setStream(newStream);
+
+        // Hardware Wide 1x: reset any digital zoom to standard wide 1x angle
+        try {
+          const videoTrack = newStream.getVideoTracks()[0];
+          if (videoTrack && typeof (videoTrack as any).getCapabilities === 'function') {
+            const caps = (videoTrack as any).getCapabilities();
+            const minZoom = (caps && caps.zoom && typeof caps.zoom.min === 'number') ? caps.zoom.min : 1;
+            if (typeof (videoTrack as any).applyConstraints === 'function') {
+              await (videoTrack as any).applyConstraints({
+                advanced: [{ zoom: minZoom }],
+              });
+            }
+          }
+        } catch (zoomErr) {
+          console.log('Hardware zoom 1x constraint not supported by device:', zoomErr);
+        }
 
         if (videoLiveRef.current) {
           videoLiveRef.current.srcObject = newStream;
@@ -571,32 +593,44 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       const ctx = canvas.getContext('2d');
 
       if (ctx) {
-        const targetRatio = targetWidth / targetHeight;
-        const currentRatio = vWidth / vHeight;
-
-        let sWidth = vWidth;
-        let sHeight = vHeight;
-        let sx = 0;
-        let sy = 0;
-
-        if (currentRatio > targetRatio) {
-          sWidth = vHeight * targetRatio;
-          sx = (vWidth - sWidth) / 2;
+        if (cameraFit === 'contain' && mode !== 'POST') {
+          // Preserve 100% full wide sensor without cropping upper body
+          canvas.width = vWidth;
+          canvas.height = vHeight;
+          if (isFrontCamera) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+          }
+          ctx.filter = activeFilterPreset.canvasFilter;
+          ctx.drawImage(vid, 0, 0, vWidth, vHeight);
         } else {
-          sHeight = vWidth / targetRatio;
-          sy = (vHeight - sHeight) / 2;
+          const targetRatio = targetWidth / targetHeight;
+          const currentRatio = vWidth / vHeight;
+
+          let sWidth = vWidth;
+          let sHeight = vHeight;
+          let sx = 0;
+          let sy = 0;
+
+          if (currentRatio > targetRatio) {
+            sWidth = vHeight * targetRatio;
+            sx = (vWidth - sWidth) / 2;
+          } else {
+            sHeight = vWidth / targetRatio;
+            sy = (vHeight - sHeight) / 2;
+          }
+
+          // Mirror front camera
+          if (isFrontCamera) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+          }
+
+          // Apply active Instagram filter
+          ctx.filter = activeFilterPreset.canvasFilter;
+
+          ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
         }
-
-        // Mirror front camera
-        if (isFrontCamera) {
-          ctx.translate(canvas.width, 0);
-          ctx.scale(-1, 1);
-        }
-
-        // Apply active Instagram filter
-        ctx.filter = activeFilterPreset.canvasFilter;
-
-        ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
 
         canvas.toBlob(
           (blob) => {
@@ -1183,8 +1217,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       {/* ======================================================== */}
       {!isEditing && (
         <>
-          {/* True edge-to-edge camera background layer without letterboxing */}
-          <div className="absolute inset-0 w-full h-full overflow-hidden bg-black">
+          {/* True edge-to-edge camera background layer with natural aspect ratio without extra cropping */}
+          <div className="absolute inset-0 w-full h-full overflow-hidden bg-black flex items-center justify-center">
             <video
               ref={videoLiveRef}
               playsInline
@@ -1192,9 +1226,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               controlsList="nodownload"
               autoPlay
               muted
-              className={`absolute inset-0 w-full h-full object-cover transition-all duration-300 ease-in-out ${
-                isFlipping ? 'scale-90 opacity-60 rotate-6' : ''
-              } ${isFrontCamera ? 'scale-x-[-1]' : 'scale-x-100'} ${activeFilterPreset.cssClass}`}
+              style={{
+                objectFit: cameraFit,
+                transform: isFrontCamera ? 'scaleX(-1)' : 'none',
+              }}
+              className={`w-full h-full transition-opacity duration-200 ${
+                isFlipping ? 'opacity-50' : 'opacity-100'
+              } ${activeFilterPreset.cssClass}`}
             />
 
             {/* Optional 1:1 square framing guide for POST mode (subtle border, no black bars) */}
@@ -1325,8 +1363,24 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             )}
 
-            {/* Right Tools (Flash, Grid, Timer) */}
+            {/* Right Tools (1x Wide / Fill, Flash, Grid, Timer) */}
             <div className="flex items-center gap-2">
+              {/* 1x Wide vs Fill toggle */}
+              <button
+                type="button"
+                onClick={() => setCameraFit((prev) => (prev === 'contain' ? 'cover' : 'contain'))}
+                aria-label="Toggle camera 1x Wide or Fill view"
+                className={`px-2.5 py-1.5 rounded-full backdrop-blur-md border text-xs font-bold transition active:scale-95 cursor-pointer shadow-lg flex items-center gap-1.5 ${
+                  cameraFit === 'contain'
+                    ? 'bg-amber-400 text-black border-amber-300'
+                    : 'bg-black/40 text-white border-white/10 hover:bg-black/70'
+                }`}
+                title={cameraFit === 'contain' ? 'Normal Wide 1x (Full Upper Body)' : 'Fill Screen'}
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>{cameraFit === 'contain' ? '1x Wide' : 'Fill'}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={toggleFlash}
@@ -1617,7 +1671,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
         >
           {/* MEDIA BACKGROUND LOOP */}
           <div
-            className="absolute inset-0 w-full h-full overflow-hidden bg-black cursor-pointer"
+            className="absolute inset-0 w-full h-full overflow-hidden bg-black cursor-pointer flex items-center justify-center"
             onClick={toggleEditorPlayPause}
           >
             {recordedVideoUrl ? (
@@ -1632,14 +1686,20 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 muted={editorMuted}
                 onLoadedMetadata={handleEditorVideoLoadedMetadata}
                 onTimeUpdate={handleEditorVideoTimeUpdate}
-                className={`absolute inset-0 w-full h-full object-cover transition-all duration-200 ${activeFilterPreset.cssClass}`}
+                style={{
+                  objectFit: cameraFit,
+                }}
+                className={`w-full h-full transition-all duration-200 ${activeFilterPreset.cssClass}`}
               />
             ) : capturedPhotoUrl ? (
               <img
                 src={capturedPhotoUrl}
                 alt="Captured review"
-                className={`absolute inset-0 w-full h-full ${
-                  mode === 'POST' ? 'object-contain max-h-[90vh]' : 'object-cover'
+                style={{
+                  objectFit: cameraFit,
+                }}
+                className={`w-full h-full ${
+                  mode === 'POST' ? 'object-contain max-h-[90vh]' : ''
                 } ${activeFilterPreset.cssClass}`}
               />
             ) : null}
