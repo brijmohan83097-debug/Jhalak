@@ -108,6 +108,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
   // IntersectionObserver for autoplay on scroll
   const isMutedRef = useRef(isMuted);
+  const isUserPausedRef = useRef(false);
+
   useEffect(() => {
     isMutedRef.current = isMuted;
     if (videoRef.current) {
@@ -127,24 +129,28 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
         entries.forEach((entry) => {
           const vid = videoRef.current;
           if (!vid) return;
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.25) {
             isIntersectingRef.current = true;
-            vid.muted = isMutedRef.current;
-            const playPromise = vid.play();
-            if (playPromise !== undefined) {
-              playPromise
-                .then(() => {
-                  setIsPlaying(true);
-                  setIsBuffering(false);
-                })
-                .catch(() => {
-                  // Autoplay blocked by browser policy without user gesture -> play muted reliably
-                  vid.muted = true;
-                  vid.play().then(() => {
+            // Smooth autoplay when scrolled into view (unless user explicitly paused it)
+            if (!isUserPausedRef.current) {
+              vid.defaultMuted = isMutedRef.current;
+              vid.muted = isMutedRef.current;
+              const playPromise = vid.play();
+              if (playPromise !== undefined) {
+                playPromise
+                  .then(() => {
                     setIsPlaying(true);
                     setIsBuffering(false);
-                  }).catch(() => setIsPlaying(false));
-                });
+                  })
+                  .catch(() => {
+                    // Autoplay blocked by browser policy without user gesture -> play muted reliably
+                    vid.muted = true;
+                    vid.play().then(() => {
+                      setIsPlaying(true);
+                      setIsBuffering(false);
+                    }).catch(() => setIsPlaying(false));
+                  });
+              }
             }
           } else if (!entry.isIntersecting || entry.intersectionRatio < 0.15) {
             isIntersectingRef.current = false;
@@ -153,7 +159,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           }
         });
       },
-      { threshold: [0.1, 0.2, 0.45] }
+      { threshold: [0.15, 0.25, 0.5] }
     );
 
     observer.observe(currentMediaContainer);
@@ -261,41 +267,50 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   };
 
   const handleTogglePlayPause = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     const vid = videoRef.current;
     if (!vid) return;
 
     if (vid.paused) {
+      isUserPausedRef.current = false;
       vid.muted = isMuted;
-      vid
-        .play()
-        .then(() => {
-          setIsPlaying(true);
-          setIsBuffering(false);
-          setShowPlayPauseIcon('play');
-          setTimeout(() => setShowPlayPauseIcon(null), 600);
-        })
-        .catch((err) => {
-          console.warn("Play blocked on click, falling back to muted play:", err);
-          vid.muted = true;
-          vid
-            .play()
-            .then(() => {
-              setIsPlaying(true);
-              setIsBuffering(false);
-              setShowPlayPauseIcon('play');
-              setTimeout(() => setShowPlayPauseIcon(null), 600);
-            })
-            .catch(() => {
-              setIsBuffering(false);
-              setVideoError(true);
-            });
-        });
+      const playPromise = vid.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setIsBuffering(false);
+            setShowPlayPauseIcon('play');
+            setTimeout(() => setShowPlayPauseIcon(null), 500);
+          })
+          .catch((err) => {
+            console.warn("Play blocked on click, falling back to muted play:", err);
+            vid.muted = true;
+            vid
+              .play()
+              .then(() => {
+                setIsPlaying(true);
+                setIsBuffering(false);
+                setShowPlayPauseIcon('play');
+                setTimeout(() => setShowPlayPauseIcon(null), 500);
+              })
+              .catch(() => {
+                setIsBuffering(false);
+                // Try reloading source once before setting video error
+                vid.load();
+                vid.play().then(() => setIsPlaying(true)).catch(() => setVideoError(true));
+              });
+          });
+      }
     } else {
+      isUserPausedRef.current = true;
       vid.pause();
       setIsPlaying(false);
       setShowPlayPauseIcon('pause');
-      setTimeout(() => setShowPlayPauseIcon(null), 600);
+      setTimeout(() => setShowPlayPauseIcon(null), 500);
     }
   };
 
@@ -316,12 +331,13 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
       // If video was paused, resume it on like
       if (post.mediaType === 'video' && videoRef.current && videoRef.current.paused) {
+        isUserPausedRef.current = false;
         videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
       }
       return;
     }
 
-    // Video posts: single screen click toggles play/pause IMMEDIATELY
+    // Video posts: single tap toggles play/pause cleanly
     if (post.mediaType === 'video') {
       handleTogglePlayPause(e);
       return;
@@ -551,9 +567,15 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                   (post as any).videoUrl,
                 ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
 
-                // Strictly prioritize standard HTML5 HTTP/HTTPS video sources to eliminate blob stalls
-                const standardSrc = sources.find((s) => (s.startsWith('http://') || s.startsWith('https://')) && !s.includes('/api/media/'));
-                const videoSrc = standardSrc || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
+                // Prioritize user's uploaded/recorded video: blob, server stream (/api/media/), http/https or data URL
+                const validSrc = sources.find((s) =>
+                  s.startsWith('blob:') ||
+                  s.startsWith('http://') ||
+                  s.startsWith('https://') ||
+                  s.startsWith('/api/media/') ||
+                  s.startsWith('data:video/')
+                ) || sources[0] || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
+                const videoSrc = validSrc;
 
                 return (
                   <div className="relative w-full h-full max-h-[520px] flex items-center justify-center bg-neutral-950 overflow-hidden">
@@ -576,8 +598,6 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                         }
                       }}
                       src={videoSrc}
-                      controls
-                      controlsList="nodownload"
                       playsInline
                       webkit-playsinline="true"
                       autoPlay
@@ -588,7 +608,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       className={`w-full h-full max-h-[520px] object-cover z-10 ${post.filter ? post.filter : ''}`}
                     onCanPlay={(e) => {
                       const vid = e.currentTarget;
-                      if (isIntersectingRef.current && vid.paused) {
+                      if (isIntersectingRef.current && !isUserPausedRef.current && vid.paused) {
+                        vid.defaultMuted = isMutedRef.current;
                         vid.muted = isMutedRef.current;
                         vid.play().then(() => {
                           setIsPlaying(true);
@@ -601,11 +622,16 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                     }}
                     onLoadedData={(e) => {
                       const vid = e.currentTarget;
-                      if (isIntersectingRef.current && vid.paused) {
+                      if (isIntersectingRef.current && !isUserPausedRef.current && vid.paused) {
+                        vid.defaultMuted = isMutedRef.current;
+                        vid.muted = isMutedRef.current;
                         vid.play().then(() => {
                           setIsPlaying(true);
                           setIsBuffering(false);
-                        }).catch(() => {});
+                        }).catch(() => {
+                          vid.muted = true;
+                          vid.play().catch(() => {});
+                        });
                       }
                     }}
                     onWaiting={() => {

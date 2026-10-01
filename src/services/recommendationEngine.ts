@@ -16,18 +16,12 @@ const LANGUAGE_ENGAGEMENT_KEY = 'jhalak_language_engagement_v1';
 const LAST_INTERACTED_CATEGORY_KEY = 'jhalak_recs_last_category_v1';
 
 export const ALL_CATEGORIES: ContentCategory[] = [
-  'Bhojpuri',
+  'Vlogging',
   'Comedy',
-  'Tech',
-  'Travel',
+  'Dance',
   'Music',
-  'Fabrication/DIY',
-  'Bollywood',
-  'Food',
-  'Fitness',
-  'Regional Music',
-  'South Indian',
-  'Punjabi',
+  'Education',
+  'Lifestyle',
 ];
 
 export interface RecommendationFeedback {
@@ -52,19 +46,13 @@ export function inferCategory(item: {
   }
   const text = `${item.caption || ''} ${(item.tags || []).join(' ')} ${item.audioTitle || ''} ${item.location || ''}`.toLowerCase();
 
-  if (/comedy|funny|hasya|chhapra comedy|joke|laugh|hasan/i.test(text)) return 'Comedy';
-  if (/food|litti|chokha|rasoi|swad|khana|recipe|mithai/i.test(text)) return 'Food';
-  if (/bhojpuri|patna|bihar|buxar|arrah|chhapra|khesari|pawan|purvanchal|gorakhpur|kajari|jhumar|biraha|chhath|bhojpur/i.test(text)) return 'Bhojpuri';
-  if (/bengali|bangla|kolkata|durga|dhak|rabindra/i.test(text)) return 'Regional Music';
-  if (/punjabi|amritsar|bhangra|dhol|gidda|singh/i.test(text)) return 'Punjabi';
-  if (/south indian|tamil|chennai|telugu|kerala|chenda|carnatic/i.test(text)) return 'South Indian';
-  if (/bollywood|mumbai|film|hindi/i.test(text)) return 'Bollywood';
-  if (/tech|coding|developer|gadget|ai|mobile/i.test(text)) return 'Tech';
-  if (/fitness|gym|workout|yoga/i.test(text)) return 'Fitness';
-  if (/diy|craft|fabrication|wood|tool/i.test(text)) return 'Fabrication/DIY';
-  if (/dance|song|music|sangeet|beat|dj/i.test(text)) return 'Music';
+  if (/comedy|funny|hasya|joke|laugh|hasan|meme/i.test(text)) return 'Comedy';
+  if (/dance|nach|nachaniya|step|choreography|thumka|bhangra/i.test(text)) return 'Dance';
+  if (/music|song|geet|gana|audio|beat|sing|ragini|dholak/i.test(text)) return 'Music';
+  if (/education|learn|padhai|sikhe|tutorial|tips|knowledge|facts|guide/i.test(text)) return 'Education';
+  if (/lifestyle|fashion|fitness|gym|routine|beauty|ootd|vibe|health/i.test(text)) return 'Lifestyle';
 
-  return 'Bhojpuri';
+  return 'Vlogging';
 }
 
 /**
@@ -141,31 +129,23 @@ export function isNewlyCreated(item: {
 }
 
 const DEFAULT_AFFINITY: Record<ContentCategory, CategoryAffinity> = {
-  Bhojpuri: { score: 35, likes: 3, comments: 1, shares: 2, watchCompletions: 2, watchTimeSeconds: 45, consecutiveCount: 1, manualTuning: 'neutral' },
-  'Regional Music': { score: 32, likes: 2, comments: 1, shares: 1, watchCompletions: 1, watchTimeSeconds: 38, consecutiveCount: 1, manualTuning: 'neutral' },
-  'South Indian': { score: 30, likes: 2, comments: 1, shares: 1, watchCompletions: 1, watchTimeSeconds: 35, consecutiveCount: 0, manualTuning: 'neutral' },
-  Punjabi: { score: 28, likes: 2, comments: 0, shares: 1, watchCompletions: 1, watchTimeSeconds: 28, consecutiveCount: 0, manualTuning: 'neutral' },
-  Bollywood: { score: 22, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 15, consecutiveCount: 0, manualTuning: 'neutral' },
-  Music: { score: 20, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 12, consecutiveCount: 0, manualTuning: 'neutral' },
-  Travel: { score: 18, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 10, consecutiveCount: 0, manualTuning: 'neutral' },
-  Comedy: { score: 16, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 8, consecutiveCount: 0, manualTuning: 'neutral' },
-  Tech: { score: 12, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 5, consecutiveCount: 0, manualTuning: 'neutral' },
-  Food: { score: 12, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 5, consecutiveCount: 0, manualTuning: 'neutral' },
-  Fitness: { score: 10, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 4, consecutiveCount: 0, manualTuning: 'neutral' },
-  'Fabrication/DIY': { score: 10, likes: 0, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 4, consecutiveCount: 0, manualTuning: 'neutral' },
+  Vlogging: { score: 35, likes: 3, comments: 1, shares: 2, watchCompletions: 2, watchTimeSeconds: 45, consecutiveCount: 1, manualTuning: 'neutral' },
+  Comedy: { score: 30, likes: 2, comments: 1, shares: 1, watchCompletions: 1, watchTimeSeconds: 35, consecutiveCount: 0, manualTuning: 'neutral' },
+  Dance: { score: 28, likes: 2, comments: 0, shares: 1, watchCompletions: 1, watchTimeSeconds: 28, consecutiveCount: 0, manualTuning: 'neutral' },
+  Music: { score: 25, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 20, consecutiveCount: 0, manualTuning: 'neutral' },
+  Education: { score: 20, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 15, consecutiveCount: 0, manualTuning: 'neutral' },
+  Lifestyle: { score: 18, likes: 1, comments: 0, shares: 0, watchCompletions: 0, watchTimeSeconds: 12, consecutiveCount: 0, manualTuning: 'neutral' },
 };
 
 const DEFAULT_WATCH_TIME: WatchTimeData = {
   totalSeconds: 125,
   byCategory: {
-    Bhojpuri: 45,
-    'Regional Music': 38,
-    'South Indian': 35,
-    Punjabi: 28,
-    Bollywood: 15,
-    Music: 12,
-    Travel: 10,
-    Comedy: 8,
+    Vlogging: 45,
+    Comedy: 35,
+    Dance: 28,
+    Music: 20,
+    Education: 15,
+    Lifestyle: 12,
   },
   byLanguage: {
     bho: 45,
@@ -253,7 +233,7 @@ class RecommendationEngine {
   private notInterestedIds: Set<string> = new Set();
   private watchTime: WatchTimeData = { ...DEFAULT_WATCH_TIME };
   private languageEngagement: LanguageEngagementData = { ...DEFAULT_LANGUAGE_ENGAGEMENT };
-  private lastInteractedCategory: ContentCategory = 'Bhojpuri';
+  private lastInteractedCategory: ContentCategory = 'Vlogging';
   // Rolling list of recent categories interacted with (for consecutive count detection)
   private recentInteractions: { category: ContentCategory; timestamp: number }[] = [];
   private listeners: (() => void)[] = [];
@@ -493,7 +473,7 @@ class RecommendationEngine {
     if (highestCategory) return highestCategory;
 
     // 3. Fallback to last interacted category
-    return this.lastInteractedCategory || 'Bhojpuri';
+    return this.lastInteractedCategory || 'Vlogging';
   }
 
   /**
@@ -583,7 +563,7 @@ class RecommendationEngine {
     param1: ContentCategory | string,
     param2?: ContentCategory | string
   ): RecommendationFeedback {
-    let category: ContentCategory = 'Travel';
+    let category: ContentCategory = 'Vlogging';
     let itemId = '';
 
     if (ALL_CATEGORIES.includes(param1 as ContentCategory)) {
@@ -593,7 +573,7 @@ class RecommendationEngine {
       category = param2 as ContentCategory;
       itemId = param1;
     } else {
-      category = (param1 as ContentCategory) || 'Travel';
+      category = (param1 as ContentCategory) || 'Vlogging';
     }
 
     this.recordInteraction(category, 'boost', itemId);
@@ -609,7 +589,7 @@ class RecommendationEngine {
     param1: string | ContentCategory,
     param2?: ContentCategory | string
   ): RecommendationFeedback {
-    let category: ContentCategory = 'Travel';
+    let category: ContentCategory = 'Vlogging';
     let itemId = '';
 
     if (param2 && ALL_CATEGORIES.includes(param2 as ContentCategory)) {
@@ -640,7 +620,7 @@ class RecommendationEngine {
    * 5. Popularity & freshness
    */
   public calculateScore(
-    category: ContentCategory = 'Bhojpuri',
+    category: ContentCategory = 'Vlogging',
     id: string,
     likesCount: number = 0,
     language?: string,
@@ -667,8 +647,8 @@ class RecommendationEngine {
       score += 65;
     }
 
-    // 2. Bhojpuri Core Platform Bonus
-    if (category === 'Bhojpuri') {
+    // 2. Vlogging & Lifestyle Core Engagement Bonus
+    if (category === 'Vlogging' || category === 'Lifestyle') {
       score += 25;
     }
 

@@ -1068,9 +1068,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   (reel as any).mediaUrl,
                 ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
 
-                // Use standard HTML5 HTTP/HTTPS video src; avoid blob stalls
-                const standardSrc = sources.find((s) => (s.startsWith('http://') || s.startsWith('https://')) && !s.includes('/api/media/'));
-                const videoSrc = standardSrc || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
+                // Prioritize user's uploaded/recorded video: blob, server stream (/api/media/), http/https or data URL
+                const validSrc = sources.find((s) =>
+                  s.startsWith('blob:') ||
+                  s.startsWith('http://') ||
+                  s.startsWith('https://') ||
+                  s.startsWith('/api/media/') ||
+                  s.startsWith('data:video/')
+                ) || sources[0] || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
+                const videoSrc = validSrc;
 
                 return (
                   <div className="relative w-full h-full flex items-center justify-center bg-neutral-950 overflow-hidden">
@@ -1087,7 +1093,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                       />
                     )}
 
-                    {/* Layer 2: Fullscreen Standard HTML5 Video Player with controls and autoplay */}
+                    {/* Layer 2: Fullscreen Standard HTML5 Video Player with smooth touch play/pause */}
                     <video
                       ref={(el) => {
                         videoRefs.current[index] = el;
@@ -1097,8 +1103,6 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                         }
                       }}
                       src={videoSrc}
-                      controls
-                      controlsList="nodownload"
                       playsInline
                       webkit-playsinline="true"
                       autoPlay
@@ -1598,7 +1602,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   setShareModalReel(reel);
-                  recommendationEngine.recordInteraction(reel.category || 'Travel', 'share');
+                  recommendationEngine.recordInteraction(reel.category || 'Vlogging', 'share');
                 }}
                 className="flex flex-col items-center group transition active:scale-110 cursor-pointer"
                 aria-label="Share reel"
@@ -1993,7 +1997,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           targetAuthorUsername={currentReel.username}
           onAddComment={(text, mediaUrl, mediaType) => {
             onAddComment(currentReel.id, text, mediaUrl, mediaType);
-            recommendationEngine.recordInteraction(currentReel.category || 'Travel', 'comment');
+            recommendationEngine.recordInteraction(currentReel.category || 'Vlogging', 'comment');
           }}
           onViewUser={onViewUser}
         />

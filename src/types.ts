@@ -15,6 +15,7 @@ export interface User {
   isVerified?: boolean;
   email?: string;
   isGoogleAuth?: boolean;
+  creatorCategory?: ContentCategory;
   posts?: Post[];
   userPosts?: Post[];
 }
@@ -38,18 +39,65 @@ export interface StoryGroup {
 }
 
 export type ContentCategory =
-  | 'Bhojpuri'
+  | 'Vlogging'
   | 'Comedy'
-  | 'Tech'
-  | 'Travel'
+  | 'Dance'
   | 'Music'
-  | 'Fabrication/DIY'
-  | 'Bollywood'
-  | 'Food'
-  | 'Fitness'
-  | 'Regional Music'
-  | 'South Indian'
-  | 'Punjabi';
+  | 'Education'
+  | 'Lifestyle';
+
+export interface CreatorNicheItem {
+  id: ContentCategory;
+  label: string;
+  emoji: string;
+  desc: string;
+  gradient: string;
+}
+
+export const CREATOR_NICHES: CreatorNicheItem[] = [
+  {
+    id: 'Vlogging',
+    label: 'Vlogging',
+    emoji: '📹',
+    desc: 'Daily life, travel & stories',
+    gradient: 'from-amber-500 to-orange-500',
+  },
+  {
+    id: 'Comedy',
+    label: 'Comedy',
+    emoji: '😂',
+    desc: 'Skits, jokes & fun moments',
+    gradient: 'from-yellow-400 to-amber-500',
+  },
+  {
+    id: 'Dance',
+    label: 'Dance',
+    emoji: '💃',
+    desc: 'Choreography & trending steps',
+    gradient: 'from-rose-500 to-pink-500',
+  },
+  {
+    id: 'Music',
+    label: 'Music',
+    emoji: '🎵',
+    desc: 'Singing, beats & covers',
+    gradient: 'from-purple-500 to-indigo-500',
+  },
+  {
+    id: 'Education',
+    label: 'Education',
+    emoji: '📚',
+    desc: 'Tips, tutorials & learning',
+    gradient: 'from-emerald-500 to-teal-500',
+  },
+  {
+    id: 'Lifestyle',
+    label: 'Lifestyle',
+    emoji: '✨',
+    desc: 'Fashion, fitness & routine',
+    gradient: 'from-cyan-500 to-blue-500',
+  },
+];
 
 export interface Comment {
   id: string;

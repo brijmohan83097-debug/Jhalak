@@ -262,8 +262,14 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
                     resolvedUrl,
                   ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
 
-                  const standardSrc = sources.find((s) => (s.startsWith('http://') || s.startsWith('https://')) && !s.includes('/api/media/'));
-                  const videoSrc = standardSrc || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
+                  const validSrc = sources.find((s) =>
+                    s.startsWith('blob:') ||
+                    s.startsWith('http://') ||
+                    s.startsWith('https://') ||
+                    s.startsWith('/api/media/') ||
+                    s.startsWith('data:video/')
+                  ) || sources[0] || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
+                  const videoSrc = validSrc;
 
                   return (
                     <video

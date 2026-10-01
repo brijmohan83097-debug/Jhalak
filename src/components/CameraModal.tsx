@@ -38,14 +38,12 @@ import {
   Layers,
   ArrowRight,
   Maximize2,
-  Crop,
   Scan,
   Sparkle,
   Gauge,
   Film,
   Tag,
   CheckCircle2,
-  Infinity,
   LayoutGrid,
   ChevronDown,
 } from 'lucide-react';
@@ -380,6 +378,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
+  const isEditing = !!(capturedPhotoUrl || recordedVideoUrl);
 
   // ==========================================
   // POST-RECORDING VIDEO EDITOR SCREEN STATES
@@ -409,7 +408,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
   // Publishing / Metadata states
   const [postCaption, setPostCaption] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<ContentCategory>('Bhojpuri');
+  const [selectedCategory, setSelectedCategory] = useState<ContentCategory>(() => {
+    return (
+      (localStorage.getItem('jhalak_creator_niche') as ContentCategory) ||
+      currentUser?.creatorCategory ||
+      'Vlogging'
+    );
+  });
   const [alsoShareToFeed, setAlsoShareToFeed] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
 
@@ -648,6 +653,37 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     };
   }, [isLiveActive]);
 
+  // Instantly start playback on loop when entering editor with recorded video (fix black preview)
+  useEffect(() => {
+    if (recordedVideoUrl && videoEditorPreviewRef.current) {
+      const vid = videoEditorPreviewRef.current;
+      vid.currentTime = 0.001;
+      const playPromise = vid.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setEditorPlaying(true))
+          .catch(() => {
+            vid.muted = true;
+            setEditorMuted(true);
+            vid.play().then(() => setEditorPlaying(true)).catch(() => {});
+          });
+      }
+    }
+  }, [recordedVideoUrl]);
+
+  // Pause live webcam tracks during editor mode to prevent hardware decoder locks
+  useEffect(() => {
+    if (isEditing && streamRef.current) {
+      streamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = false;
+      });
+    } else if (!isEditing && streamRef.current) {
+      streamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = true;
+      });
+    }
+  }, [isEditing]);
+
   // Format seconds to mm:ss
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -816,14 +852,14 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     }
   };
 
-  // Select Cross-Browser Best Video MimeType
+  // Select Cross-Browser Best Video MimeType (prioritize webm for reliable decoding without black frame, then mp4)
   const getSupportedMimeType = (): string => {
     const types = [
-      'video/mp4;codecs=avc1,mp4a.40.2',
-      'video/mp4',
       'video/webm;codecs=vp8,opus',
       'video/webm;codecs=vp9,opus',
       'video/webm',
+      'video/mp4;codecs=avc1,mp4a.40.2',
+      'video/mp4',
     ];
     for (const t of types) {
       if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) {
@@ -853,15 +889,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       };
 
       recorder.onstop = () => {
-        const finalType = mimeType || 'video/mp4';
+        const finalType = mimeType || recorder.mimeType || 'video/webm';
         const blob = new Blob(recordedChunksRef.current, { type: finalType });
         const videoUrl = URL.createObjectURL(blob);
         setRecordedVideoBlob(blob);
         setRecordedVideoUrl(videoUrl);
         setEditorView('edit');
-
-        // Capture thumbnail
-        captureThumbnail();
+        setEditorPlaying(true);
       };
 
       recorder.start(100);
@@ -886,6 +920,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
   // Stop Video Recording
   const stopRecording = () => {
+    // Capture crisp thumbnail from live video feed before stopping stream
+    captureThumbnail();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
@@ -1013,26 +1049,40 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     startCamera();
   };
 
-  // Editor Video Loaded Metadata
+  // Editor Video Loaded Metadata - Ensure instant playback without black frame
   const handleEditorVideoLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     if (vid) {
-      const dur = vid.duration || 15;
+      const dur = vid.duration && isFinite(vid.duration) && vid.duration > 0 ? vid.duration : 15;
       setVideoDuration(dur);
       setTrimEnd(dur);
+      vid.currentTime = 0.001;
       vid.playbackRate = editorSpeed;
-      vid.play().then(() => setEditorPlaying(true)).catch(() => {});
+      const playPromise = vid.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setEditorPlaying(true))
+          .catch(() => {
+            // If browser blocks unmuted playback, mute and immediately play
+            vid.muted = true;
+            setEditorMuted(true);
+            vid.play().then(() => setEditorPlaying(true)).catch(() => {});
+          });
+      }
     }
   };
 
-  // Video Time Update (Enforce Trim looping)
+  // Video Time Update (Enforce seamless Trim looping)
   const handleEditorVideoTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     if (vid) {
       setVideoCurrentTime(vid.currentTime);
-      if (vid.currentTime >= trimEnd) {
+      if (vid.currentTime >= trimEnd || vid.ended) {
         vid.currentTime = trimStart;
-        vid.play().catch(() => {});
+        const playPromise = vid.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {});
+        }
       } else if (vid.currentTime < trimStart) {
         vid.currentTime = trimStart;
       }
@@ -1138,10 +1188,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
     const permanentVideoUrl =
-      recordedVideoUrl &&
-      (recordedVideoUrl.startsWith('http://') || recordedVideoUrl.startsWith('https://'))
-        ? recordedVideoUrl
-        : STANDARD_REEL_VIDEO_URL;
+      recordedVideoUrl || STANDARD_REEL_VIDEO_URL;
 
     const mediaUrl = isVideo ? permanentVideoUrl : capturedPhotoUrl!;
     const author = currentUser || {
@@ -1154,6 +1201,38 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       followersCount: 0,
       followingCount: 0,
     };
+
+    // Asynchronously upload recorded video to server for permanent hosting
+    if (isVideo && recordedVideoBlob) {
+      try {
+        const formData = new FormData();
+        const ext = recordedVideoBlob.type.includes('mp4') ? 'mp4' : 'webm';
+        formData.append('media', recordedVideoBlob, `camera_reel_${now}.${ext}`);
+        fetch('/api/media/upload', {
+          method: 'POST',
+          body: formData,
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data?.url || data?.relativeUrl) {
+              const serverMediaUrl = data.relativeUrl || data.url;
+              try {
+                const existingStr = localStorage.getItem('jhalak_uploaded_posts_v1');
+                if (existingStr) {
+                  const list: Post[] = JSON.parse(existingStr);
+                  const idx = list.findIndex((p) => p.id === newPostId);
+                  if (idx !== -1) {
+                    list[idx].mediaUrl = serverMediaUrl;
+                    list[idx].downloadURL = serverMediaUrl;
+                    localStorage.setItem('jhalak_uploaded_posts_v1', JSON.stringify(list));
+                  }
+                }
+              } catch {}
+            }
+          })
+          .catch(() => {});
+      } catch {}
+    }
 
     // If STORY mode: directly add to stories
     if (mode === 'STORY' && onAddStory) {
@@ -1366,8 +1445,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     }
   };
 
-  const isEditing = !!(capturedPhotoUrl || recordedVideoUrl);
-
   return (
     <div
       id="instagram-camera-modal"
@@ -1453,14 +1530,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                   isFlipping ? 'opacity-50' : 'opacity-100'
                 } ${activeFilterPreset.cssClass}`}
               />
-
-              {/* Free Size Indicator Badge */}
-              {cameraSize === 'free' && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-black/60 border border-white/20 text-[10px] font-bold text-white/90 backdrop-blur-md flex items-center gap-1.5 shadow-md">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Free Size • Full Sensor</span>
-                </div>
-              )}
 
               {/* Framing Border & Out-of-bounds Mask for fixed aspect ratios (1:1, 4:5, 16:9) */}
               {cameraSize !== 'free' && cameraSize !== '9:16' && (
@@ -1576,66 +1645,9 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             </button>
           </div>
 
-          {/* OVERLAY 2: Left Side Vertical Icons [Aa (Text) | ∞ (Boomerang) | Layout Grid | ✨ Effects | 📐 Size | Down Arrow] */}
+          {/* OVERLAY 2: Left Side Clean Toolbar (Keep only Effects button) */}
           <div className="fixed left-3 sm:left-5 top-20 z-30 flex flex-col items-center gap-3 pointer-events-auto">
-            {/* 1. Aa (Text / Create Tool) */}
-            <button
-              type="button"
-              id="camera-text-tool-btn"
-              onClick={() => {
-                setActiveEditorDrawer((prev) => (prev === 'text' ? 'none' : 'text'));
-                if (onShowToast) onShowToast('Text overlay ready ✍️');
-              }}
-              className="w-10 h-10 rounded-full bg-black/45 hover:bg-black/75 backdrop-blur-md border border-white/20 flex items-center justify-center text-white transition active:scale-90 shadow-xl cursor-pointer"
-              title="Aa (Text)"
-            >
-              <span className="font-serif font-black text-sm tracking-tight select-none">Aa</span>
-            </button>
-
-            {/* 2. ∞ (Boomerang Mode) */}
-            <button
-              type="button"
-              id="camera-boomerang-btn"
-              onClick={() => {
-                const next = !isBoomerang;
-                setIsBoomerang(next);
-                if (onShowToast) {
-                  onShowToast(next ? 'Boomerang mode ON ♾️' : 'Standard video mode');
-                }
-              }}
-              className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
-                isBoomerang
-                  ? 'bg-gradient-to-tr from-rose-500 to-amber-500 border-rose-300 text-white ring-2 ring-rose-400/50'
-                  : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
-              }`}
-              title="∞ (Boomerang)"
-            >
-              <Infinity className="w-5 h-5" />
-            </button>
-
-            {/* 3. Layout Grid */}
-            <button
-              type="button"
-              id="camera-layout-grid-btn"
-              onClick={() => {
-                const next = !isLayoutMode;
-                setIsLayoutMode(next);
-                setShowGrid(next);
-                if (onShowToast) {
-                  onShowToast(next ? 'Layout Grid active 🔲' : 'Grid off');
-                }
-              }}
-              className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
-                isLayoutMode
-                  ? 'bg-white text-black border-white ring-2 ring-white/50'
-                  : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
-              }`}
-              title="Layout Grid"
-            >
-              <LayoutGrid className="w-5 h-5" />
-            </button>
-
-            {/* 4. Instagram Effects Drawer Button (Live Filters: Trending & Appearance) */}
+            {/* Effects Drawer Button (Live Filters: Trending & Appearance) */}
             <button
               type="button"
               id="camera-effects-drawer-btn"
@@ -1645,139 +1657,13 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                   ? 'bg-gradient-to-tr from-amber-400 via-rose-500 to-purple-600 border-rose-300 text-white ring-2 ring-rose-400/50 shadow-rose-500/30'
                   : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
               }`}
-              title="Instagram Effects (Trending & Appearance Filters)"
+              title="Effects (Trending & Appearance Filters)"
             >
               <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
             </button>
-
-            {/* 5. Camera Size Button (Free Size, 9:16, 1:1, 4:5, 16:9) */}
-            <button
-              type="button"
-              id="camera-size-left-tool-btn"
-              onClick={cycleCameraSize}
-              className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
-                cameraSize === 'free'
-                  ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200 ring-2 ring-emerald-400/40'
-                  : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
-              }`}
-              title={`Camera Size: ${cameraSize} (Tap to change)`}
-            >
-              <Crop className="w-5 h-5" />
-            </button>
-
-            {/* 6. Down Arrow (Expand extra tools: Timer, Speed, Mic) */}
-            <div className="relative flex flex-col items-center">
-              <button
-                type="button"
-                id="camera-more-tools-btn"
-                onClick={() => setShowExtraLeftTools((prev) => !prev)}
-                className={`w-10 h-10 rounded-full backdrop-blur-md border flex items-center justify-center transition active:scale-90 shadow-xl cursor-pointer ${
-                  showExtraLeftTools
-                    ? 'bg-white/25 border-white text-white'
-                    : 'bg-black/45 hover:bg-black/75 border-white/20 text-white'
-                }`}
-                title="More Tools"
-              >
-                <ChevronDown
-                  className={`w-5 h-5 transition-transform duration-200 ${
-                    showExtraLeftTools ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-
-              {/* Expanded Sub-Tools Menu */}
-              {showExtraLeftTools && (
-                <div className="absolute left-12 top-0 bg-neutral-900/95 border border-white/20 rounded-2xl p-2.5 flex flex-col gap-2.5 backdrop-blur-xl z-40 shadow-2xl min-w-[160px]">
-                  {/* Timer Selector */}
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] font-bold text-neutral-400 px-1">Timer</span>
-                    <div className="grid grid-cols-3 gap-1">
-                      {[0, 3, 10].map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => {
-                            setCountdownTimer(t);
-                            if (onShowToast) onShowToast(t === 0 ? 'Timer off' : `Timer set to ${t}s ⏱️`);
-                          }}
-                          className={`py-1 text-[11px] rounded-lg font-bold text-center transition cursor-pointer ${
-                            countdownTimer === t
-                              ? 'bg-rose-500 text-white'
-                              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
-                          }`}
-                        >
-                          {t === 0 ? 'Off' : `${t}s`}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Framing Size Selector */}
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] font-bold text-neutral-400 px-1">Framing Size</span>
-                    <div className="grid grid-cols-2 gap-1">
-                      {CAMERA_SIZE_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => handleSelectCameraSize(opt.id)}
-                          className={`py-1 px-1.5 text-[10px] rounded-lg font-bold text-center transition cursor-pointer ${
-                            cameraSize === opt.id
-                              ? 'bg-emerald-500 text-white shadow-xs'
-                              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
-                          }`}
-                        >
-                          {opt.shortLabel}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Speed Selector */}
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] font-bold text-neutral-400 px-1">Speed</span>
-                    <div className="grid grid-cols-3 gap-1">
-                      {(['0.5x', '1x', '2x'] as const).map((spd) => (
-                        <button
-                          key={spd}
-                          type="button"
-                          onClick={() => {
-                            setRecordingSpeed(spd);
-                            if (onShowToast) onShowToast(`Speed set to ${spd}`);
-                          }}
-                          className={`py-1 text-[11px] rounded-lg font-bold text-center transition cursor-pointer ${
-                            recordingSpeed === spd
-                              ? 'bg-rose-500 text-white'
-                              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
-                          }`}
-                        >
-                          {spd}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Mic Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !isMicMuted;
-                      setIsMicMuted(next);
-                      if (onShowToast) onShowToast(next ? 'Microphone muted 🔇' : 'Microphone unmuted 🎙️');
-                    }}
-                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                      isMicMuted ? 'bg-rose-500/20 text-rose-300' : 'text-neutral-300 hover:bg-white/10'
-                    }`}
-                  >
-                    {isMicMuted ? <MicOff className="w-4 h-4 text-rose-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
-                    <span>{isMicMuted ? 'Mic Off' : 'Mic On'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
 
-          {/* INSTAGRAM EFFECTS DRAWER (Live Filters: Trending & Appearance) */}
+          {/* EFFECTS DRAWER (Live Filters: Trending & Appearance) */}
           {isEffectsDrawerOpen && (
             <div className="fixed inset-x-0 bottom-0 z-40 bg-neutral-950/95 backdrop-blur-2xl border-t border-white/15 rounded-t-3xl pt-3 pb-safe pb-6 px-4 shadow-[0_-15px_35px_rgba(0,0,0,0.85)] pointer-events-auto animate-in slide-in-from-bottom duration-300 max-h-[65vh] flex flex-col">
               {/* Drawer Handle */}
@@ -1791,7 +1677,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                   </div>
                   <div>
                     <h3 className="text-sm font-black text-white tracking-wide flex items-center gap-1.5">
-                      <span>Instagram Effects</span>
+                      <span>Effects</span>
                     </h3>
                     <p className="text-[11px] text-white/60">
                       Live Effect: <span className="text-rose-400 font-bold">{activeFilterPreset.name}</span>
@@ -1915,41 +1801,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             </div>
           )}
 
-          {/* OVERLAY 3: Transparent Bottom Controls (Filters, Shutter, Tabs) */}
+          {/* OVERLAY 3: Transparent Bottom Controls (Shutter, Gallery, Flip & Tabs) */}
           <div className="fixed bottom-0 inset-x-0 z-30 flex flex-col items-center pb-safe pb-6 pt-12 px-4 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-auto">
-            {/* 10 Trending Instagram-Style Filters Shelf */}
-            <div className="w-full max-w-md mb-3 flex items-center justify-center gap-3 overflow-x-auto no-scrollbar py-1 px-4">
-              {FILTER_PRESETS.map((filter) => {
-                const isSelected = selectedFilter === filter.id;
-                return (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    onClick={() => setSelectedFilter(filter.id)}
-                    className="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer flex-shrink-0 group focus:outline-hidden"
-                    aria-label={`Select ${filter.name} filter`}
-                  >
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 shadow-md ${
-                        isSelected
-                          ? 'ring-2 ring-white ring-offset-2 ring-offset-black scale-110'
-                          : 'opacity-65 hover:opacity-90 hover:scale-105'
-                      } ${filter.bubbleClass}`}
-                    >
-                      {isSelected && <Sparkles className="w-3.5 h-3.5 text-white" />}
-                    </div>
-                    <span
-                      className={`text-[9px] font-semibold tracking-wide transition-colors whitespace-nowrap ${
-                        isSelected ? 'text-white font-bold' : 'text-white/50'
-                      }`}
-                    >
-                      {filter.name}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
             {/* Shutter Dock Row: [Gallery (Bottom-Left) | Big White Round Record Button (Center) | Camera Flip (Bottom-Right)] */}
             <div className="w-full max-w-sm flex items-center justify-between px-6 mb-3">
               {/* Bottom-Left: Gallery Thumbnail Picker */}
@@ -2131,6 +1984,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 {recordedVideoUrl ? (
                   <video
                     src={recordedVideoUrl}
+                    poster={videoThumbnail || undefined}
+                    preload="auto"
                     autoPlay
                     loop
                     muted
@@ -2151,6 +2006,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <video
                 ref={videoEditorPreviewRef}
                 src={recordedVideoUrl}
+                poster={videoThumbnail || undefined}
+                preload="auto"
                 playsInline
                 webkit-playsinline="true"
                 controlsList="nodownload"
@@ -2158,6 +2015,27 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 loop
                 muted={editorMuted}
                 onLoadedMetadata={handleEditorVideoLoadedMetadata}
+                onLoadedData={(e) => {
+                  const vid = e.currentTarget;
+                  if (vid && vid.currentTime === 0) {
+                    vid.currentTime = 0.001;
+                  }
+                  vid.play().catch(() => {
+                    vid.muted = true;
+                    setEditorMuted(true);
+                    vid.play().catch(() => {});
+                  });
+                }}
+                onCanPlay={(e) => {
+                  const vid = e.currentTarget;
+                  if (vid && vid.paused && editorPlaying) {
+                    vid.play().catch(() => {
+                      vid.muted = true;
+                      setEditorMuted(true);
+                      vid.play().catch(() => {});
+                    });
+                  }
+                }}
                 onTimeUpdate={handleEditorVideoTimeUpdate}
                 style={{
                   objectFit: cameraSize === 'free' ? 'contain' : cameraSize === '9:16' ? 'cover' : 'contain',
@@ -2819,32 +2697,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                         {tag}
                       </button>
                     ))}
-                  </div>
-                </div>
-
-                {/* Content Category Selector */}
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-bold text-neutral-400 flex items-center gap-1">
-                    <Tag className="w-3.5 h-3.5 text-amber-400" />
-                    Category
-                  </span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['Bhojpuri', 'Music', 'Comedy', 'Dance', 'Folk', 'Lifestyle'] as const).map(
-                      (cat) => (
-                        <button
-                          key={cat}
-                          type="button"
-                          onClick={() => setSelectedCategory(cat as ContentCategory)}
-                          className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                            selectedCategory === cat
-                              ? 'bg-rose-500/20 text-rose-400 border-rose-500'
-                              : 'bg-neutral-900 text-neutral-400 border-white/10 hover:text-white'
-                          }`}
-                        >
-                          {cat}
-                        </button>
-                      )
-                    )}
                   </div>
                 </div>
 

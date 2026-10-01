@@ -36,6 +36,7 @@ import { SupportedLanguage, translations } from './translations';
 import { recommendationEngine, inferCategory, inferLanguage, getItemTimestamp } from './services/recommendationEngine';
 import { moderationService } from './services/moderationService';
 import { SplashScreen } from './components/SplashScreen';
+import { CreatorNicheSetupModal } from './components/CreatorNicheSetupModal';
 import {
   UGCCommunityGuidelinesModal,
   hasUserConsentedToUGC,
@@ -121,6 +122,21 @@ export default function App() {
   const [isGoogleAuthModalOpen, setIsGoogleAuthModalOpen] = useState(false);
   const [isGoogleAuthLoading, setIsGoogleAuthLoading] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // First app setup: Creator Niche Selection (shown once, saved permanently)
+  const [showNicheSetup, setShowNicheSetup] = useState<boolean>(() => {
+    return !localStorage.getItem('jhalak_creator_niche');
+  });
+
+  const handleSaveCreatorNiche = (niche: ContentCategory) => {
+    localStorage.setItem('jhalak_creator_niche', niche);
+    setShowNicheSetup(false);
+    setCurrentUser((prev) => ({
+      ...prev,
+      creatorCategory: niche,
+    }));
+    showToast(`Creator niche set to ${niche} 🎯`);
+  };
 
   // Real-time recommendation & personalization engine subscription state
   const [recsVersion, setRecsVersion] = useState(0);
@@ -1057,7 +1073,7 @@ export default function App() {
         videoUrl: post.mediaUrl,
         thumbnailUrl: post.thumbnailUrl,
         caption: post.caption || '',
-        category: post.category || 'Bhojpuri',
+        category: post.category || 'Vlogging',
         audioTitle: post.audioTitle || 'Original Audio',
         audioArtist: post.username,
         likesCount: post.likesCount || 0,
@@ -3193,7 +3209,7 @@ export default function App() {
                           onToggleFollow={() => handleToggleFollow(post.username, post.userId)}
                           onShare={(p) => {
                             setSharePost(p);
-                            recommendationEngine.recordInteraction(p.category || 'Travel', 'share');
+                            recommendationEngine.recordInteraction(p.category || 'Vlogging', 'share');
                           }}
                           onOpenDetail={(p) => {
                             if (p.mediaType === 'video') {
@@ -3898,6 +3914,13 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Creator Niche Setup Modal - Show only once on first app setup */}
+      <CreatorNicheSetupModal
+        isOpen={showNicheSetup}
+        currentNiche={currentUser.creatorCategory || 'Vlogging'}
+        onSaveNiche={handleSaveCreatorNiche}
+      />
     </div>
   );
 }
