@@ -62,14 +62,21 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
   // Safe auto-close if story group or slide is not found
   useEffect(() => {
     if (!currentGroup || !currentSlide) {
-      onClose();
+      const timer = setTimeout(() => {
+        onClose();
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [currentGroup, currentSlide, onClose]);
 
   // Mark current story as seen (only if unseen to prevent redundant App state updates)
   useEffect(() => {
     if (currentGroup && currentGroup.hasUnseen) {
-      onMarkSeen(currentGroup.id);
+      const targetId = currentGroup.id;
+      const timer = setTimeout(() => {
+        onMarkSeen(targetId);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [currentGroup?.id, currentGroup?.hasUnseen, onMarkSeen]);
 

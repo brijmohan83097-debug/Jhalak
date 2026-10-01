@@ -311,9 +311,9 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   onClose,
   onShowToast,
 }) => {
-  // Modes: STORY, REEL, LIVE (POST mode removed from reel camera)
-  const [mode, setMode] = useState<CameraMode>(initialMode === 'POST' ? 'REEL' : initialMode);
-  const modes: CameraMode[] = ['STORY', 'REEL', 'LIVE'];
+  // Modes: POST, REEL, LIVE (Tapping POST directly activates POST camera mode, no popup)
+  const [mode, setMode] = useState<CameraMode>(initialMode === 'STORY' ? 'REEL' : initialMode);
+  const modes: CameraMode[] = ['POST', 'REEL', 'LIVE'];
 
   // Camera Frame Size (Free Size, 9:16, 1:1, 4:5, 16:9)
   const [cameraSize, setCameraSize] = useState<CameraSizeOption>(initialCameraSize);
@@ -1945,12 +1945,12 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             </div>
 
-            {/* Sabse Neeche Menu: STORY | REEL | LIVE (REEL bold white dikhe) */}
+            {/* Sabse Neeche Menu: POST | REEL | LIVE (REEL bold white dikhe) */}
             <div
               ref={modesScrollRef}
               className="w-full flex items-center justify-center gap-5 sm:gap-7 overflow-x-auto no-scrollbar py-2 px-6 cursor-pointer"
             >
-              {(['STORY', 'REEL', 'LIVE'] as const).map((m, idx, arr) => {
+              {(['POST', 'REEL', 'LIVE'] as const).map((m, idx, arr) => {
                 const isActive = mode === m;
                 const isReel = m === 'REEL';
                 return (
