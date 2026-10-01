@@ -85,6 +85,43 @@ interface ReelsViewProps {
   currentLanguage?: SupportedLanguage;
 }
 
+/**
+ * Ensures the Reels queue strictly contains unique videos by filtering out duplicate IDs
+ * and preventing duplicate video URLs or demo sample reels from duplicating user uploaded reels.
+ */
+export function filterUniqueReels(items: (Reel | AdMobNativeAd)[]): (Reel | AdMobNativeAd)[] {
+  const seenIds = new Set<string>();
+  const seenUrls = new Set<string>();
+  const uniqueItems: (Reel | AdMobNativeAd)[] = [];
+
+  for (const item of items) {
+    if (!item) continue;
+    if (adMobService.isAdItem(item)) {
+      uniqueItems.push(item);
+      continue;
+    }
+
+    const reel = item as Reel;
+    const rawId = String(reel.id || '').trim();
+    const cleanId = rawId.replace(/^reel-/, '').replace(/^post-/, '').trim();
+    const vUrl = String(reel.videoUrl || reel.downloadURL || '').trim();
+
+    if (seenIds.has(rawId) || (cleanId && seenIds.has(cleanId))) {
+      continue;
+    }
+    if (vUrl && seenUrls.has(vUrl)) {
+      continue;
+    }
+
+    if (rawId) seenIds.add(rawId);
+    if (cleanId) seenIds.add(cleanId);
+    if (vUrl) seenUrls.add(vUrl);
+    uniqueItems.push(reel);
+  }
+
+  return uniqueItems;
+}
+
 export const ReelsView: React.FC<ReelsViewProps> = ({
   reels: initialReels,
   currentUser,
@@ -110,26 +147,30 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   currentLanguage = 'en',
 }) => {
   const [queue, setQueue] = useState<(Reel | AdMobNativeAd)[]>(() => {
-    const unblocked = initialReels.filter(
-      (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
-    );
+    const unblocked = filterUniqueReels(
+      initialReels.filter(
+        (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
+      )
+    ) as Reel[];
     const nativeAds = adMobService.getNativeReelAds();
     if (initialReelId) {
-      const cleanTarget = initialReelId.replace(/^reel-/, '');
+      const cleanTarget = initialReelId.replace(/^reel-/, '').replace(/^post-/, '');
       const match = unblocked.find(
         (r) =>
           r.id === initialReelId ||
           r.id === `reel-${initialReelId}` ||
-          (typeof r.id === 'string' && r.id.replace(/^reel-/, '') === cleanTarget)
+          (typeof r.id === 'string' && r.id.replace(/^reel-/, '').replace(/^post-/, '') === cleanTarget)
       );
       if (match) {
         const others = unblocked.filter((r) => r.id !== match.id);
-        const ordered = [match, ...recommendationEngine.getPersonalizedReelsQueue(others, 1)];
-        return adMobService.insertNativeAds(ordered, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
+        const recQueue = recommendationEngine.getPersonalizedReelsQueue(others, 1);
+        const interleaved = adMobService.insertNativeAds([match, ...recQueue], nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
+        return filterUniqueReels(interleaved);
       }
     }
     const recQueue = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
-    return adMobService.insertNativeAds(recQueue, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
+    const interleaved = adMobService.insertNativeAds(recQueue, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
+    return filterUniqueReels(interleaved);
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState<boolean>(() => getGlobalReelsMuted());
@@ -335,22 +376,25 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
 
   // Re-synchronize queue if upstream initialReels length or content changes significantly
   useEffect(() => {
-    const unblocked = initialReels.filter(
-      (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
-    );
+    const unblocked = filterUniqueReels(
+      initialReels.filter(
+        (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
+      )
+    ) as Reel[];
+    const nativeAds = adMobService.getNativeReelAds();
     if (initialReelId) {
-      const cleanTarget = initialReelId.replace(/^reel-/, '');
+      const cleanTarget = initialReelId.replace(/^reel-/, '').replace(/^post-/, '');
       const match = unblocked.find(
         (r) =>
           r.id === initialReelId ||
           r.id === `reel-${initialReelId}` ||
-          (typeof r.id === 'string' && r.id.replace(/^reel-/, '') === cleanTarget)
+          (typeof r.id === 'string' && r.id.replace(/^reel-/, '').replace(/^post-/, '') === cleanTarget)
       );
       if (match) {
         const others = unblocked.filter((r) => r.id !== match.id);
         const recQueue = recommendationEngine.getPersonalizedReelsQueue(others, 1);
-        const nativeAds = adMobService.getNativeReelAds();
-        setQueue(adMobService.insertNativeAds([match, ...recQueue], nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL));
+        const interleaved = adMobService.insertNativeAds([match, ...recQueue], nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
+        setQueue(filterUniqueReels(interleaved));
         setActiveIndex(0);
         return;
       }
@@ -361,8 +405,8 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
     }
     setQueue(() => {
       const recQueue = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
-      const nativeAds = adMobService.getNativeReelAds();
-      return adMobService.insertNativeAds(recQueue, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
+      const interleaved = adMobService.insertNativeAds(recQueue, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
+      return filterUniqueReels(interleaved);
     });
   }, [initialReels, initialReelId]);
 
@@ -457,14 +501,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       const remainingReels = prevQueue
         .slice(activeIndex + 1)
         .filter((item): item is Reel => !adMobService.isAdItem(item));
-      const unblocked = remainingReels.filter(
-        (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
-      );
+      const unblocked = filterUniqueReels(
+        remainingReels.filter(
+          (r) => !moderationService.isUserBlocked(r.username) && !moderationService.isItemReported(r.id)
+        )
+      ) as Reel[];
       const reordered = recommendationEngine.getPersonalizedReelsQueue(unblocked, 0);
       const nativeAds = adMobService.getNativeReelAds();
       const interleaved = adMobService.insertNativeAds(reordered, nativeAds, ADMOB_CONFIG.REELS_AD_INTERVAL);
       const head = prevQueue.slice(0, activeIndex + 1);
-      return [...head, ...interleaved];
+      return filterUniqueReels([...head, ...interleaved]);
     });
   }, [activeIndex]);
 

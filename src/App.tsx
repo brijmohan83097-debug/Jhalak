@@ -203,6 +203,24 @@ export default function App() {
       if (!downloadURL || downloadURL.startsWith('blob:')) {
         downloadURL = mediaUrl;
       }
+    } else {
+      // Photo / image post: ensure persistent data URL or image path so it never turns black
+      const cleanId = p.id.replace(/^reel-/, '').replace(/^post-/, '');
+      if (mediaUrl.startsWith('blob:') || !mediaUrl) {
+        if (downloadURL && !downloadURL.startsWith('blob:')) {
+          mediaUrl = downloadURL;
+        } else if (thumb && !thumb.startsWith('blob:')) {
+          mediaUrl = thumb;
+        } else {
+          mediaUrl = `/api/media/post-${cleanId}.jpg`;
+        }
+      }
+      if (!downloadURL || downloadURL.startsWith('blob:')) {
+        downloadURL = mediaUrl;
+      }
+      if (!thumb || thumb.startsWith('blob:')) {
+        thumb = mediaUrl;
+      }
     }
 
     return {
@@ -786,24 +804,27 @@ export default function App() {
     finalPosts.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
     setPosts(finalPosts);
 
-    // Also merge video posts into Reels
+    // Also merge video posts into Reels (strictly deduplicated)
     const videoPosts = finalPosts.filter((lp) => lp.mediaType === 'video');
     const mappedReels: Reel[] = videoPosts.map((vp) => {
-      const cleanId = vp.id.replace(/^reel-/, '');
+      const cleanId = vp.id.replace(/^reel-/, '').replace(/^post-/, '');
+      const normalizedReelId = vp.id.startsWith('reel-') ? vp.id : `reel-${cleanId}`;
       const isLiked = Boolean(
         (currentUser?.id && vp.likedBy?.includes(currentUser.id)) ||
         (currentUser?.username && vp.likedBy?.includes(currentUser.username)) ||
         userLikedSet.has(vp.id) ||
         userLikedSet.has(cleanId) ||
+        userLikedSet.has(normalizedReelId) ||
         vp.isLiked
       );
 
       return {
-        id: `reel-${vp.id}`,
+        id: normalizedReelId,
         userId: vp.userId,
         username: vp.username,
         userAvatar: vp.userAvatar,
         videoUrl: vp.mediaUrl,
+        downloadURL: vp.downloadURL || vp.mediaUrl,
         thumbnailUrl: vp.thumbnailUrl,
         caption: vp.caption,
         category: vp.category,
@@ -840,13 +861,37 @@ export default function App() {
       // safe
     }
 
+    // Build a unique, deduplicated map of reels
+    // User's newly uploaded reels in local session have highest precedence
     const reelMap = new Map<string, Reel>();
-    mappedReels.forEach((r) => reelMap.set(r.id, r));
-    localReels.forEach((lr) => {
-      if (!reelMap.has(lr.id)) reelMap.set(lr.id, lr);
-    });
+    const seenMediaUrls = new Set<string>();
 
-    const finalReels = Array.from(new Map(Array.from(reelMap.values()).map((r) => [r.id, r])).values());
+    const addReelIfUnique = (r: Reel) => {
+      if (!r || !r.id) return;
+      const cleanId = String(r.id).replace(/^reel-/, '').replace(/^post-/, '').trim();
+      const rawId = String(r.id).trim();
+      const vUrl = String(r.videoUrl || r.downloadURL || '').trim();
+
+      // Filter out duplicate IDs or clean IDs
+      if (reelMap.has(rawId) || (cleanId && reelMap.has(cleanId))) {
+        return;
+      }
+      // Filter out duplicate video URLs so sample/demo reels do not duplicate user reels
+      if (vUrl && seenMediaUrls.has(vUrl)) {
+        return;
+      }
+
+      reelMap.set(rawId, r);
+      if (cleanId) reelMap.set(cleanId, r);
+      if (vUrl) seenMediaUrls.add(vUrl);
+    };
+
+    // First add local session reels (user uploads have priority)
+    localReels.forEach(addReelIfUnique);
+    // Then add mapped video reels
+    mappedReels.forEach(addReelIfUnique);
+
+    const finalReels = Array.from(new Set(reelMap.values()));
     finalReels.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
     setReels(finalReels);
   };
@@ -1063,8 +1108,9 @@ export default function App() {
       (r) =>
         r.id === post.id ||
         r.id === `reel-${post.id}` ||
-        (typeof r.id === 'string' && r.id.replace(/^reel-/, '') === cleanPostId) ||
-        (post.mediaUrl && r.videoUrl === post.mediaUrl)
+        r.id === `reel-${cleanPostId}` ||
+        (typeof r.id === 'string' && r.id.replace(/^reel-/, '').replace(/^post-/, '') === cleanPostId) ||
+        (post.mediaUrl && (r.videoUrl === post.mediaUrl || r.downloadURL === post.mediaUrl))
     );
 
     const activeReelId = matchedReel ? matchedReel.id : `reel-${post.id}`;
@@ -1546,11 +1592,16 @@ export default function App() {
     return Array.from(creatorMap.values()).slice(0, 10);
   }, [searchableUsers, posts, currentUser.username, currentUser.id]);
 
-  // Clean Reels filtered against Blocked creators, Reported content, and Private reels
+  // Clean Reels filtered against Blocked creators, Reported content, Private reels, and Duplicate IDs/Videos
   const unblockedReels = useMemo(() => {
-    return reels.filter((r) => {
+    const seenIds = new Set<string>();
+    const seenUrls = new Set<string>();
+    const unique: Reel[] = [];
+
+    for (const r of reels) {
+      if (!r || !r.id) continue;
       if (moderationService.isUserBlocked(r.username) || moderationService.isItemReported(r.id)) {
-        return false;
+        continue;
       }
       if (r.privacy === 'private' || r.isPrivate) {
         const isOwner =
@@ -1561,10 +1612,29 @@ export default function App() {
               r.username.toLowerCase().replace(/^@/, '').trim()) ||
           (currentUser?.email && r.userEmail &&
             currentUser.email.toLowerCase().trim() === r.userEmail.toLowerCase().trim());
-        return Boolean(isOwner);
+        if (!isOwner) continue;
       }
-      return true;
-    });
+
+      const rawId = String(r.id).trim();
+      const cleanId = rawId.replace(/^reel-/, '').replace(/^post-/, '').trim();
+      const vUrl = String(r.videoUrl || r.downloadURL || '').trim();
+
+      // Deduplicate by ID and cleanId
+      if (seenIds.has(rawId) || (cleanId && seenIds.has(cleanId))) {
+        continue;
+      }
+      // Deduplicate by video URL
+      if (vUrl && seenUrls.has(vUrl)) {
+        continue;
+      }
+
+      if (rawId) seenIds.add(rawId);
+      if (cleanId) seenIds.add(cleanId);
+      if (vUrl) seenUrls.add(vUrl);
+      unique.push(r);
+    }
+
+    return unique;
   }, [reels, currentUser, blockedVersion]);
 
   // Safety & Moderation Handlers

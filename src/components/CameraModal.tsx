@@ -836,18 +836,22 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
         }
 
+        // Convert captured photo to a persistent Base64 Data URL so image previews stay visible permanently and never turn black on reload
+        const persistentDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        setCapturedPhotoUrl(persistentDataUrl);
+
+        // Also generate blob for server upload
         canvas.toBlob(
           (blob) => {
             if (blob) {
-              const photoUrl = URL.createObjectURL(blob);
               setCapturedPhotoBlob(blob);
-              setCapturedPhotoUrl(photoUrl);
-              setEditorView('edit');
             }
           },
           'image/jpeg',
-          0.95
+          0.92
         );
+
+        setEditorView('edit');
       }
     } catch (err) {
       console.error('Photo capture error:', err);
@@ -1200,7 +1204,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     const permanentVideoUrl =
       serverStreamUrl || recordedVideoUrl || STANDARD_REEL_VIDEO_URL;
 
-    const mediaUrl = isVideo ? permanentVideoUrl : capturedPhotoUrl!;
+    // Use persistent Base64 Data URL for captured photos so previews stay visible permanently on reload
+    const mediaUrl = isVideo ? permanentVideoUrl : (capturedPhotoUrl || '');
     const author = currentUser || {
       id: 'current_user',
       username: 'bhojpuri_creator',
@@ -1215,9 +1220,11 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     // Save to local IndexedDB for immediate offline/reload playback
     if (isVideo && recordedVideoBlob) {
       saveBlobToIndexedDB(newPostId, recordedVideoBlob).catch(() => {});
+    } else if (!isVideo && capturedPhotoBlob) {
+      saveBlobToIndexedDB(newPostId, capturedPhotoBlob).catch(() => {});
     }
 
-    // Upload recorded video to server for permanent hosting
+    // Upload media to server for permanent disk hosting
     if (isVideo && recordedVideoBlob) {
       try {
         const formData = new FormData();
@@ -1251,6 +1258,22 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             }
           })
           .catch(() => {});
+      } catch {}
+    } else if (!isVideo && capturedPhotoBlob) {
+      try {
+        const photoFilename = `${newPostId}.jpg`;
+        const formData = new FormData();
+        formData.append('media', capturedPhotoBlob, photoFilename);
+        formData.append('filename', photoFilename);
+        formData.append('postId', newPostId);
+        fetch(`/api/media/upload?postId=${newPostId}&filename=${photoFilename}`, {
+          method: 'POST',
+          headers: {
+            'X-Post-Id': newPostId,
+            'X-Filename': photoFilename,
+          },
+          body: formData,
+        }).catch(() => {});
       } catch {}
     }
 
@@ -1355,15 +1378,24 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       const isVideo = file.type.startsWith('video/');
-      const url = URL.createObjectURL(file);
       if (isVideo) {
+        const url = URL.createObjectURL(file);
         setRecordedVideoBlob(file);
         setRecordedVideoUrl(url);
         setEditorView('edit');
       } else {
         setCapturedPhotoBlob(file);
-        setCapturedPhotoUrl(url);
-        setEditorView('edit');
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = (reader.result as string) || URL.createObjectURL(file);
+          setCapturedPhotoUrl(dataUrl);
+          setEditorView('edit');
+        };
+        reader.onerror = () => {
+          setCapturedPhotoUrl(URL.createObjectURL(file));
+          setEditorView('edit');
+        };
+        reader.readAsDataURL(file);
       }
     }
   };
