@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, Play, Pause, Heart, Send, Volume2, VolumeX } from 'lucide-react';
 import { StoryGroup } from '../types';
 import { pauseAllMedia } from '../utils/mediaCoordinator';
@@ -23,7 +23,29 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
   const [isMuted, setIsMuted] = useState(true);
   const [replyText, setReplyText] = useState('');
   const [sentReaction, setSentReaction] = useState<string | null>(null);
+
   const progressIntervalRef = useRef<number | null>(null);
+  const progressValRef = useRef(0);
+  const isPausedRef = useRef(isPaused);
+  const currentGroupIdxRef = useRef(currentGroupIdx);
+  const currentSlideIdxRef = useRef(currentSlideIdx);
+  const storiesRef = useRef(stories);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
+  useEffect(() => {
+    currentGroupIdxRef.current = currentGroupIdx;
+  }, [currentGroupIdx]);
+
+  useEffect(() => {
+    currentSlideIdxRef.current = currentSlideIdx;
+  }, [currentSlideIdx]);
+
+  useEffect(() => {
+    storiesRef.current = stories;
+  }, [stories]);
 
   const currentGroup = stories[currentGroupIdx];
   const slides = currentGroup?.slides || [];
@@ -37,16 +59,63 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
     };
   }, []);
 
-  // Mark current story as seen
+  // Safe auto-close if story group or slide is not found
   useEffect(() => {
-    if (currentGroup) {
+    if (!currentGroup || !currentSlide) {
+      onClose();
+    }
+  }, [currentGroup, currentSlide, onClose]);
+
+  // Mark current story as seen (only if unseen to prevent redundant App state updates)
+  useEffect(() => {
+    if (currentGroup && currentGroup.hasUnseen) {
       onMarkSeen(currentGroup.id);
     }
-  }, [currentGroupIdx]);
+  }, [currentGroup?.id, currentGroup?.hasUnseen, onMarkSeen]);
 
-  // Handle slide timer progress
+  const handleNext = useCallback(() => {
+    const grpIdx = currentGroupIdxRef.current;
+    const sldIdx = currentSlideIdxRef.current;
+    const allStories = storiesRef.current;
+    const activeGroup = allStories[grpIdx];
+    const activeSlides = activeGroup?.slides || [];
+
+    if (sldIdx < activeSlides.length - 1) {
+      setCurrentSlideIdx(sldIdx + 1);
+      setProgress(0);
+      progressValRef.current = 0;
+    } else if (grpIdx < allStories.length - 1) {
+      setCurrentGroupIdx(grpIdx + 1);
+      setCurrentSlideIdx(0);
+      setProgress(0);
+      progressValRef.current = 0;
+    } else {
+      onClose();
+    }
+  }, [onClose]);
+
+  const handlePrev = useCallback(() => {
+    const grpIdx = currentGroupIdxRef.current;
+    const sldIdx = currentSlideIdxRef.current;
+    const allStories = storiesRef.current;
+
+    if (sldIdx > 0) {
+      setCurrentSlideIdx(sldIdx - 1);
+      setProgress(0);
+      progressValRef.current = 0;
+    } else if (grpIdx > 0) {
+      const prevGroup = allStories[grpIdx - 1];
+      setCurrentGroupIdx(grpIdx - 1);
+      setCurrentSlideIdx(prevGroup ? Math.max(0, prevGroup.slides.length - 1) : 0);
+      setProgress(0);
+      progressValRef.current = 0;
+    }
+  }, []);
+
+  // Handle slide timer progress cleanly without calling setState during an updater
   useEffect(() => {
     setProgress(0);
+    progressValRef.current = 0;
     if (!currentSlide) return;
 
     const duration = 5000; // 5 seconds per slide
@@ -58,15 +127,16 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
     }
 
     progressIntervalRef.current = window.setInterval(() => {
-      if (isPaused) return;
+      if (isPausedRef.current) return;
 
-      setProgress((prev) => {
-        if (prev >= 100) {
-          handleNext();
-          return 0;
-        }
-        return prev + step;
-      });
+      progressValRef.current += step;
+      if (progressValRef.current >= 100) {
+        progressValRef.current = 0;
+        setProgress(0);
+        handleNext();
+      } else {
+        setProgress(progressValRef.current);
+      }
     }, intervalTime);
 
     return () => {
@@ -74,7 +144,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
         clearInterval(progressIntervalRef.current);
       }
     };
-  }, [currentGroupIdx, currentSlideIdx, isPaused]);
+  }, [currentGroupIdx, currentSlideIdx, handleNext, currentSlide]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -90,32 +160,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentGroupIdx, currentSlideIdx]);
-
-  const handleNext = () => {
-    if (currentSlideIdx < slides.length - 1) {
-      setCurrentSlideIdx((idx) => idx + 1);
-      setProgress(0);
-    } else if (currentGroupIdx < stories.length - 1) {
-      setCurrentGroupIdx((idx) => idx + 1);
-      setCurrentSlideIdx(0);
-      setProgress(0);
-    } else {
-      onClose();
-    }
-  };
-
-  const handlePrev = () => {
-    if (currentSlideIdx > 0) {
-      setCurrentSlideIdx((idx) => idx - 1);
-      setProgress(0);
-    } else if (currentGroupIdx > 0) {
-      const prevGroup = stories[currentGroupIdx - 1];
-      setCurrentGroupIdx((idx) => idx - 1);
-      setCurrentSlideIdx(prevGroup.slides.length - 1);
-      setProgress(0);
-    }
-  };
+  }, [onClose, handleNext, handlePrev]);
 
   const handleSendReply = (e: React.FormEvent) => {
     e.preventDefault();

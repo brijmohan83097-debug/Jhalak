@@ -192,14 +192,15 @@ export default function App() {
     let thumb = p.thumbnailUrl || '';
 
     if (p.mediaType === 'video') {
-      if (mediaUrl.startsWith('blob:') || mediaUrl.startsWith('/api/media/') || !mediaUrl) {
-        if (downloadURL && (downloadURL.startsWith('http://') || downloadURL.startsWith('https://')) && !downloadURL.includes('/api/media/')) {
+      const cleanId = p.id.replace(/^reel-/, '').replace(/^post-/, '');
+      if (mediaUrl.startsWith('blob:') || !mediaUrl) {
+        if (downloadURL && !downloadURL.startsWith('blob:')) {
           mediaUrl = downloadURL;
         } else {
-          mediaUrl = STANDARD_HTML5_VIDEO_FALLBACK;
+          mediaUrl = `/api/media/post-${cleanId}.mp4`;
         }
       }
-      if (downloadURL.startsWith('blob:') || downloadURL.startsWith('/api/media/') || !downloadURL) {
+      if (!downloadURL || downloadURL.startsWith('blob:')) {
         downloadURL = mediaUrl;
       }
     }
@@ -217,15 +218,16 @@ export default function App() {
     let downloadURL = r.downloadURL || '';
     let thumb = r.thumbnailUrl || '';
 
-    if (videoUrl.startsWith('blob:') || videoUrl.startsWith('/api/media/') || !videoUrl) {
-      if (downloadURL && (downloadURL.startsWith('http://') || downloadURL.startsWith('https://')) && !downloadURL.includes('/api/media/')) {
+    const cleanId = r.id.replace(/^reel-/, '').replace(/^post-/, '');
+    if (videoUrl.startsWith('blob:') || !videoUrl) {
+      if (downloadURL && !downloadURL.startsWith('blob:')) {
         videoUrl = downloadURL;
       } else {
-        videoUrl = STANDARD_HTML5_VIDEO_FALLBACK;
+        videoUrl = `/api/media/post-${cleanId}.mp4`;
       }
     }
 
-    if (downloadURL.startsWith('blob:') || downloadURL.startsWith('/api/media/') || !downloadURL) {
+    if (!downloadURL || downloadURL.startsWith('blob:')) {
       downloadURL = videoUrl;
     }
 
@@ -1051,7 +1053,10 @@ export default function App() {
   // Immediately redirect to full-screen ReelsView for video post
   const handleOpenReelFromPost = (post: Post) => {
     pauseAllMedia();
-    const cleanPostId = post.id.replace(/^reel-/, '');
+    const cleanPostId = post.id.replace(/^reel-/, '').replace(/^post-/, '');
+    const cleanMediaUrl = post.mediaUrl?.startsWith('blob:')
+      ? (post.downloadURL && !post.downloadURL.startsWith('blob:') ? post.downloadURL : `/api/media/post-${cleanPostId}.mp4`)
+      : post.mediaUrl || `/api/media/post-${cleanPostId}.mp4`;
 
     // Check if matching reel exists
     const matchedReel = reels.find(
@@ -1064,13 +1069,19 @@ export default function App() {
 
     const activeReelId = matchedReel ? matchedReel.id : `reel-${post.id}`;
 
-    if (!matchedReel) {
+    if (matchedReel) {
+      if (matchedReel.videoUrl?.startsWith('blob:') && !cleanMediaUrl.startsWith('blob:')) {
+        matchedReel.videoUrl = cleanMediaUrl;
+        matchedReel.downloadURL = cleanMediaUrl;
+      }
+    } else {
       const newReelObj: Reel = {
         id: activeReelId,
         userId: post.userId || currentUser.id,
         username: post.username || currentUser.username,
         userAvatar: post.userAvatar || currentUser.avatar,
-        videoUrl: post.mediaUrl,
+        videoUrl: cleanMediaUrl,
+        downloadURL: post.downloadURL || cleanMediaUrl,
         thumbnailUrl: post.thumbnailUrl,
         caption: post.caption || '',
         category: post.category || 'Vlogging',
@@ -2608,16 +2619,18 @@ export default function App() {
   };
 
   // Mark Story as seen
-  const handleMarkStorySeen = (groupId: string) => {
-    setStories((prev) =>
-      prev.map((group) => {
+  const handleMarkStorySeen = useCallback((groupId: string) => {
+    setStories((prev) => {
+      const target = prev.find((g) => g.id === groupId);
+      if (!target || !target.hasUnseen) return prev;
+      return prev.map((group) => {
         if (group.id === groupId) {
           return { ...group, hasUnseen: false };
         }
         return group;
-      })
-    );
-  };
+      });
+    });
+  }, []);
 
   // Add a story (prompting sign-in if guest)
   const handleAddStory = () => {
@@ -3361,7 +3374,10 @@ export default function App() {
               }}
               onDeletePost={handleDeletePost}
               onUpdatePostPrivacy={handleUpdatePostPrivacy}
-              onOpenStoryModal={() => setActiveStoryIndex(0)}
+              onOpenStoryModal={() => {
+                if (stories.length > 0) setActiveStoryIndex(0);
+                else showToast('No active stories 📸');
+              }}
               onOpenGoogleLogin={() => setIsGoogleAuthModalOpen(true)}
               onOpenLegalPolicies={() => {
                 setLegalModalTab('privacy');
@@ -3398,7 +3414,7 @@ export default function App() {
       </div>
 
       {/* MODAL 1: Story Viewer Fullscreen */}
-      {activeStoryIndex !== null && (
+      {activeStoryIndex !== null && stories.length > 0 && !!stories[activeStoryIndex] && (
         <StoryViewerModal
           stories={stories}
           initialGroupIndex={activeStoryIndex}
@@ -3858,7 +3874,10 @@ export default function App() {
                       handleOpenFullScreen(p, selectedUserPosts);
                     }
                   }}
-                  onOpenStoryModal={() => setActiveStoryIndex(0)}
+                  onOpenStoryModal={() => {
+                    if (stories.length > 0) setActiveStoryIndex(0);
+                    else showToast('No active stories 📸');
+                  }}
                   onDeletePost={handleDeletePost}
                   onUpdatePostPrivacy={handleUpdatePostPrivacy}
                   currentLanguage={currentLanguage}

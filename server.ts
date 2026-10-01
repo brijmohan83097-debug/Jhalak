@@ -36,10 +36,29 @@ const storageEngine = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, UPLOADS_DIR);
   },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || (file.mimetype.includes('video') ? '.mp4' : '.jpg');
-    const safeName = `${file.fieldname}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}${ext}`;
-    cb(null, safeName);
+  filename: (req, file, cb) => {
+    const queryFilename = typeof req.query?.filename === 'string' ? req.query.filename : '';
+    const queryPostId = typeof req.query?.postId === 'string' ? req.query.postId : '';
+    const headerFilename = typeof req.headers['x-filename'] === 'string' ? req.headers['x-filename'] : '';
+    const headerPostId = typeof req.headers['x-post-id'] === 'string' ? req.headers['x-post-id'] : '';
+    const bodyFilename = req.body && typeof req.body.filename === 'string' ? req.body.filename : '';
+    const bodyPostId = req.body && typeof (req.body.id || req.body.postId) === 'string' ? (req.body.id || req.body.postId) : '';
+
+    const rawName = queryFilename || headerFilename || bodyFilename || file.originalname || '';
+    const cleanBase = path.basename(rawName).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+    const ext = path.extname(cleanBase).toLowerCase() || (file.mimetype.includes('video') ? (file.mimetype.includes('webm') ? '.webm' : '.mp4') : '.jpg');
+    
+    const specifiedId = queryPostId || headerPostId || bodyPostId;
+
+    if (specifiedId) {
+      const cleanId = String(specifiedId).replace(/[^a-zA-Z0-9_\-]/g, '_');
+      cb(null, `${cleanId}${ext}`);
+    } else if (cleanBase && cleanBase.length > 4 && cleanBase.includes('.')) {
+      cb(null, cleanBase);
+    } else {
+      const safeName = `${file.fieldname}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}${ext}`;
+      cb(null, safeName);
+    }
   },
 });
 
@@ -80,8 +99,29 @@ app.post('/api/media/upload', upload.single('media'), (req, res) => {
 // API endpoint to stream media with full HTTP 206 Byte Range support (critical for mobile Safari & Chrome)
 app.get('/api/media/:filename', (req, res) => {
   try {
-    const filename = path.basename(req.params.filename);
-    const filePath = path.resolve(UPLOADS_DIR, filename);
+    const rawFilename = path.basename(req.params.filename);
+    let filePath = path.resolve(UPLOADS_DIR, rawFilename);
+
+    // If exact file does not exist, look for any matching file in uploads directory by base ID
+    if (!fs.existsSync(filePath)) {
+      const baseNameWithoutExt = rawFilename.replace(/\.[^/.]+$/, '');
+      const cleanId = baseNameWithoutExt.replace(/^reel-/, '').replace(/^post-/, '');
+      try {
+        const files = fs.readdirSync(UPLOADS_DIR);
+        const match = files.find((f) => {
+          const fClean = f.replace(/\.[^/.]+$/, '');
+          return (
+            f === rawFilename ||
+            fClean === baseNameWithoutExt ||
+            fClean.includes(baseNameWithoutExt) ||
+            (cleanId.length > 3 && fClean.includes(cleanId))
+          );
+        });
+        if (match) {
+          filePath = path.resolve(UPLOADS_DIR, match);
+        }
+      } catch {}
+    }
 
     if (!fs.existsSync(filePath)) {
       res.status(404).send('Media not found');
@@ -92,7 +132,7 @@ app.get('/api/media/:filename', (req, res) => {
     const fileSize = stat.size;
     const range = req.headers.range;
 
-    const ext = path.extname(filename).toLowerCase();
+    const ext = path.extname(filePath).toLowerCase();
     const mimeTypes: Record<string, string> = {
       '.mp4': 'video/mp4',
       '.webm': 'video/webm',

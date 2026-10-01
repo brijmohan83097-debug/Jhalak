@@ -845,21 +845,21 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
     // 1. Instant Permanent Persistence & Publish: Zero blocking popup, instant auto-close < 1s
     const isVideo = mediaType === 'video' || (pendingUploadFile && pendingUploadFile.type.includes('video'));
-    const ext = isVideo ? 'mp4' : 'jpg';
+    const ext = isVideo ? (pendingUploadFile?.type?.includes('webm') ? 'webm' : 'mp4') : 'jpg';
     const serverStreamUrl = `/api/media/${postId}.${ext}`;
     
-    let permanentMediaUrl = (selectedMediaUrl && !selectedMediaUrl.startsWith('blob:')) 
-      ? selectedMediaUrl 
-      : serverStreamUrl;
+    // For videos, always use the permanent server streaming URL so videos play reliably across sessions
+    let permanentMediaUrl = isVideo ? serverStreamUrl : ((selectedMediaUrl && !selectedMediaUrl.startsWith('blob:')) ? selectedMediaUrl : serverStreamUrl);
 
     if (persistedThumbnail.startsWith('blob:') || !persistedThumbnail) {
       persistedThumbnail = thumbnailDataUrl || createVideoFallbackDataUrl(caption || 'Video Reel');
     }
 
-    // Immediately cache to local IndexedDB to guarantee instant offline/reload playback
+    // Immediately cache to local IndexedDB under both post and reel keys to guarantee instant offline/reload playback
     const fileToUpload = pendingUploadFile;
     if (fileToUpload) {
       saveBlobToIndexedDB(postId, fileToUpload).catch(() => {});
+      saveBlobToIndexedDB(`reel-${postId}`, fileToUpload).catch(() => {});
     }
 
     // Direct and instant: save permanent URLs to newPost & newReel
@@ -922,11 +922,46 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           try {
             // A. Save to server streaming disk endpoint in background
             const formData = new FormData();
+            formData.append('filename', `${postId}.${ext}`);
+            formData.append('postId', postId);
             formData.append('media', fileToUpload, `${postId}.${ext}`);
-            fetch('/api/media/upload', {
+            fetch(`/api/media/upload?postId=${postId}&filename=${postId}.${ext}`, {
               method: 'POST',
+              headers: {
+                'X-Post-Id': postId,
+                'X-Filename': `${postId}.${ext}`,
+              },
               body: formData,
-            }).catch(() => {});
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const finalUrl = data?.relativeUrl || `/api/media/${postId}.${ext}`;
+                try {
+                  const raw = localStorage.getItem('jhalak_uploaded_posts_v1');
+                  if (raw) {
+                    const list = JSON.parse(raw);
+                    const idx = list.findIndex((p: any) => p.id === postId);
+                    if (idx !== -1) {
+                      list[idx].mediaUrl = finalUrl;
+                      list[idx].downloadURL = finalUrl;
+                      localStorage.setItem('jhalak_uploaded_posts_v1', JSON.stringify(list));
+                    }
+                  }
+                  if (newReel) {
+                    const rawR = localStorage.getItem('jhalak_uploaded_reels_v1');
+                    if (rawR) {
+                      const listR = JSON.parse(rawR);
+                      const idxR = listR.findIndex((r: any) => r.id === postId);
+                      if (idxR !== -1) {
+                        listR[idxR].videoUrl = finalUrl;
+                        listR[idxR].downloadURL = finalUrl;
+                        localStorage.setItem('jhalak_uploaded_reels_v1', JSON.stringify(listR));
+                      }
+                    }
+                  }
+                } catch {}
+              })
+              .catch(() => {});
 
             // B. Upload to Firebase Cloud Storage in background
             const cloudUrl = await uploadMediaToStorage(
@@ -2283,7 +2318,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       >
         <CameraModal
           currentUser={currentUser}
-          initialMode="POST"
+          initialMode="REEL"
           onCaptureVideo={handleVideoRecorded}
           onCapturePhoto={handlePhotoCaptured}
           onClose={() => setIsCameraOpen(false)}

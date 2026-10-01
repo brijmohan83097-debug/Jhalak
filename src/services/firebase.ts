@@ -1865,7 +1865,7 @@ export async function uploadMediaToStorage(
     throw new Error(`Upload rejected: File size (${sizeMb} MB) exceeds maximum allowed limit of 100 MB.`);
   }
 
-  const ext = fileOrBlob.type.includes('video') ? 'mp4' : 'jpg';
+  const ext: 'mp4' | 'webm' | 'jpg' = fileOrBlob.type.includes('video') ? (fileOrBlob.type.includes('webm') ? 'webm' : 'mp4') : 'jpg';
   const assignedId = mediaId || `${folder}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const fileName = `${folder}/${assignedId}.${ext}`;
 
@@ -1874,16 +1874,22 @@ export async function uploadMediaToStorage(
     // 1. Try server-side permanent disk storage (/api/media/upload)
     try {
       const formData = new FormData();
+      formData.append('filename', `${assignedId}.${ext}`);
+      formData.append('postId', assignedId);
       formData.append('media', fileOrBlob, `${assignedId}.${ext}`);
-      const res = await fetch('/api/media/upload', {
+      const res = await fetch(`/api/media/upload?postId=${assignedId}&filename=${assignedId}.${ext}`, {
         method: 'POST',
+        headers: {
+          'X-Post-Id': assignedId,
+          'X-Filename': `${assignedId}.${ext}`,
+        },
         body: formData,
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.url) {
+        if (data.url || data.relativeUrl) {
           if (onProgress) onProgress(100);
-          return data.url;
+          return data.relativeUrl || data.url;
         }
       }
     } catch (serverErr) {
@@ -1896,26 +1902,9 @@ export async function uploadMediaToStorage(
     } catch {}
 
     if (onProgress) onProgress(100);
-    // 3. For videos, return direct base64 / persistent IndexedDB object URL so user video is never lost
-    if (ext === 'mp4') {
-      try {
-        const idbUrl = await saveBlobToIndexedDB(assignedId, fileOrBlob);
-        if (fileOrBlob.size <= 8 * 1024 * 1024) {
-          try {
-            const dataUrl = await new Promise<string>((res, rej) => {
-              const reader = new FileReader();
-              reader.onload = () => res(reader.result as string);
-              reader.onerror = rej;
-              reader.readAsDataURL(fileOrBlob);
-            });
-            if (dataUrl && dataUrl.startsWith('data:video/')) {
-              return dataUrl;
-            }
-          } catch {}
-        }
-        if (idbUrl) return idbUrl;
-      } catch {}
-      return URL.createObjectURL(fileOrBlob);
+    // 3. For videos, return permanent server URL or persistent base64 data URL
+    if (ext === 'mp4' || ext === 'webm') {
+      return `/api/media/${assignedId}.${ext}`;
     }
     // For photos, return the real base64 data URL of the uploaded image so user's real photo is never replaced with abstract placeholders
     try {

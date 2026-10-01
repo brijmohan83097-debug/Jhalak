@@ -55,6 +55,10 @@ import {
   setGlobalReelsMuted,
   subscribeGlobalReelsMuted,
 } from '../utils/mediaCoordinator';
+import {
+  resolvePlayableMediaUrl,
+  getBlobFromIndexedDB,
+} from '../utils/persistentMediaStore';
 
 interface ReelsViewProps {
   reels: Reel[];
@@ -1051,15 +1055,49 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
           >
             {/* Reel Media: Video or Image */}
             {isImage || failedVideoIds[reel.id] ? (
-              <img
-                src={reel.thumbnailUrl || (reel as any).mediaUrl || reel.videoUrl}
-                alt={reel.caption || 'Reel media'}
-                className="w-full h-full object-cover select-none pointer-events-none"
-                loading={Math.abs(index - activeIndex) <= 1 ? 'eager' : 'lazy'}
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
+              <div className="relative w-full h-full flex items-center justify-center bg-neutral-950">
+                <img
+                  src={reel.thumbnailUrl || (reel as any).mediaUrl || reel.videoUrl}
+                  alt={reel.caption || 'Reel media'}
+                  className="w-full h-full object-cover select-none pointer-events-none"
+                  loading={Math.abs(index - activeIndex) <= 1 ? 'eager' : 'lazy'}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                {!isImage && (
+                  <div
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setFailedVideoIds((prev) => {
+                        const next = { ...prev };
+                        delete next[reel.id];
+                        return next;
+                      });
+                      try {
+                        const resolved = await resolvePlayableMediaUrl(
+                          reel.id,
+                          reel.videoUrl || (reel as any).mediaUrl || ''
+                        );
+                        const vid = videoRefs.current[index];
+                        if (resolved && vid) {
+                          vid.src = resolved;
+                          vid.load();
+                          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                        }
+                      } catch {}
+                    }}
+                    className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white cursor-pointer hover:bg-black/50 transition z-20 group"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-black/75 backdrop-blur-md flex items-center justify-center mb-2 shadow-2xl group-hover:scale-110 active:scale-95 transition">
+                      <Play className="w-7 h-7 fill-white ml-1 text-white" />
+                    </div>
+                    <span className="text-xs font-semibold px-3 py-1 rounded-full bg-black/60 border border-white/20">
+                      Tap to Play Video
+                    </span>
+                  </div>
+                )}
+              </div>
             ) : (
               (() => {
                 const sources = [
@@ -1068,15 +1106,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   (reel as any).mediaUrl,
                 ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
 
-                // Prioritize user's uploaded/recorded video: blob, server stream (/api/media/), http/https or data URL
-                const validSrc = sources.find((s) =>
-                  s.startsWith('blob:') ||
-                  s.startsWith('http://') ||
-                  s.startsWith('https://') ||
+                const cleanId = reel.id.replace(/^reel-/, '').replace(/^post-/, '');
+                // Prioritize permanent playable URLs: /api/media/, https://, http://, data:video/
+                const permanentSrc = sources.find((s) =>
                   s.startsWith('/api/media/') ||
+                  s.startsWith('https://') ||
+                  s.startsWith('http://') ||
                   s.startsWith('data:video/')
-                ) || sources[0] || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
-                const videoSrc = validSrc;
+                );
+                const blobSrc = sources.find((s) => s.startsWith('blob:'));
+                const videoSrc = permanentSrc || blobSrc || (cleanId ? `/api/media/post-${cleanId}.mp4` : sources[0]) || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
                 return (
                   <div className="relative w-full h-full flex items-center justify-center bg-neutral-950 overflow-hidden">
@@ -1162,9 +1201,30 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                           vid.play().catch(() => {});
                         } catch {}
                       }}
-                      onError={(e) => {
-                        // Stop reloading, hide spinner, and fallback safely to poster image without logging continuous errors
+                      onError={async (e) => {
                         const vid = e.currentTarget;
+                        const cleanId = reel.id.replace(/^reel-/, '').replace(/^post-/, '');
+                        try {
+                          const cachedBlob = await getBlobFromIndexedDB(reel.id);
+                          if (cachedBlob) {
+                            const freshUrl = URL.createObjectURL(cachedBlob);
+                            vid.src = freshUrl;
+                            vid.load();
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                            return;
+                          }
+                        } catch {}
+
+                        if (vid && cleanId) {
+                          const cur = vid.src || '';
+                          if (!cur.includes(`.webm`)) {
+                            vid.src = `/api/media/post-${cleanId}.webm`;
+                            vid.load();
+                            vid.play().then(() => setIsPlaying(true)).catch(() => {});
+                            return;
+                          }
+                        }
+
                         vid.onerror = null;
                         vid.onstalled = null;
                         vid.onwaiting = null;

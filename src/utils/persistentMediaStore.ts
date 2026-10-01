@@ -101,12 +101,8 @@ export async function purgeOfflineMediaStorage(): Promise<void> {
   }
 }
 
-// Automatically execute purge on module initialization
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    purgeOfflineMediaStorage().catch(() => {});
-  }, 50);
-}
+// Automatic purge disabled on startup so user-uploaded media is preserved across page refreshes
+// purgeOfflineMediaStorage can still be called manually when necessary
 
 /**
  * Converts a small Blob (e.g. thumbnail photo) into a base64 Data URL if <= 200KB
@@ -140,7 +136,12 @@ const FALLBACK_STORE_NAME = 'media_blobs';
 export function saveBlobToIndexedDB(id: string, blob: Blob): Promise<string> {
   return new Promise((resolve) => {
     const objectUrl = URL.createObjectURL(blob);
-    activeObjectUrlCache.set(id, objectUrl);
+    const cleanId = id.replace(/^reel-/, '').replace(/^post-/, '');
+    const aliases = [id, cleanId, `post-${cleanId}`, `reel-${cleanId}`, `reel-${id}`];
+
+    for (const key of aliases) {
+      if (key) activeObjectUrlCache.set(key, objectUrl);
+    }
 
     if (typeof window === 'undefined' || !window.indexedDB) {
       resolve(objectUrl);
@@ -160,7 +161,12 @@ export function saveBlobToIndexedDB(id: string, blob: Blob): Promise<string> {
           const db = e.target.result;
           const tx = db.transaction(FALLBACK_STORE_NAME, 'readwrite');
           const store = tx.objectStore(FALLBACK_STORE_NAME);
-          store.put(blob, id);
+          // Store under primary id and clean id for bulletproof cross-view lookup
+          for (const key of aliases) {
+            if (key) {
+              try { store.put(blob, key); } catch {}
+            }
+          }
           tx.oncomplete = () => resolve(objectUrl);
           tx.onerror = () => resolve(objectUrl);
         } catch {
@@ -175,7 +181,7 @@ export function saveBlobToIndexedDB(id: string, blob: Blob): Promise<string> {
 }
 
 /**
- * Retrieves a cached media blob from IndexedDB fallback storage.
+ * Retrieves a cached media blob from IndexedDB fallback storage checking all possible ID aliases.
  */
 export function getBlobFromIndexedDB(id: string): Promise<Blob | null> {
   return new Promise((resolve) => {
@@ -183,6 +189,9 @@ export function getBlobFromIndexedDB(id: string): Promise<Blob | null> {
       resolve(null);
       return;
     }
+    const cleanId = id.replace(/^reel-/, '').replace(/^post-/, '');
+    const lookupKeys = Array.from(new Set([id, cleanId, `post-${cleanId}`, `reel-${cleanId}`, `reel-${id}`])).filter(Boolean);
+
     try {
       const req = indexedDB.open(FALLBACK_DB_NAME, 1);
       req.onsuccess = (e: any) => {
@@ -194,9 +203,28 @@ export function getBlobFromIndexedDB(id: string): Promise<Blob | null> {
           }
           const tx = db.transaction(FALLBACK_STORE_NAME, 'readonly');
           const store = tx.objectStore(FALLBACK_STORE_NAME);
-          const getReq = store.get(id);
-          getReq.onsuccess = () => resolve(getReq.result || null);
-          getReq.onerror = () => resolve(null);
+
+          let found = false;
+          let pending = lookupKeys.length;
+
+          for (const key of lookupKeys) {
+            const getReq = store.get(key);
+            getReq.onsuccess = () => {
+              if (found) return;
+              if (getReq.result) {
+                found = true;
+                resolve(getReq.result);
+                return;
+              }
+              pending -= 1;
+              if (pending === 0 && !found) resolve(null);
+            };
+            getReq.onerror = () => {
+              if (found) return;
+              pending -= 1;
+              if (pending === 0 && !found) resolve(null);
+            };
+          }
         } catch {
           resolve(null);
         }
@@ -230,36 +258,43 @@ export async function getMediaBlob(id: string): Promise<Blob | null> {
  * Resolves a reliable, playable media stream URL for a given post/reel.
  */
 export async function resolvePlayableMediaUrl(id: string, mediaUrl: string): Promise<string> {
+  const cleanId = id.replace(/^reel-/, '').replace(/^post-/, '');
+
+  // 1. Direct standard server streaming or CDN URLs are always permanent and playable
   if (
     mediaUrl &&
-    (mediaUrl.startsWith('https://') ||
+    (mediaUrl.startsWith('/api/') ||
+      mediaUrl.startsWith('https://') ||
       mediaUrl.startsWith('http://') ||
-      mediaUrl.startsWith('/api/') ||
-      mediaUrl.startsWith('data:image/') ||
-      mediaUrl.startsWith('data:video/'))
+      mediaUrl.startsWith('data:video/') ||
+      mediaUrl.startsWith('data:image/'))
   ) {
     return mediaUrl;
   }
 
-  // Check in-memory session cache
-  if (activeObjectUrlCache.has(id)) {
-    return activeObjectUrlCache.get(id)!;
+  // 2. Check active in-memory session cache
+  const aliases = [id, cleanId, `post-${cleanId}`, `reel-${cleanId}`];
+  for (const k of aliases) {
+    if (activeObjectUrlCache.has(k)) {
+      return activeObjectUrlCache.get(k)!;
+    }
   }
 
-  // Check IndexedDB fallback store
+  // 3. Check IndexedDB fallback store
   try {
     const cachedBlob = await getBlobFromIndexedDB(id);
     if (cachedBlob) {
       const freshUrl = URL.createObjectURL(cachedBlob);
-      activeObjectUrlCache.set(id, freshUrl);
+      for (const k of aliases) {
+        activeObjectUrlCache.set(k, freshUrl);
+      }
       return freshUrl;
     }
   } catch {}
 
-  // If was a blob: URL from a dead past session, fallback to permanent server streaming route
-  if (mediaUrl && mediaUrl.startsWith('blob:')) {
-    const cleanId = id.replace(/^reel-/, '');
-    return `/api/media/${cleanId}.mp4`;
+  // 4. If was a blob: URL from a dead past session or URL is empty, fallback to permanent server streaming route
+  if (cleanId) {
+    return `/api/media/post-${cleanId}.mp4`;
   }
 
   return mediaUrl || '';

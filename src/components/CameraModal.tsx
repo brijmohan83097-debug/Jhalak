@@ -54,6 +54,7 @@ import {
 } from '../data/bhojpuriMusic';
 import { ReelsAudioSelector } from './ReelsAudioSelector';
 import { pauseAllMedia } from '../utils/mediaCoordinator';
+import { saveBlobToIndexedDB } from '../utils/persistentMediaStore';
 
 export type CameraMode = 'POST' | 'STORY' | 'REEL' | 'LIVE';
 
@@ -310,9 +311,9 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   onClose,
   onShowToast,
 }) => {
-  // Modes: POST, STORY, REEL, LIVE
-  const [mode, setMode] = useState<CameraMode>(initialMode);
-  const modes: CameraMode[] = ['POST', 'STORY', 'REEL', 'LIVE'];
+  // Modes: STORY, REEL, LIVE (POST mode removed from reel camera)
+  const [mode, setMode] = useState<CameraMode>(initialMode === 'POST' ? 'REEL' : initialMode);
+  const modes: CameraMode[] = ['STORY', 'REEL', 'LIVE'];
 
   // Camera Frame Size (Free Size, 9:16, 1:1, 4:5, 16:9)
   const [cameraSize, setCameraSize] = useState<CameraSizeOption>(initialCameraSize);
@@ -493,10 +494,11 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
       let newStream: MediaStream | null = null;
 
-      // Tier 1: Optimized for activeSize (Free size uses unconstrained natural aspect ratio)
+      // Tier 1: Optimized for activeSize (Free size uses unconstrained natural aspect ratio, steady 30 FPS)
       try {
         const videoConstraints: MediaTrackConstraints = {
           facingMode: isFrontCamera ? 'user' : 'environment',
+          frameRate: { ideal: 30, min: 24, max: 30 },
         };
 
         if (activeSize === 'free') {
@@ -879,7 +881,10 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     const mimeType = getSupportedMimeType();
 
     try {
-      const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
+      const options: MediaRecorderOptions = {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: 2500000,
+      };
       const recorder = new MediaRecorder(stream, options);
 
       recorder.ondataavailable = (e) => {
@@ -898,7 +903,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
         setEditorPlaying(true);
       };
 
-      recorder.start(100);
+      // 1000ms timeslice generates clean GOP keyframes at 30 FPS without stutter or frame jumping
+      recorder.start(1000);
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
       setRecordingSeconds(0);
@@ -1183,12 +1189,16 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
     const now = Date.now();
     const isVideo = !!recordedVideoUrl;
+    const newPostId = `post-cam-${now}`;
+    const ext = recordedVideoBlob?.type?.includes('webm') ? 'webm' : 'mp4';
+    const finalFilename = `${newPostId}.${ext}`;
+    const serverStreamUrl = `/api/media/${finalFilename}`;
 
     const STANDARD_REEL_VIDEO_URL =
       'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
     const permanentVideoUrl =
-      recordedVideoUrl || STANDARD_REEL_VIDEO_URL;
+      serverStreamUrl || recordedVideoUrl || STANDARD_REEL_VIDEO_URL;
 
     const mediaUrl = isVideo ? permanentVideoUrl : capturedPhotoUrl!;
     const author = currentUser || {
@@ -1202,20 +1212,30 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       followingCount: 0,
     };
 
-    // Asynchronously upload recorded video to server for permanent hosting
+    // Save to local IndexedDB for immediate offline/reload playback
+    if (isVideo && recordedVideoBlob) {
+      saveBlobToIndexedDB(newPostId, recordedVideoBlob).catch(() => {});
+    }
+
+    // Upload recorded video to server for permanent hosting
     if (isVideo && recordedVideoBlob) {
       try {
         const formData = new FormData();
-        const ext = recordedVideoBlob.type.includes('mp4') ? 'mp4' : 'webm';
-        formData.append('media', recordedVideoBlob, `camera_reel_${now}.${ext}`);
-        fetch('/api/media/upload', {
+        formData.append('media', recordedVideoBlob, finalFilename);
+        formData.append('filename', finalFilename);
+        formData.append('postId', newPostId);
+        fetch(`/api/media/upload?postId=${newPostId}&filename=${finalFilename}`, {
           method: 'POST',
+          headers: {
+            'X-Post-Id': newPostId,
+            'X-Filename': finalFilename,
+          },
           body: formData,
         })
           .then((res) => res.json())
           .then((data) => {
             if (data?.url || data?.relativeUrl) {
-              const serverMediaUrl = data.relativeUrl || data.url;
+              const serverMediaUrl = data.relativeUrl || `/api/media/${finalFilename}`;
               try {
                 const existingStr = localStorage.getItem('jhalak_uploaded_posts_v1');
                 if (existingStr) {
@@ -1246,7 +1266,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       ? `${selectedAudio.title} • ${selectedAudio.artist || 'Bhojpuri'}`
       : 'Original Audio';
 
-    const newPostId = `post-cam-${now}`;
     const effectiveThumbnail = videoThumbnail || mediaUrl;
 
     const newPost: Post = {
@@ -1256,6 +1275,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       userAvatar: author.avatar,
       isVerified: author.isVerified || false,
       mediaUrl: mediaUrl,
+      downloadURL: mediaUrl,
       mediaType: isVideo ? 'video' : 'image',
       thumbnailUrl: effectiveThumbnail,
       caption:
@@ -1287,6 +1307,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
         userAvatar: author.avatar,
         isVerified: author.isVerified || false,
         videoUrl: permanentVideoUrl,
+        downloadURL: permanentVideoUrl,
         thumbnailUrl: effectiveThumbnail,
         caption: newPost.caption,
         category: selectedCategory,
@@ -1924,12 +1945,12 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               </button>
             </div>
 
-            {/* Sabse Neeche Menu: POST | STORY | REEL | LIVE (REEL bold white dikhe) */}
+            {/* Sabse Neeche Menu: STORY | REEL | LIVE (REEL bold white dikhe) */}
             <div
               ref={modesScrollRef}
               className="w-full flex items-center justify-center gap-5 sm:gap-7 overflow-x-auto no-scrollbar py-2 px-6 cursor-pointer"
             >
-              {(['POST', 'STORY', 'REEL', 'LIVE'] as const).map((m, idx, arr) => {
+              {(['STORY', 'REEL', 'LIVE'] as const).map((m, idx, arr) => {
                 const isActive = mode === m;
                 const isReel = m === 'REEL';
                 return (

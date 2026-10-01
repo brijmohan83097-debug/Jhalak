@@ -882,14 +882,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         <div className="grid grid-cols-3 gap-1 md:gap-4">
           {(displayPosts || []).map((post, idx) => {
             // Compute real permanent video URL
+            const cleanPostId = post.id.replace(/^reel-/, '').replace(/^post-/, '');
             const permanentVideoUrl =
-              (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('blob:')))
+              (post.downloadURL && (post.downloadURL.startsWith('http') || post.downloadURL.startsWith('/api/')))
                 ? post.downloadURL
-                : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('blob:')))
+                : (post.mediaUrl && (post.mediaUrl.startsWith('http') || post.mediaUrl.startsWith('/api/')))
                 ? post.mediaUrl
-                : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('blob:')))
+                : ((post as any).videoUrl && ((post as any).videoUrl.startsWith('http') || (post as any).videoUrl.startsWith('/api/')))
                 ? (post as any).videoUrl
-                : post.mediaUrl || post.downloadURL || (post as any).videoUrl || `/api/media/${post.id}.mp4`;
+                : (post.downloadURL?.startsWith('blob:') ? post.downloadURL : (post.mediaUrl?.startsWith('blob:') ? post.mediaUrl : `/api/media/post-${cleanPostId}.mp4`));
 
             // Compute real photo URL, avoiding purple abstract placeholder
             const realPhotoUrl =

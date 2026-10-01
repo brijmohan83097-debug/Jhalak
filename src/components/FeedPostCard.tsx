@@ -39,6 +39,10 @@ import {
   createPhotoFallbackDataUrl,
 } from '../utils/imageCompressor';
 import { safeSlice, safeEncodeURIComponent } from '../utils/safeEncoding';
+import {
+  resolvePlayableMediaUrl,
+  getBlobFromIndexedDB,
+} from '../utils/persistentMediaStore';
 
 interface FeedPostCardProps {
   post: Post;
@@ -195,6 +199,22 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       }
     }
   }, [post.id, post.mediaType, videoError]);
+
+  // Check and restore playable URL from IndexedDB or server route if current mediaUrl is a stale blob or missing
+  useEffect(() => {
+    if (post.mediaType !== 'video') return;
+    resolvePlayableMediaUrl(post.id, post.mediaUrl || post.downloadURL || '')
+      .then((playable) => {
+        if (playable && videoRef.current && videoRef.current.src !== playable) {
+          videoRef.current.src = playable;
+          videoRef.current.load();
+          if (isIntersectingRef.current && !isUserPausedRef.current) {
+            videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+  }, [post.id, post.mediaUrl, post.downloadURL, post.mediaType]);
 
   // Track video watch time continuously for personalization & automatic Home Feed sorting
   const watchStartTimeRef = useRef<number | null>(null);
@@ -544,12 +564,27 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                   target.src = createVideoFallbackDataUrl(post.caption);
                 }}
               />
-              <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white p-4">
-                <div className="w-14 h-14 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center mb-2 shadow-lg">
+              <div
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  setVideoError(false);
+                  setIsBuffering(true);
+                  try {
+                    const resolved = await resolvePlayableMediaUrl(post.id, post.mediaUrl || post.downloadURL || '');
+                    if (resolved && videoRef.current) {
+                      videoRef.current.src = resolved;
+                      videoRef.current.load();
+                      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                    }
+                  } catch {}
+                }}
+                className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white p-4 cursor-pointer hover:bg-black/50 transition group"
+              >
+                <div className="w-14 h-14 rounded-full bg-black/70 backdrop-blur-md flex items-center justify-center mb-2 shadow-lg group-hover:scale-110 active:scale-95 transition">
                   <Play className="w-6 h-6 fill-white ml-1 text-white" />
                 </div>
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-black/60 border border-white/20">
-                  🎬 Video Reel
+                  🎬 Tap to Play Reel
                 </span>
                 {post.caption && (
                   <p className="text-xs text-white/90 font-medium max-w-[200px] truncate mt-1.5">
@@ -567,15 +602,16 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                   (post as any).videoUrl,
                 ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
 
-                // Prioritize user's uploaded/recorded video: blob, server stream (/api/media/), http/https or data URL
-                const validSrc = sources.find((s) =>
-                  s.startsWith('blob:') ||
-                  s.startsWith('http://') ||
-                  s.startsWith('https://') ||
+                const cleanId = post.id.replace(/^reel-/, '').replace(/^post-/, '');
+                // Prioritize permanent playable URLs: /api/media/, https://, http://, data:video/
+                const permanentSrc = sources.find((s) =>
                   s.startsWith('/api/media/') ||
+                  s.startsWith('https://') ||
+                  s.startsWith('http://') ||
                   s.startsWith('data:video/')
-                ) || sources[0] || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
-                const videoSrc = validSrc;
+                );
+                const blobSrc = sources.find((s) => s.startsWith('blob:'));
+                const videoSrc = permanentSrc || blobSrc || (cleanId ? `/api/media/post-${cleanId}.mp4` : sources[0]) || 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-performing-a-trick-in-a-skatepark-42861-large.mp4';
 
                 return (
                   <div className="relative w-full h-full max-h-[520px] flex items-center justify-center bg-neutral-950 overflow-hidden">
@@ -658,8 +694,39 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       setIsPlaying(false);
                       setIsBuffering(false);
                     }}
-                    onError={() => {
-                      // Stop reloading, hide spinner, and fallback safely to poster image without logging continuous errors
+                    onError={async () => {
+                      const cleanId = post.id.replace(/^reel-/, '').replace(/^post-/, '');
+                      // Attempt fallback to local IndexedDB before giving up
+                      try {
+                        const cachedBlob = await getBlobFromIndexedDB(post.id);
+                        if (cachedBlob && videoRef.current) {
+                          const freshUrl = URL.createObjectURL(cachedBlob);
+                          videoRef.current.src = freshUrl;
+                          videoRef.current.load();
+                          videoRef.current.play().then(() => {
+                            setIsPlaying(true);
+                            setIsBuffering(false);
+                            setVideoError(false);
+                          }).catch(() => {});
+                          return;
+                        }
+                      } catch {}
+
+                      // If currently pointing to dead blob or .mp4, try alternative extension on permanent server stream
+                      if (videoRef.current && cleanId) {
+                        const cur = videoRef.current.src || '';
+                        if (!cur.includes(`.webm`)) {
+                          videoRef.current.src = `/api/media/post-${cleanId}.webm`;
+                          videoRef.current.load();
+                          videoRef.current.play().then(() => {
+                            setIsPlaying(true);
+                            setIsBuffering(false);
+                            setVideoError(false);
+                          }).catch(() => {});
+                          return;
+                        }
+                      }
+
                       setIsBuffering(false);
                       setIsPlaying(false);
                       setVideoError(true);
