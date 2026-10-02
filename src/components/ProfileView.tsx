@@ -894,15 +894,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
             // Compute real photo URL, avoiding purple abstract placeholder
             const realPhotoUrl =
-              (post.thumbnailUrl && post.thumbnailUrl.startsWith('data:image/'))
+              (post.mediaUrl && post.mediaUrl.startsWith('data:image/'))
+                ? post.mediaUrl
+                : (post.thumbnailUrl && post.thumbnailUrl.startsWith('data:image/'))
                 ? post.thumbnailUrl
+                : (post.downloadURL && post.downloadURL.startsWith('data:image/'))
+                ? post.downloadURL
                 : (post.mediaUrl && !post.mediaUrl.includes('photo-1618005182384-a83a8bd57fbe'))
                 ? post.mediaUrl
                 : (post.thumbnailUrl && !post.thumbnailUrl.includes('photo-1618005182384-a83a8bd57fbe'))
                 ? post.thumbnailUrl
                 : (post.downloadURL && !post.downloadURL.includes('photo-1618005182384-a83a8bd57fbe'))
                 ? post.downloadURL
-                : post.mediaUrl;
+                : post.mediaUrl || createPhotoFallbackDataUrl(post.caption);
 
             const hasValidImageThumb =
               post.thumbnailUrl &&

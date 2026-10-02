@@ -44,6 +44,7 @@ import {
 import {
   safeSetItem,
 } from './utils/safeStorage';
+import { createPhotoFallbackDataUrl } from './utils/imageCompressor';
 import {
   subscribeToAuthState,
   subscribeToFirestorePosts,
@@ -205,14 +206,13 @@ export default function App() {
       }
     } else {
       // Photo / image post: ensure persistent data URL or image path so it never turns black
-      const cleanId = p.id.replace(/^reel-/, '').replace(/^post-/, '');
       if (mediaUrl.startsWith('blob:') || !mediaUrl) {
         if (downloadURL && !downloadURL.startsWith('blob:')) {
           mediaUrl = downloadURL;
         } else if (thumb && !thumb.startsWith('blob:')) {
           mediaUrl = thumb;
         } else {
-          mediaUrl = `/api/media/post-${cleanId}.jpg`;
+          mediaUrl = createPhotoFallbackDataUrl(p.caption || 'Photo Post 📸');
         }
       }
       if (!downloadURL || downloadURL.startsWith('blob:')) {
@@ -2047,6 +2047,17 @@ export default function App() {
   const handlePostCreated = (newPost: Post, newReel?: Reel) => {
     const now = Date.now();
     const inferredCat = newPost.category || inferCategory(newPost);
+
+    // Ensure mediaUrl is valid and persistent (never empty or black)
+    const validMediaUrl =
+      (newPost.mediaUrl && newPost.mediaUrl.trim().length > 0)
+        ? newPost.mediaUrl
+        : (newPost.downloadURL && newPost.downloadURL.trim().length > 0)
+        ? newPost.downloadURL
+        : (newPost.thumbnailUrl && newPost.thumbnailUrl.trim().length > 0)
+        ? newPost.thumbnailUrl
+        : createPhotoFallbackDataUrl(newPost.caption || 'Jhalak Post 📸');
+
     // 1. Tag post with currentUser's unique credentials
     const stampedPost: Post = {
       ...newPost,
@@ -2054,6 +2065,9 @@ export default function App() {
       username: currentUser.username,
       userAvatar: currentUser.avatar,
       isVerified: currentUser.isVerified,
+      mediaUrl: validMediaUrl,
+      downloadURL: newPost.downloadURL || validMediaUrl,
+      thumbnailUrl: newPost.thumbnailUrl || validMediaUrl,
       createdAt: newPost.createdAt || now,
       timestamp: 'Just now',
       isUserCreated: true,

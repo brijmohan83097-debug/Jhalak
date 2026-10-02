@@ -498,24 +498,27 @@ export async function compressVideoToBlob(
           return;
         }
 
-        const stream = canvas.captureStream ? canvas.captureStream(24) : null;
+        const stream = canvas.captureStream ? canvas.captureStream(30) : null;
         if (!stream) {
           safeResolve(source);
           return;
         }
 
-        let mimeType = 'video/webm;codecs=vp8';
+        let mimeType = 'video/webm;codecs=vp8,opus';
         if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = 'video/webm';
+          mimeType = 'video/mp4';
           if (!MediaRecorder.isTypeSupported(mimeType)) {
-            safeResolve(source);
-            return;
+            mimeType = 'video/webm';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+              safeResolve(source);
+              return;
+            }
           }
         }
 
         const recorder = new MediaRecorder(stream, {
           mimeType,
-          videoBitsPerSecond: 1_200_000,
+          videoBitsPerSecond: 2500000,
         });
 
         const chunks: Blob[] = [];

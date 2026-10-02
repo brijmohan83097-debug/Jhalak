@@ -880,11 +880,19 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                       </div>
                     ) : (
                       <img
-                        src={post.mediaUrl}
+                        src={post.mediaUrl || post.thumbnailUrl || post.downloadURL || createPhotoFallbackDataUrl(post.caption)}
                         alt={post.caption}
                         onError={(e) => {
                           const target = e.currentTarget;
-                          target.src = createPhotoFallbackDataUrl(post.caption);
+                          if (
+                            post.thumbnailUrl &&
+                            post.thumbnailUrl !== target.src &&
+                            !post.thumbnailUrl.includes('photo-1618005182384-a83a8bd57fbe')
+                          ) {
+                            target.src = post.thumbnailUrl;
+                          } else {
+                            target.src = createPhotoFallbackDataUrl(post.caption);
+                          }
                         }}
                         className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${
                           post.filter || ''

@@ -167,11 +167,11 @@ export function validateVideoDuration(
  */
 function getSupportedMimeType(): string {
   const candidates = [
+    'video/webm; codecs=vp8,opus',
     'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
     'video/mp4',
-    'video/webm; codecs=vp9,opus',
-    'video/webm; codecs=vp8,opus',
     'video/webm',
+    'video/webm; codecs=vp9,opus',
   ];
 
   if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
@@ -196,7 +196,7 @@ export async function compressVideo(
 ): Promise<VideoCompressionResult> {
   const maxSizeBytes = options?.maxSizeBytes || MAX_VIDEO_UPLOAD_SIZE_BYTES;
   const maxDim = options?.maxDimension || 720;
-  const targetBitrate = options?.targetBitrate || 2_000_000; // 2 Mbps
+  const targetBitrate = options?.targetBitrate || 2_500_000; // 2.5 Mbps stable bitrate
   const originalSize = source.size;
 
   // Verify MediaRecorder & Canvas stream capture support
@@ -415,12 +415,18 @@ export async function compressVideo(
       // Start recording
       recorder.start(250); // collect chunks every 250ms
 
-      const drawLoop = () => {
+      let lastTimestamp = 0;
+      const FRAME_INTERVAL = 1000 / 30; // 33.33ms = 30 FPS
+
+      const drawLoop = (timestamp: number) => {
         if (isCompleted) return;
 
-        try {
-          ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-        } catch {}
+        if (timestamp - lastTimestamp >= FRAME_INTERVAL - 2) {
+          try {
+            ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+          } catch {}
+          lastTimestamp = timestamp;
+        }
 
         const currentTime = video.currentTime;
         const dur = video.duration || 1;
@@ -458,7 +464,7 @@ export async function compressVideo(
       video
         .play()
         .then(() => {
-          drawLoop();
+          animId = requestAnimationFrame(drawLoop);
         })
         .catch((playErr) => {
           // If playback failed, reject

@@ -55,6 +55,7 @@ import {
 import { ReelsAudioSelector } from './ReelsAudioSelector';
 import { pauseAllMedia } from '../utils/mediaCoordinator';
 import { saveBlobToIndexedDB } from '../utils/persistentMediaStore';
+import { createPhotoFallbackDataUrl } from '../utils/imageCompressor';
 
 export type CameraMode = 'POST' | 'STORY' | 'REEL' | 'LIVE';
 
@@ -436,6 +437,10 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const modesScrollRef = useRef<HTMLDivElement | null>(null);
   const isRetryingCameraRef = useRef(false);
   const touchStartXRef = useRef<number | null>(null);
+  const canvasRecordingStreamRef = useRef<MediaStream | null>(null);
+  const canvasRecordingAnimIdRef = useRef<number | null>(null);
+  const canvasRecordingRvfcIdRef = useRef<number | null>(null);
+  const isCanvasRecordingRef = useRef<boolean>(false);
 
   // Set default max recording length by mode
   useEffect(() => {
@@ -446,6 +451,30 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
   // Clean hardware resources
   const cleanupHardwareResources = useCallback(() => {
+    isCanvasRecordingRef.current = false;
+    if (canvasRecordingAnimIdRef.current !== null) {
+      cancelAnimationFrame(canvasRecordingAnimIdRef.current);
+      canvasRecordingAnimIdRef.current = null;
+    }
+    if (
+      canvasRecordingRvfcIdRef.current !== null &&
+      videoLiveRef.current &&
+      typeof (videoLiveRef.current as any).cancelVideoFrameCallback === 'function'
+    ) {
+      try {
+        (videoLiveRef.current as any).cancelVideoFrameCallback(canvasRecordingRvfcIdRef.current);
+      } catch {}
+      canvasRecordingRvfcIdRef.current = null;
+    }
+    if (canvasRecordingStreamRef.current) {
+      canvasRecordingStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+      canvasRecordingStreamRef.current = null;
+    }
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         try {
@@ -498,7 +527,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       try {
         const videoConstraints: MediaTrackConstraints = {
           facingMode: isFrontCamera ? 'user' : 'environment',
-          frameRate: { ideal: 30, min: 24, max: 30 },
+          frameRate: { ideal: 30, max: 30 },
         };
 
         if (activeSize === 'free') {
@@ -532,10 +561,11 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       } catch (err1) {
         console.warn('Tier 1 constraint failed, trying flexible fallback...', err1);
         try {
-          // Tier 2: Flexible native camera with audio
+          // Tier 2: Flexible native camera with audio capped at 30 FPS
           newStream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: isFrontCamera ? 'user' : 'environment',
+              frameRate: { ideal: 30, max: 30 },
             },
             audio: isMicMuted ? false : true,
           });
@@ -545,12 +575,15 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             newStream = await navigator.mediaDevices.getUserMedia({
               video: {
                 facingMode: isFrontCamera ? 'user' : 'environment',
+                frameRate: { ideal: 30, max: 30 },
               },
               audio: false,
             });
           } catch (err3) {
             newStream = await navigator.mediaDevices.getUserMedia({
-              video: true,
+              video: {
+                frameRate: { ideal: 30, max: 30 },
+              },
               audio: false,
             });
           }
@@ -599,7 +632,9 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     if (stream) {
       const track = stream.getVideoTracks()[0];
       if (track && typeof (track as any).applyConstraints === 'function') {
-        const constraints: MediaTrackConstraints = {};
+        const constraints: MediaTrackConstraints = {
+          frameRate: { ideal: 30, max: 30 },
+        };
         if (newSize === 'free') {
           constraints.aspectRatio = undefined;
           constraints.width = { ideal: 1920 };
@@ -760,84 +795,96 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
   // Capture High-Res Photo using Offscreen Canvas with active filter baked in
   const captureHighResPhoto = () => {
-    const vid = videoLiveRef.current;
-    if (!vid) return;
-
     // Visual shutter flash burst
     setShowFlashBurst(true);
     setTimeout(() => setShowFlashBurst(false), 200);
 
     try {
-      const canvas = document.createElement('canvas');
-      const vWidth = vid.videoWidth || 1280;
-      const vHeight = vid.videoHeight || 720;
+      const vid = videoLiveRef.current;
+      const vWidth = (vid && vid.videoWidth > 0) ? vid.videoWidth : 1080;
+      const vHeight = (vid && vid.videoHeight > 0) ? vid.videoHeight : 1080;
 
       let targetWidth = vWidth;
       let targetHeight = vHeight;
 
       if (cameraSize === 'free') {
-        // Free size: 100% full sensor resolution with zero crop!
-        targetWidth = vWidth;
-        targetHeight = vHeight;
+        targetWidth = Math.min(vWidth, 1080);
+        targetHeight = Math.min(vHeight, 1080);
       } else if (cameraSize === '1:1' || (mode === 'POST' && cameraSize === '9:16')) {
-        const side = Math.min(vWidth, vHeight);
-        targetWidth = side;
-        targetHeight = side;
+        targetWidth = 800;
+        targetHeight = 800;
       } else if (cameraSize === '4:5') {
-        targetWidth = 1080;
-        targetHeight = 1350;
+        targetWidth = 720;
+        targetHeight = 900;
       } else if (cameraSize === '16:9') {
-        targetWidth = 1280;
-        targetHeight = 720;
+        targetWidth = 960;
+        targetHeight = 540;
       } else {
         // 9:16
-        targetWidth = 720;
-        targetHeight = 1280;
+        targetWidth = 648;
+        targetHeight = 1152;
       }
 
+      const canvas = document.createElement('canvas');
       canvas.width = targetWidth;
       canvas.height = targetHeight;
       const ctx = canvas.getContext('2d');
 
       if (ctx) {
-        if (cameraSize === 'free') {
-          // In Free Size, draw entire uncropped video
-          if (isFrontCamera) {
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-          }
-          ctx.filter = activeFilterPreset.canvasFilter;
-          ctx.drawImage(vid, 0, 0, targetWidth, targetHeight);
-        } else {
-          const targetRatio = targetWidth / targetHeight;
-          const currentRatio = vWidth / vHeight;
+        // Fill dark background first so photo is never transparent or black
+        ctx.fillStyle = '#171717';
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
 
-          let sWidth = vWidth;
-          let sHeight = vHeight;
-          let sx = 0;
-          let sy = 0;
-
-          if (currentRatio > targetRatio) {
-            sWidth = vHeight * targetRatio;
-            sx = (vWidth - sWidth) / 2;
+        if (vid && vid.videoWidth > 0 && vid.videoHeight > 0) {
+          if (cameraSize === 'free') {
+            if (isFrontCamera) {
+              ctx.translate(canvas.width, 0);
+              ctx.scale(-1, 1);
+            }
+            ctx.filter = activeFilterPreset.canvasFilter;
+            ctx.drawImage(vid, 0, 0, targetWidth, targetHeight);
           } else {
-            sHeight = vWidth / targetRatio;
-            sy = (vHeight - sHeight) / 2;
-          }
+            const targetRatio = targetWidth / targetHeight;
+            const currentRatio = vWidth / vHeight;
 
-          // Mirror front camera
-          if (isFrontCamera) {
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-          }
+            let sWidth = vWidth;
+            let sHeight = vHeight;
+            let sx = 0;
+            let sy = 0;
 
-          // Apply active Instagram filter
-          ctx.filter = activeFilterPreset.canvasFilter;
-          ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
+            if (currentRatio > targetRatio) {
+              sWidth = vHeight * targetRatio;
+              sx = (vWidth - sWidth) / 2;
+            } else {
+              sHeight = vWidth / targetRatio;
+              sy = (vHeight - sHeight) / 2;
+            }
+
+            if (isFrontCamera) {
+              ctx.translate(canvas.width, 0);
+              ctx.scale(-1, 1);
+            }
+
+            ctx.filter = activeFilterPreset.canvasFilter;
+            ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
+          }
+        } else {
+          // Dynamic camera backdrop fallback if camera hardware frame not yet available
+          const grad = ctx.createLinearGradient(0, 0, targetWidth, targetHeight);
+          grad.addColorStop(0, '#f43f5e');
+          grad.addColorStop(0.5, '#a855f7');
+          grad.addColorStop(1, '#06b6d4');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 32px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('📸 Jhalak Shot', targetWidth / 2, targetHeight / 2);
         }
 
         // Convert captured photo to a persistent Base64 Data URL so image previews stay visible permanently and never turn black on reload
-        const persistentDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        const persistentDataUrl = canvas.toDataURL('image/jpeg', 0.88);
         setCapturedPhotoUrl(persistentDataUrl);
 
         // Also generate blob for server upload
@@ -848,24 +895,28 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             }
           },
           'image/jpeg',
-          0.92
+          0.88
         );
 
         setEditorView('edit');
       }
     } catch (err) {
       console.error('Photo capture error:', err);
+      // Safe fallback data URL
+      const fallback = createPhotoFallbackDataUrl('Jhalak Photo 📸');
+      setCapturedPhotoUrl(fallback);
+      setEditorView('edit');
     }
   };
 
-  // Select Cross-Browser Best Video MimeType (prioritize webm for reliable decoding without black frame, then mp4)
+  // Select Cross-Browser Best Video MimeType (prioritize lightweight vp8,opus and mp4 over heavy vp9)
   const getSupportedMimeType = (): string => {
     const types = [
       'video/webm;codecs=vp8,opus',
-      'video/webm;codecs=vp9,opus',
-      'video/webm',
       'video/mp4;codecs=avc1,mp4a.40.2',
       'video/mp4',
+      'video/webm',
+      'video/webm;codecs=vp9,opus',
     ];
     for (const t of types) {
       if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) {
@@ -875,7 +926,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     return '';
   };
 
-  // Start Video Recording with MediaRecorder
+  // Start Video Recording with MediaRecorder & Optimized 30 FPS Stream
   const startRecording = () => {
     if (isRecording || !stream) return;
     pauseAllMedia(videoLiveRef.current);
@@ -883,13 +934,145 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     recordedChunksRef.current = [];
 
     const mimeType = getSupportedMimeType();
+    const vid = videoLiveRef.current;
+    const hasFilter = Boolean(activeFilterPreset && activeFilterPreset.id !== 'normal');
+    const isFramedOrMirrored = isFrontCamera || cameraSize !== 'free';
+
+    let recordingStream = stream;
+
+    // Optimize canvas stream capture during recording to eliminate choppy/jumping frames and stutter
+    if (
+      vid &&
+      (hasFilter || isFramedOrMirrored) &&
+      typeof HTMLCanvasElement !== 'undefined' &&
+      'captureStream' in HTMLCanvasElement.prototype
+    ) {
+      try {
+        const offCanvas = document.createElement('canvas');
+        const vWidth = vid.videoWidth || 720;
+        const vHeight = vid.videoHeight || 1280;
+
+        let targetWidth = 720;
+        let targetHeight = 1280;
+
+        if (cameraSize === '1:1') {
+          targetWidth = 720;
+          targetHeight = 720;
+        } else if (cameraSize === '4:5') {
+          targetWidth = 720;
+          targetHeight = 900;
+        } else if (cameraSize === '16:9') {
+          targetWidth = 1280;
+          targetHeight = 720;
+        } else if (cameraSize === 'free' && vWidth && vHeight) {
+          targetWidth = Math.min(vWidth, 1280);
+          targetHeight = Math.min(vHeight, 1280);
+        }
+
+        offCanvas.width = targetWidth;
+        offCanvas.height = targetHeight;
+
+        // Context with alpha: false and desynchronized: true for GPU hardware acceleration without stutter
+        const ctx = offCanvas.getContext('2d', { alpha: false, desynchronized: true });
+        if (ctx) {
+          // Explicitly cap stream capture to stable 30 FPS
+          const canvasStream = (offCanvas as any).captureStream(30);
+          if (canvasStream && canvasStream.getVideoTracks().length > 0) {
+            const combinedTracks: MediaStreamTrack[] = [canvasStream.getVideoTracks()[0]];
+            // Forward live microphone audio tracks
+            if (stream.getAudioTracks().length > 0) {
+              stream.getAudioTracks().forEach((at) => combinedTracks.push(at));
+            }
+            canvasRecordingStreamRef.current = canvasStream;
+            recordingStream = new MediaStream(combinedTracks);
+
+            isCanvasRecordingRef.current = true;
+            let lastDrawTime = 0;
+            const FRAME_INTERVAL = 1000 / 30; // 33.33ms = stable 30 FPS
+
+            const drawCanvasFrame = () => {
+              if (!isCanvasRecordingRef.current || !vid) return;
+
+              try {
+                const curW = vid.videoWidth || targetWidth;
+                const curH = vid.videoHeight || targetHeight;
+
+                // Reset transform
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+                // Background
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+                // Mirror front camera
+                if (isFrontCamera) {
+                  ctx.translate(targetWidth, 0);
+                  ctx.scale(-1, 1);
+                }
+
+                // Filter
+                if (activeFilterPreset && activeFilterPreset.canvasFilter) {
+                  ctx.filter = activeFilterPreset.canvasFilter;
+                } else {
+                  ctx.filter = 'none';
+                }
+
+                // Aspect crop
+                const targetRatio = targetWidth / targetHeight;
+                const videoRatio = curW / curH;
+
+                let sWidth = curW;
+                let sHeight = curH;
+                let sx = 0;
+                let sy = 0;
+
+                if (videoRatio > targetRatio) {
+                  sWidth = curH * targetRatio;
+                  sx = (curW - sWidth) / 2;
+                } else {
+                  sHeight = curW / targetRatio;
+                  sy = (curH - sHeight) / 2;
+                }
+
+                ctx.drawImage(vid, sx, sy, sWidth, sHeight, 0, 0, targetWidth, targetHeight);
+              } catch {}
+            };
+
+            // Use requestVideoFrameCallback when available to synchronize exactly with hardware camera frames at 30 FPS
+            if (typeof (vid as any).requestVideoFrameCallback === 'function') {
+              const onVideoFrame = () => {
+                if (!isCanvasRecordingRef.current) return;
+                drawCanvasFrame();
+                canvasRecordingRvfcIdRef.current = (vid as any).requestVideoFrameCallback(onVideoFrame);
+              };
+              canvasRecordingRvfcIdRef.current = (vid as any).requestVideoFrameCallback(onVideoFrame);
+            } else {
+              // High performance throttled RAF loop locked at 30 FPS
+              const onRaf = (nowTime: number) => {
+                if (!isCanvasRecordingRef.current) return;
+                if (nowTime - lastDrawTime >= FRAME_INTERVAL - 2) {
+                  drawCanvasFrame();
+                  lastDrawTime = nowTime;
+                }
+                canvasRecordingAnimIdRef.current = requestAnimationFrame(onRaf);
+              };
+              canvasRecordingAnimIdRef.current = requestAnimationFrame(onRaf);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Canvas stream setup fallback to direct camera stream:', err);
+        recordingStream = stream;
+      }
+    }
 
     try {
       const options: MediaRecorderOptions = {
         ...(mimeType ? { mimeType } : {}),
         videoBitsPerSecond: 2500000,
+        audioBitsPerSecond: 128000,
       };
-      const recorder = new MediaRecorder(stream, options);
+      const recorder = new MediaRecorder(recordingStream, options);
 
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
@@ -898,6 +1081,16 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       };
 
       recorder.onstop = () => {
+        // Stop canvas recording tracks if any
+        if (canvasRecordingStreamRef.current) {
+          canvasRecordingStreamRef.current.getTracks().forEach((t) => {
+            try {
+              t.stop();
+            } catch {}
+          });
+          canvasRecordingStreamRef.current = null;
+        }
+
         const finalType = mimeType || recorder.mimeType || 'video/webm';
         const blob = new Blob(recordedChunksRef.current, { type: finalType });
         const videoUrl = URL.createObjectURL(blob);
@@ -930,6 +1123,23 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
   // Stop Video Recording
   const stopRecording = () => {
+    // Stop canvas recording loop and clean up stream
+    isCanvasRecordingRef.current = false;
+    if (canvasRecordingAnimIdRef.current !== null) {
+      cancelAnimationFrame(canvasRecordingAnimIdRef.current);
+      canvasRecordingAnimIdRef.current = null;
+    }
+    if (
+      canvasRecordingRvfcIdRef.current !== null &&
+      videoLiveRef.current &&
+      typeof (videoLiveRef.current as any).cancelVideoFrameCallback === 'function'
+    ) {
+      try {
+        (videoLiveRef.current as any).cancelVideoFrameCallback(canvasRecordingRvfcIdRef.current);
+      } catch {}
+      canvasRecordingRvfcIdRef.current = null;
+    }
+
     // Capture crisp thumbnail from live video feed before stopping stream
     captureThumbnail();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -1205,7 +1415,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       serverStreamUrl || recordedVideoUrl || STANDARD_REEL_VIDEO_URL;
 
     // Use persistent Base64 Data URL for captured photos so previews stay visible permanently on reload
-    const mediaUrl = isVideo ? permanentVideoUrl : (capturedPhotoUrl || '');
+    const fallbackPhotoUrl = createPhotoFallbackDataUrl(postCaption || 'Jhalak Photo 📸');
+    const mediaUrl = isVideo ? permanentVideoUrl : (capturedPhotoUrl || fallbackPhotoUrl);
     const author = currentUser || {
       id: 'current_user',
       username: 'bhojpuri_creator',
