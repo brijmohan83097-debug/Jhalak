@@ -35,5 +35,44 @@
       "type": "image/svg+xml",
       "purpose": "any"
     }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/screenshot-mobile-1.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Jhalak Reels Home Feed & Stories"
+    },
+    {
+      "src": "/screenshots/screenshot-mobile-2.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Fullscreen Trending Bhojpuri Reels Player"
+    },
+    {
+      "src": "/screenshots/screenshot-desktop-1.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Jhalak Reels Desktop Web Experience"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Watch Reels",
+      "short_name": "Reels",
+      "description": "Watch trending Bhojpuri video reels",
+      "url": "/?tab=reels",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Create Reel",
+      "short_name": "Create",
+      "description": "Record or upload new Bhojpuri reel",
+      "url": "/?action=create",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    }
   ]
 }

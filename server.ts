@@ -186,6 +186,32 @@ app.get('/api/media/:filename', (req, res) => {
   }
 });
 
+// Service Worker Route with Service-Worker-Allowed and no-cache headers
+app.get('/sw.js', (_req, res) => {
+  const swPath = path.resolve(__dirname, 'public', 'sw.js');
+  if (fs.existsSync(swPath)) {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Service-Worker-Allowed', '/');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(swPath);
+  } else {
+    res.status(404).send('Service worker not found');
+  }
+});
+
+// Web Manifest Route with proper MIME type
+app.get(['/manifest.json', '/manifest.webmanifest'], (req, res) => {
+  const filename = req.path.includes('webmanifest') ? 'manifest.webmanifest' : 'manifest.json';
+  const manifestPath = path.resolve(__dirname, 'public', filename);
+  if (fs.existsSync(manifestPath)) {
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.sendFile(manifestPath);
+  } else {
+    res.status(404).send('Manifest not found');
+  }
+});
+
 // Mount Vite or serve static dist in production
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
