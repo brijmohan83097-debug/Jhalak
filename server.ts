@@ -188,8 +188,11 @@ app.get('/api/media/:filename', (req, res) => {
 
 // Service Worker Route with Service-Worker-Allowed and no-cache headers
 app.get('/sw.js', (_req, res) => {
-  const swPath = path.resolve(__dirname, 'public', 'sw.js');
-  if (fs.existsSync(swPath)) {
+  const publicSw = path.resolve(__dirname, 'public', 'sw.js');
+  const distSw = path.resolve(__dirname, 'dist', 'sw.js');
+  const swPath = fs.existsSync(publicSw) ? publicSw : (fs.existsSync(distSw) ? distSw : '');
+
+  if (swPath) {
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     res.setHeader('Service-Worker-Allowed', '/');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -202,8 +205,11 @@ app.get('/sw.js', (_req, res) => {
 // Web Manifest Route with proper MIME type
 app.get(['/manifest.json', '/manifest.webmanifest'], (req, res) => {
   const filename = req.path.includes('webmanifest') ? 'manifest.webmanifest' : 'manifest.json';
-  const manifestPath = path.resolve(__dirname, 'public', filename);
-  if (fs.existsSync(manifestPath)) {
+  const publicManifest = path.resolve(__dirname, 'public', filename);
+  const distManifest = path.resolve(__dirname, 'dist', filename);
+  const manifestPath = fs.existsSync(publicManifest) ? publicManifest : (fs.existsSync(distManifest) ? distManifest : '');
+
+  if (manifestPath) {
     res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.sendFile(manifestPath);

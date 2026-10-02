@@ -913,6 +913,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const getSupportedMimeType = (): string => {
     const types = [
       'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp8',
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
       'video/mp4;codecs=avc1,mp4a.40.2',
       'video/mp4',
       'video/webm',
@@ -975,10 +977,18 @@ export const CameraModal: React.FC<CameraModalProps> = ({
         // Context with alpha: false and desynchronized: true for GPU hardware acceleration without stutter
         const ctx = offCanvas.getContext('2d', { alpha: false, desynchronized: true });
         if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'medium';
+
           // Explicitly cap stream capture to stable 30 FPS
           const canvasStream = (offCanvas as any).captureStream(30);
           if (canvasStream && canvasStream.getVideoTracks().length > 0) {
-            const combinedTracks: MediaStreamTrack[] = [canvasStream.getVideoTracks()[0]];
+            const vTrack = canvasStream.getVideoTracks()[0];
+            if (vTrack && vTrack.applyConstraints) {
+              vTrack.applyConstraints({ frameRate: { ideal: 30, max: 30 } }).catch(() => {});
+            }
+
+            const combinedTracks: MediaStreamTrack[] = [vTrack];
             // Forward live microphone audio tracks
             if (stream.getAudioTracks().length > 0) {
               stream.getAudioTracks().forEach((at) => combinedTracks.push(at));
@@ -1038,19 +1048,23 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               } catch {}
             };
 
-            // Use requestVideoFrameCallback when available to synchronize exactly with hardware camera frames at 30 FPS
+            // Use requestVideoFrameCallback throttled at 30 FPS to eliminate stutter, lag, and frame jumping
             if (typeof (vid as any).requestVideoFrameCallback === 'function') {
-              const onVideoFrame = () => {
+              const onVideoFrame = (nowTime: DOMHighResTimeStamp) => {
                 if (!isCanvasRecordingRef.current) return;
-                drawCanvasFrame();
+                // Throttled strictly to 30 FPS so 60 FPS hardware sensors don't cause frame tearing or dropped frames
+                if (nowTime - lastDrawTime >= FRAME_INTERVAL - 4) {
+                  drawCanvasFrame();
+                  lastDrawTime = nowTime;
+                }
                 canvasRecordingRvfcIdRef.current = (vid as any).requestVideoFrameCallback(onVideoFrame);
               };
               canvasRecordingRvfcIdRef.current = (vid as any).requestVideoFrameCallback(onVideoFrame);
             } else {
-              // High performance throttled RAF loop locked at 30 FPS
+              // High performance throttled RAF loop locked at steady 30 FPS
               const onRaf = (nowTime: number) => {
                 if (!isCanvasRecordingRef.current) return;
-                if (nowTime - lastDrawTime >= FRAME_INTERVAL - 2) {
+                if (nowTime - lastDrawTime >= FRAME_INTERVAL - 4) {
                   drawCanvasFrame();
                   lastDrawTime = nowTime;
                 }
@@ -1067,12 +1081,25 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     }
 
     try {
+      // Ensure video track is capped to 30 FPS
+      const vTrack = recordingStream.getVideoTracks()[0];
+      if (vTrack && vTrack.applyConstraints) {
+        vTrack.applyConstraints({ frameRate: { ideal: 30, max: 30 } }).catch(() => {});
+      }
+
       const options: MediaRecorderOptions = {
         ...(mimeType ? { mimeType } : {}),
         videoBitsPerSecond: 2500000,
         audioBitsPerSecond: 128000,
       };
-      const recorder = new MediaRecorder(recordingStream, options);
+
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(recordingStream, options);
+      } catch (errOptions) {
+        console.warn('MediaRecorder with bitRate failed, fallback to default options:', errOptions);
+        recorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
+      }
 
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
