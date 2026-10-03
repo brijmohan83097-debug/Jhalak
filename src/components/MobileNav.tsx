@@ -57,12 +57,42 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Filter friends & creators by name or username; if search is empty, display all signed-up friends as recommendations
+  // Helper to detect dummy, mock, or guest users
+  const isDummyOrGuest = (u: { id?: string; username?: string }) => {
+    const id = String(u?.id || '').toLowerCase().trim();
+    const uname = String(u?.username || '').toLowerCase().replace(/^@/, '').trim();
+    return (
+      !id ||
+      !uname ||
+      id === 'guest' ||
+      id === 'guest_user' ||
+      id === 'guest-user' ||
+      id.startsWith('guest_') ||
+      id.startsWith('guest-') ||
+      uname === 'guest' ||
+      uname === 'guest_user' ||
+      uname === 'guest-user' ||
+      uname.startsWith('guest_') ||
+      uname.startsWith('guest-') ||
+      uname === 'demo' ||
+      uname === 'demo_user' ||
+      uname.startsWith('mock') ||
+      uname.startsWith('dummy') ||
+      id.startsWith('mock') ||
+      id.startsWith('dummy') ||
+      id === 'user-me' ||
+      uname === 'you'
+    );
+  };
+
+  // Filter friends & creators by name or username; strictly exclude mock/demo accounts like guest_user
   const matchingUsers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase().replace(/^@/, '');
-    const pool = Array.isArray(searchableUsers) ? searchableUsers : [];
+    const pool = (Array.isArray(searchableUsers) ? searchableUsers : []).filter(
+      (u) => u && !isDummyOrGuest(u)
+    );
     const filtered = !q
-      ? pool.slice(0, 15)
+      ? pool.slice(0, 10)
       : pool.filter((u) => {
           const nameMatch = (u.name || '').toLowerCase().includes(q);
           const usernameMatch = (u.username || '').toLowerCase().includes(q);
@@ -180,7 +210,7 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
         </div>
 
         {/* Live Search Friends Dropdown */}
-        {isDropdownOpen && matchingUsers.length > 0 && (
+        {isDropdownOpen && (
           <div
             id="top-search-friends-dropdown"
             className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200/90 dark:border-neutral-800 overflow-hidden z-50 animate-fade-in"
@@ -188,7 +218,11 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
             <div className="px-3 py-2 bg-neutral-50 dark:bg-neutral-800/60 border-b border-neutral-200/60 dark:border-neutral-800 flex items-center justify-between text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">
               <span className="flex items-center gap-1.5">
                 <UserIcon className="w-3.5 h-3.5 text-rose-500" />
-                {searchQuery.trim() ? `Search Results (${matchingUsers.length})` : `Friend Recommendations (${matchingUsers.length})`}
+                {searchQuery.trim()
+                  ? `Search Results (${matchingUsers.length})`
+                  : matchingUsers.length > 0
+                  ? `Registered Creators (${matchingUsers.length})`
+                  : 'Search Creators'}
               </span>
               <button
                 onClick={() => setIsDropdownOpen(false)}
@@ -237,15 +271,22 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
                       className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500 hover:text-white text-[10px] font-semibold transition"
                     >
                       <Film className="w-3 h-3" />
-                      <span>Videos</span>
+                      <span>Profile</span>
                     </button>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-4 text-center text-neutral-500 dark:text-neutral-400 text-xs">
-                <p>No user found named "{searchQuery}".</p>
-                {onOpenSearch && (
+              <div className="p-5 text-center text-neutral-500 dark:text-neutral-400 text-xs space-y-1.5">
+                <p className="font-semibold text-neutral-800 dark:text-neutral-200">
+                  {searchQuery.trim() ? `No users found matching "${searchQuery}"` : 'No registered creators yet'}
+                </p>
+                <p className="text-[11px] text-neutral-400">
+                  {searchQuery.trim()
+                    ? 'Check spelling or search for video reels and topics instead.'
+                    : 'As new creators register on Jhalak, they will appear here.'}
+                </p>
+                {onOpenSearch && searchQuery.trim() && (
                   <button
                     onClick={() => {
                       setIsDropdownOpen(false);
@@ -254,7 +295,7 @@ export const MobileHeader: React.FC<MobileNavProps> = ({
                     className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-500 hover:underline cursor-pointer"
                   >
                     <Search className="w-3 h-3" />
-                    Search all Bhojpuri reels for "{searchQuery}" →
+                    Search reels & audio for "{searchQuery}" →
                   </button>
                 )}
               </div>

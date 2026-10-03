@@ -179,10 +179,40 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     const map = new Map<string, CreatorResult>();
     const seenIds = new Set<string>();
 
+    const isDummyOrGuest = (id: string, uname: string) => {
+      const cleanId = (id || '').toLowerCase().trim();
+      const cleanUname = (uname || '').toLowerCase().replace(/^@/, '').trim();
+      return (
+        !cleanId ||
+        !cleanUname ||
+        cleanId === 'guest' ||
+        cleanId === 'guest_user' ||
+        cleanId === 'guest-user' ||
+        cleanId.startsWith('guest_') ||
+        cleanId.startsWith('guest-') ||
+        cleanUname === 'guest' ||
+        cleanUname === 'guest_user' ||
+        cleanUname === 'guest-user' ||
+        cleanUname.startsWith('guest_') ||
+        cleanUname.startsWith('guest-') ||
+        cleanUname === 'demo' ||
+        cleanUname === 'demo_user' ||
+        cleanUname.startsWith('mock') ||
+        cleanUname.startsWith('dummy') ||
+        cleanUname.includes('fanclub') ||
+        cleanUname.includes('fake') ||
+        cleanId.startsWith('mock') ||
+        cleanId.startsWith('dummy') ||
+        cleanId === 'user-me' ||
+        cleanUname === 'you'
+      );
+    };
+
     const addCreator = (c: CreatorResult) => {
       const uname = (c.username || '').toLowerCase().trim();
       const uid = String(c.id || '').trim();
       if (!uname && !uid) return;
+      if (isDummyOrGuest(uid, uname)) return;
       if (uid && seenIds.has(uid)) return;
       if (uname && map.has(uname)) return;
 
@@ -197,8 +227,12 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     // 1. Add registered users & friends first
     if (Array.isArray(searchableUsers)) {
       searchableUsers.forEach((u) => {
+        if (!u) return;
+        const uid = String(u.id || '').trim();
+        const uname = String(u.username || '').trim();
+        if (isDummyOrGuest(uid, uname)) return;
         addCreator({
-          id: u.id || u.username,
+          id: uid || uname,
           username: u.username,
           name: u.name || u.username,
           avatar: u.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
@@ -212,7 +246,8 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     // 2. Add creators from posts
     posts.forEach((p) => {
       const uname = (p.username || '').toLowerCase().trim();
-      if (uname.includes('fanclub') || uname.includes('dummy') || uname.includes('mock') || uname.includes('fake')) return;
+      const pUserId = String(p.userId || '').trim();
+      if (isDummyOrGuest(pUserId, uname)) return;
 
       addCreator({
         id: p.userId || uname,
@@ -544,8 +579,18 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             Matching Creators ({filteredCreators.length})
           </h3>
           {filteredCreators.length === 0 ? (
-            <div className="py-12 text-center text-neutral-400 text-sm">
-              No creators found for "{searchQuery}".
+            <div className="py-12 flex flex-col items-center justify-center text-center px-4">
+              <div className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center mb-3 text-neutral-400">
+                <UserIcon className="w-6 h-6 text-neutral-400" />
+              </div>
+              <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                {searchQuery ? `No creators found for "${searchQuery}"` : 'No registered creators yet'}
+              </h4>
+              <p className="text-xs text-neutral-500 mt-1 max-w-xs">
+                {searchQuery
+                  ? 'Try searching by a different name, handle, or browse trending reels.'
+                  : 'As creators join Jhalak and share reels, they will appear here.'}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

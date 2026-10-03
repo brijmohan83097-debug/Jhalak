@@ -777,6 +777,30 @@ export async function loadUsersFromFirestore(): Promise<User[]> {
         const cleanUname = username.toLowerCase().replace(/^@/, '');
 
         if (!id && !cleanUname) return;
+
+        // Strictly exclude mock, demo, and guest accounts
+        const isMockOrGuest =
+          id.toLowerCase() === 'guest' ||
+          id.toLowerCase() === 'guest_user' ||
+          id.toLowerCase() === 'guest-user' ||
+          id.toLowerCase().startsWith('guest_') ||
+          id.toLowerCase().startsWith('guest-') ||
+          cleanUname === 'guest' ||
+          cleanUname === 'guest_user' ||
+          cleanUname === 'guest-user' ||
+          cleanUname.startsWith('guest_') ||
+          cleanUname.startsWith('guest-') ||
+          cleanUname.startsWith('mock') ||
+          cleanUname.startsWith('dummy') ||
+          cleanUname.startsWith('demo') ||
+          cleanUname.includes('fake') ||
+          id.toLowerCase().startsWith('mock') ||
+          id.toLowerCase().startsWith('dummy') ||
+          id.toLowerCase().startsWith('demo') ||
+          id.toLowerCase() === 'user-me' ||
+          cleanUname === 'you';
+
+        if (isMockOrGuest) return;
         if (id && seenIds.has(id)) return;
         if (cleanUname && seenUsernames.has(cleanUname)) return;
 
@@ -827,6 +851,30 @@ export function subscribeToFirestoreUsers(callback: (users: User[]) => void): ()
             const cleanUname = username.toLowerCase().replace(/^@/, '');
 
             if (!id && !cleanUname) return;
+
+            // Strictly exclude mock, demo, and guest accounts
+            const isMockOrGuest =
+              id.toLowerCase() === 'guest' ||
+              id.toLowerCase() === 'guest_user' ||
+              id.toLowerCase() === 'guest-user' ||
+              id.toLowerCase().startsWith('guest_') ||
+              id.toLowerCase().startsWith('guest-') ||
+              cleanUname === 'guest' ||
+              cleanUname === 'guest_user' ||
+              cleanUname === 'guest-user' ||
+              cleanUname.startsWith('guest_') ||
+              cleanUname.startsWith('guest-') ||
+              cleanUname.startsWith('mock') ||
+              cleanUname.startsWith('dummy') ||
+              cleanUname.startsWith('demo') ||
+              cleanUname.includes('fake') ||
+              id.toLowerCase().startsWith('mock') ||
+              id.toLowerCase().startsWith('dummy') ||
+              id.toLowerCase().startsWith('demo') ||
+              id.toLowerCase() === 'user-me' ||
+              cleanUname === 'you';
+
+            if (isMockOrGuest) return;
             if (id && seenIds.has(id)) return;
             if (cleanUname && seenUsernames.has(cleanUname)) return;
 
@@ -1563,13 +1611,16 @@ export async function loadFollowersListFromFirestore(userId: string, username?: 
         const data = snap.data();
         if (Array.isArray(data.followers)) {
           for (const u of data.followers) {
-            if (u && !seenIds.has(u)) {
-              seenIds.add(u);
+            const uStr = String(u || '').trim();
+            const uLower = uStr.toLowerCase();
+            const isMock = uLower === 'guest' || uLower.startsWith('guest') || uLower.startsWith('mock') || uLower.startsWith('dummy');
+            if (uStr && !isMock && !seenIds.has(uStr)) {
+              seenIds.add(uStr);
               result.push({
-                id: u,
-                username: u,
-                name: u.replace(/^user-/, ''),
-                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${u}`,
+                id: uStr,
+                username: uStr,
+                name: uStr.replace(/^user-/, ''),
+                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${uStr}`,
                 bio: 'Creator on Jhalak Reels 🇮🇳',
                 postsCount: 0,
                 followersCount: 0,
@@ -1579,20 +1630,6 @@ export async function loadFollowersListFromFirestore(userId: string, username?: 
           }
         }
       }
-    } catch {}
-  }
-
-  // 3. Fallback: if list is still empty, populate with other registered community users
-  if (result.length === 0) {
-    try {
-      const allUsers = await loadUsersFromFirestore();
-      const filtered = allUsers.filter((u) => u.id !== userId && u.username !== username).slice(0, 8);
-      filtered.forEach((u) => {
-        if (!seenIds.has(u.id)) {
-          seenIds.add(u.id);
-          result.push(u);
-        }
-      });
     } catch {}
   }
 
@@ -1614,13 +1651,17 @@ export async function loadFollowingListFromFirestore(userId: string, username?: 
       snap.forEach((d) => {
         const data = d.data();
         const id = data.id || d.id;
-        if (!seenIds.has(id)) {
+        const uname = data.username || id;
+        const idLower = String(id || '').toLowerCase();
+        const unameLower = String(uname || '').toLowerCase();
+        const isMock = idLower === 'guest' || idLower.startsWith('guest') || idLower.startsWith('mock') || unameLower.startsWith('guest') || unameLower.startsWith('mock');
+        if (!isMock && !seenIds.has(id)) {
           seenIds.add(id);
           result.push({
             id,
-            username: data.username || id,
-            name: data.name || data.username || 'Creator',
-            avatar: data.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.username || id}`,
+            username: uname,
+            name: data.name || uname || 'Creator',
+            avatar: data.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${uname}`,
             bio: data.bio || '',
             isVerified: Boolean(data.isVerified),
             postsCount: Number(data.postsCount) || 0,
@@ -1641,13 +1682,16 @@ export async function loadFollowingListFromFirestore(userId: string, username?: 
         const data = snap.data();
         if (Array.isArray(data.following)) {
           for (const u of data.following) {
-            if (u && !seenIds.has(u)) {
-              seenIds.add(u);
+            const uStr = String(u || '').trim();
+            const uLower = uStr.toLowerCase();
+            const isMock = uLower === 'guest' || uLower.startsWith('guest') || uLower.startsWith('mock') || uLower.startsWith('dummy');
+            if (uStr && !isMock && !seenIds.has(uStr)) {
+              seenIds.add(uStr);
               result.push({
-                id: u,
-                username: u,
-                name: u.replace(/^user-/, ''),
-                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${u}`,
+                id: uStr,
+                username: uStr,
+                name: uStr.replace(/^user-/, ''),
+                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${uStr}`,
                 bio: 'Creator on Jhalak Reels 🇮🇳',
                 postsCount: 0,
                 followersCount: 0,
@@ -1657,20 +1701,6 @@ export async function loadFollowingListFromFirestore(userId: string, username?: 
           }
         }
       }
-    } catch {}
-  }
-
-  // 3. Fallback: if list is still empty, populate with registered community users
-  if (result.length === 0) {
-    try {
-      const allUsers = await loadUsersFromFirestore();
-      const filtered = allUsers.filter((u) => u.id !== userId && u.username !== username).slice(0, 6);
-      filtered.forEach((u) => {
-        if (!seenIds.has(u.id)) {
-          seenIds.add(u.id);
-          result.push(u);
-        }
-      });
     } catch {}
   }
 

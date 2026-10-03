@@ -25,14 +25,25 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
       if (raw) {
         const list = JSON.parse(raw);
         if (Array.isArray(list) && list.length > 0) {
-          const filtered = list.filter(
-            (a: any) =>
-              a &&
-              a.email &&
-              a.email.includes('@') &&
-              !a.firebaseUid?.startsWith('user_creator_') &&
-              !a.username?.startsWith('creator_')
-          );
+          const filtered = list.filter((a: any) => {
+            if (!a || !a.email || !a.email.includes('@')) return false;
+            const emailLower = String(a.email).toLowerCase();
+            const unameLower = String(a.username || '').toLowerCase();
+            const uidLower = String(a.firebaseUid || a.id || '').toLowerCase();
+            return !(
+              emailLower.includes('guest') ||
+              emailLower.includes('dummy') ||
+              emailLower.includes('mock') ||
+              emailLower.includes('example.com') ||
+              unameLower.startsWith('guest') ||
+              unameLower.startsWith('dummy') ||
+              unameLower.startsWith('mock') ||
+              unameLower.startsWith('demo') ||
+              unameLower.startsWith('creator_') ||
+              uidLower.startsWith('guest') ||
+              uidLower.startsWith('user_creator_')
+            );
+          });
           if (filtered.length > 0) return filtered;
         }
       }

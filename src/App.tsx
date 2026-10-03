@@ -670,11 +670,34 @@ export default function App() {
       }
     });
 
-    // Clean out old legacy mock caches
+    // Clean out old legacy mock caches & dummy/guest accounts
     try {
       localStorage.removeItem('ig_feed_posts');
       localStorage.removeItem('ig_reels');
       localStorage.removeItem('ig_explore_posts');
+      const savedAccountsRaw = localStorage.getItem('ig_saved_accounts');
+      if (savedAccountsRaw) {
+        const parsed = JSON.parse(savedAccountsRaw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((a: any) => {
+            if (!a || !a.email || !a.email.includes('@')) return false;
+            const emailLower = String(a.email).toLowerCase();
+            const unameLower = String(a.username || '').toLowerCase();
+            const uidLower = String(a.firebaseUid || a.id || '').toLowerCase();
+            return !(
+              emailLower.includes('guest') ||
+              emailLower.includes('dummy') ||
+              emailLower.includes('mock') ||
+              unameLower.startsWith('guest') ||
+              unameLower.startsWith('dummy') ||
+              unameLower.startsWith('mock') ||
+              uidLower.startsWith('guest') ||
+              uidLower.startsWith('user_creator_')
+            );
+          });
+          localStorage.setItem('ig_saved_accounts', JSON.stringify(cleaned));
+        }
+      }
     } catch {
       // safe
     }
@@ -1477,13 +1500,40 @@ export default function App() {
     return adMobService.insertNativeAds(sortedFeedPosts, nativeAds, ADMOB_CONFIG.FEED_AD_INTERVAL);
   }, [sortedFeedPosts, blockedVersion]);
 
-  // Comprehensive searchable users list (friends from Firestore + creators from posts & reels)
+  // Comprehensive searchable users list (strictly genuinely registered users from Firestore & content creators)
   const allSearchableUsers = useMemo<User[]>(() => {
     const userMap = new Map<string, User>();
     const seenIds = new Set<string>();
 
+    const isDummyOrGuest = (u: { id?: string; username?: string }) => {
+      const id = String(u?.id || '').toLowerCase().trim();
+      const uname = String(u?.username || '').toLowerCase().replace(/^@/, '').trim();
+      return (
+        !id ||
+        !uname ||
+        id === 'guest' ||
+        id === 'guest_user' ||
+        id === 'guest-user' ||
+        id.startsWith('guest_') ||
+        id.startsWith('guest-') ||
+        uname === 'guest' ||
+        uname === 'guest_user' ||
+        uname === 'guest-user' ||
+        uname.startsWith('guest_') ||
+        uname.startsWith('guest-') ||
+        uname === 'demo' ||
+        uname === 'demo_user' ||
+        uname.startsWith('mock') ||
+        uname.startsWith('dummy') ||
+        id.startsWith('mock') ||
+        id.startsWith('dummy') ||
+        id === 'user-me' ||
+        uname === 'you'
+      );
+    };
+
     const addUser = (u: User) => {
-      if (!u) return;
+      if (!u || isDummyOrGuest(u)) return;
       const cleanUname = (u.username || '').toLowerCase().replace(/^@/, '').trim();
       const id = String(u.id || '').trim();
       if (!cleanUname && !id) return;
@@ -1498,18 +1548,21 @@ export default function App() {
       }
     };
 
-    // 1. Current user
+    // 1. Current user (ONLY if not a guest or dummy account)
     if (currentUser?.username || currentUser?.id) {
-      addUser(currentUser);
+      if (!isDummyOrGuest(currentUser)) {
+        addUser(currentUser);
+      }
     }
 
-    // 2. Firestore registered users & friends
+    // 2. Firestore genuinely registered users & friends
     (searchableUsers || []).forEach(addUser);
 
-    // 3. Creators from posts & reels
+    // 3. Genuine Creators from posts & reels
     posts.forEach((p) => {
       const uname = (p.username || '').toLowerCase().replace(/^@/, '').trim();
       const pUserId = String(p.userId || '').trim();
+      if (isDummyOrGuest({ id: pUserId, username: uname })) return;
       if ((uname && userMap.has(uname)) || (pUserId && seenIds.has(pUserId))) return;
       addUser({
         id: p.userId || `user-${uname}`,
@@ -1527,6 +1580,7 @@ export default function App() {
     reels.forEach((r) => {
       const uname = (r.username || '').toLowerCase().replace(/^@/, '').trim();
       const rUserId = String(r.userId || '').trim();
+      if (isDummyOrGuest({ id: rUserId, username: uname })) return;
       if ((uname && userMap.has(uname)) || (rUserId && seenIds.has(rUserId))) return;
       addUser({
         id: r.userId || `user-${uname}`,
@@ -1544,7 +1598,7 @@ export default function App() {
     return Array.from(userMap.values());
   }, [currentUser, searchableUsers, posts, reels]);
 
-  // Derive real suggested creators & friends from registered users & posts (no mock users)
+  // Derive real suggested creators & friends from registered users & posts (strictly no mock or guest accounts)
   const suggestedCreators = useMemo(() => {
     const creatorMap = new Map<
       string,
@@ -1552,11 +1606,39 @@ export default function App() {
     >();
     const seenIds = new Set<string>();
 
+    const isDummyOrGuest = (u: { id?: string; username?: string }) => {
+      const id = String(u?.id || '').toLowerCase().trim();
+      const uname = String(u?.username || '').toLowerCase().replace(/^@/, '').trim();
+      return (
+        !id ||
+        !uname ||
+        id === 'guest' ||
+        id === 'guest_user' ||
+        id === 'guest-user' ||
+        id.startsWith('guest_') ||
+        id.startsWith('guest-') ||
+        uname === 'guest' ||
+        uname === 'guest_user' ||
+        uname === 'guest-user' ||
+        uname.startsWith('guest_') ||
+        uname.startsWith('guest-') ||
+        uname === 'demo' ||
+        uname === 'demo_user' ||
+        uname.startsWith('mock') ||
+        uname.startsWith('dummy') ||
+        id.startsWith('mock') ||
+        id.startsWith('dummy') ||
+        id === 'user-me' ||
+        uname === 'you'
+      );
+    };
+
     const currentClean = (currentUser?.username || '').toLowerCase().replace(/^@/, '').trim();
     const currentId = String(currentUser?.id || '').trim();
     if (currentId) seenIds.add(currentId);
 
     const addCreator = (item: { id: string; username: string; name?: string; avatar: string; subtitle?: string }) => {
+      if (isDummyOrGuest(item)) return;
       const uname = (item.username || '').toLowerCase().replace(/^@/, '').trim();
       const uid = String(item.id || '').trim();
       if (!uname || uname === currentClean || uname === 'you' || uname === 'user-me') return;
@@ -1569,6 +1651,7 @@ export default function App() {
 
     // 1. Primary: Display registered users from Cloud Firestore
     (searchableUsers || []).forEach((u) => {
+      if (isDummyOrGuest(u)) return;
       addCreator({
         id: u.id || u.username,
         username: u.username,
@@ -1580,6 +1663,9 @@ export default function App() {
 
     // 2. Creators from posts & reels
     posts.forEach((p) => {
+      const uname = (p.username || '').toLowerCase().replace(/^@/, '').trim();
+      const pUserId = String(p.userId || '').trim();
+      if (isDummyOrGuest({ id: pUserId, username: uname })) return;
       addCreator({
         id: p.userId || p.username,
         username: p.username,
@@ -2627,7 +2713,25 @@ export default function App() {
         const list = raw ? JSON.parse(raw) : [];
         const updated = [
           account,
-          ...(Array.isArray(list) ? list.filter((a: any) => a?.email?.toLowerCase() !== realEmail.toLowerCase()) : []),
+          ...(Array.isArray(list)
+            ? list.filter((a: any) => {
+                if (!a || !a.email || !a.email.includes('@')) return false;
+                const emailLower = String(a.email).toLowerCase();
+                const unameLower = String(a.username || '').toLowerCase();
+                const uidLower = String(a.firebaseUid || a.id || '').toLowerCase();
+                return (
+                  emailLower !== realEmail.toLowerCase() &&
+                  !emailLower.includes('guest') &&
+                  !emailLower.includes('dummy') &&
+                  !emailLower.includes('mock') &&
+                  !unameLower.startsWith('guest') &&
+                  !unameLower.startsWith('dummy') &&
+                  !unameLower.startsWith('mock') &&
+                  !uidLower.startsWith('guest') &&
+                  !uidLower.startsWith('user_creator_')
+                );
+              })
+            : []),
         ].slice(0, 5);
         localStorage.setItem('ig_saved_accounts', JSON.stringify(updated));
       } catch {

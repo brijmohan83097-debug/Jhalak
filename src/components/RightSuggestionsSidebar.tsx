@@ -30,14 +30,42 @@ export const RightSuggestionsSidebar: React.FC<RightSuggestionsSidebarProps> = (
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
   const t = translations[currentLanguage];
 
-  // Safely deduplicate creators by both id and username
+  // Helper to detect dummy, mock, or guest creators
+  const isDummyOrGuest = (c: SuggestedCreator) => {
+    const id = String(c?.id || '').toLowerCase().trim();
+    const uname = String(c?.username || '').toLowerCase().replace(/^@/, '').trim();
+    return (
+      !id ||
+      !uname ||
+      id === 'guest' ||
+      id === 'guest_user' ||
+      id === 'guest-user' ||
+      id.startsWith('guest_') ||
+      id.startsWith('guest-') ||
+      uname === 'guest' ||
+      uname === 'guest_user' ||
+      uname === 'guest-user' ||
+      uname.startsWith('guest_') ||
+      uname.startsWith('guest-') ||
+      uname === 'demo' ||
+      uname === 'demo_user' ||
+      uname.startsWith('mock') ||
+      uname.startsWith('dummy') ||
+      id.startsWith('mock') ||
+      id.startsWith('dummy') ||
+      id === 'user-me' ||
+      uname === 'you'
+    );
+  };
+
+  // Safely deduplicate creators by both id and username, strictly excluding mock and guest accounts
   const uniqueCreators = React.useMemo(() => {
     const deduped: SuggestedCreator[] = [];
     const seenIds = new Set<string>();
     const seenUsernames = new Set<string>();
 
     (creators || []).forEach((c) => {
-      if (!c) return;
+      if (!c || isDummyOrGuest(c)) return;
       const uid = String(c.id || '').trim();
       const uname = String(c.username || '').toLowerCase().replace(/^@/, '').trim();
       if (!uid && !uname) return;

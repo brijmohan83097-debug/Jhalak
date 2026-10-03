@@ -81,7 +81,25 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         const list = raw ? JSON.parse(raw) : [];
         const updated = [
           account,
-          ...(Array.isArray(list) ? list.filter((a: any) => a?.email?.toLowerCase() !== email.toLowerCase()) : []),
+          ...(Array.isArray(list)
+            ? list.filter((a: any) => {
+                if (!a || !a.email || !a.email.includes('@')) return false;
+                const emailLower = String(a.email).toLowerCase();
+                const unameLower = String(a.username || '').toLowerCase();
+                const uidLower = String(a.firebaseUid || a.id || '').toLowerCase();
+                return (
+                  emailLower !== email.toLowerCase() &&
+                  !emailLower.includes('guest') &&
+                  !emailLower.includes('dummy') &&
+                  !emailLower.includes('mock') &&
+                  !unameLower.startsWith('guest') &&
+                  !unameLower.startsWith('dummy') &&
+                  !unameLower.startsWith('mock') &&
+                  !uidLower.startsWith('guest') &&
+                  !uidLower.startsWith('user_creator_')
+                );
+              })
+            : []),
         ].slice(0, 5);
         localStorage.setItem('ig_saved_accounts', JSON.stringify(updated));
       } catch {
