@@ -37,6 +37,7 @@ import { isSuperAdmin } from '../constants/admin';
 import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
+  generateVideoThumbnail,
 } from '../utils/imageCompressor';
 import { safeSlice, safeEncodeURIComponent } from '../utils/safeEncoding';
 import {
@@ -101,6 +102,85 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
   const [videoError, setVideoError] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
+
+  // Effective poster thumbnail state to guarantee zero black screens
+  const [posterThumbnail, setPosterThumbnail] = useState<string>(() => {
+    if (
+      post.thumbnailUrl &&
+      (post.thumbnailUrl.startsWith('data:image/') ||
+        post.thumbnailUrl.startsWith('http://') ||
+        post.thumbnailUrl.startsWith('https://') ||
+        post.thumbnailUrl.startsWith('/')) &&
+      !post.thumbnailUrl.endsWith('.mp4') &&
+      !post.thumbnailUrl.endsWith('.webm')
+    ) {
+      return post.thumbnailUrl;
+    }
+    return '';
+  });
+
+  useEffect(() => {
+    if (post.mediaType !== 'video') return;
+
+    if (
+      post.thumbnailUrl &&
+      (post.thumbnailUrl.startsWith('data:image/') ||
+        post.thumbnailUrl.startsWith('http://') ||
+        post.thumbnailUrl.startsWith('https://') ||
+        post.thumbnailUrl.startsWith('/')) &&
+      !post.thumbnailUrl.endsWith('.mp4') &&
+      !post.thumbnailUrl.endsWith('.webm')
+    ) {
+      setPosterThumbnail(post.thumbnailUrl);
+      return;
+    }
+
+    let isMounted = true;
+    const candidateSource = post.mediaUrl || post.downloadURL || (post as any).videoUrl;
+    if (candidateSource) {
+      generateVideoThumbnail(candidateSource, 600, 600, 0.7)
+        .then((thumb) => {
+          if (isMounted && thumb) {
+            setPosterThumbnail(thumb);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setPosterThumbnail(createVideoFallbackDataUrl(post.caption || 'Video Reel'));
+          }
+        });
+    } else {
+      setPosterThumbnail(createVideoFallbackDataUrl(post.caption || 'Video Reel'));
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [post.id, post.mediaType, post.thumbnailUrl, post.mediaUrl, post.downloadURL, post.caption]);
+
+  // Immediately open video in fullscreen Reels viewer starting from that specific reel
+  const handleTriggerOpenReel = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (tapTimeoutRef.current) {
+      clearTimeout(tapTimeoutRef.current);
+      tapTimeoutRef.current = null;
+    }
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+      } catch {}
+    }
+    setIsPlaying(false);
+
+    if (onOpenReel) {
+      onOpenReel(post);
+    } else if (onOpenFullScreen) {
+      onOpenFullScreen(post);
+    }
+  };
 
   const t = translations[currentLanguage];
 
@@ -336,7 +416,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
   const handleMediaClick = (e: React.MouseEvent) => {
     const now = Date.now();
-    const DOUBLE_TAP_DELAY = 280;
+    const DOUBLE_TAP_DELAY = 240;
     const isDoubleTap = now - lastTapTimeRef.current < DOUBLE_TAP_DELAY;
     lastTapTimeRef.current = now;
 
@@ -357,9 +437,9 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
       return;
     }
 
-    // Video posts: single tap toggles play/pause cleanly
+    // Video posts: single tap immediately opens the fullscreen Reels viewer starting from that specific reel
     if (post.mediaType === 'video') {
-      handleTogglePlayPause(e);
+      handleTriggerOpenReel(e);
       return;
     }
 
@@ -556,7 +636,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           videoError || (!post.mediaUrl && !post.thumbnailUrl) ? (
             <div className="w-full h-full relative flex items-center justify-center bg-neutral-900">
               <img
-                src={post.thumbnailUrl || createVideoFallbackDataUrl(post.caption)}
+                src={posterThumbnail || post.thumbnailUrl || createVideoFallbackDataUrl(post.caption)}
                 alt={post.caption || 'Video preview'}
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -565,18 +645,8 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                 }}
               />
               <div
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  setVideoError(false);
-                  setIsBuffering(true);
-                  try {
-                    const resolved = await resolvePlayableMediaUrl(post.id, post.mediaUrl || post.downloadURL || '');
-                    if (resolved && videoRef.current) {
-                      videoRef.current.src = resolved;
-                      videoRef.current.load();
-                      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
-                    }
-                  } catch {}
+                onClick={(e) => {
+                  handleTriggerOpenReel(e);
                 }}
                 className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white p-4 cursor-pointer hover:bg-black/50 transition group"
               >
@@ -615,16 +685,15 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
                 return (
                   <div className="relative w-full h-full max-h-[520px] flex items-center justify-center bg-neutral-950 overflow-hidden">
-                    {post.thumbnailUrl && (
-                      <img
-                        src={post.thumbnailUrl}
-                        alt={post.caption || 'Video backdrop'}
-                        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    )}
+                    {/* First-frame poster thumbnail backdrop so the card never shows a black blank box */}
+                    <img
+                      src={posterThumbnail || post.thumbnailUrl || post.mediaUrl || createVideoFallbackDataUrl(post.caption || 'Video Reel')}
+                      alt={post.caption || 'Video backdrop'}
+                      className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+                      onError={(e) => {
+                        e.currentTarget.src = createVideoFallbackDataUrl(post.caption || 'Video Reel');
+                      }}
+                    />
                     <video
                       ref={(el) => {
                         (videoRef as any).current = el;
@@ -640,7 +709,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       muted={isMuted}
                       loop
                       preload="auto"
-                      poster={post.thumbnailUrl || ''}
+                      poster={posterThumbnail || post.thumbnailUrl || post.mediaUrl || ''}
                       className={`w-full h-full max-h-[520px] object-cover z-10 ${post.filter ? post.filter : ''}`}
                     onCanPlay={(e) => {
                       const vid = e.currentTarget;
@@ -750,19 +819,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               type="button"
               id={`feed-video-fullscreen-btn-${post.id}`}
               onClick={(e) => {
-                e.stopPropagation();
-                if (tapTimeoutRef.current) {
-                  clearTimeout(tapTimeoutRef.current);
-                  tapTimeoutRef.current = null;
-                }
-                if (onOpenReel) {
-                  onOpenReel(post);
-                } else if (onOpenFullScreen) {
-                  onOpenFullScreen({
-                    ...post,
-                    mediaUrl: post.mediaUrl || post.thumbnailUrl || '',
-                  });
-                }
+                handleTriggerOpenReel(e);
               }}
               className="absolute top-3 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[11px] font-medium transition cursor-pointer border border-white/20 active:scale-95 shadow-md"
               title="Watch full screen in Reels"
@@ -825,18 +882,17 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
               )}
             </button>
 
-            {/* Persistent Center Play Icon when Paused */}
+            {/* Persistent Center Play Icon when Paused - Tap to open Fullscreen Reels Viewer */}
             {!isPlaying && (
               <div
                 onClick={(e) => {
-                  e.stopPropagation();
-                  handleTogglePlayPause(e);
+                  handleTriggerOpenReel(e);
                 }}
                 className="absolute inset-0 flex items-center justify-center cursor-pointer z-20"
-                title="Play Video"
+                title="Tap to Play Reel in Fullscreen"
               >
-                <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-xl transition-all hover:scale-110 active:scale-95">
-                  <Play className="w-7 h-7 fill-white ml-1 text-white" />
+                <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-xl transition-all hover:scale-110 active:scale-95 group">
+                  <Play className="w-7 h-7 fill-white ml-1 text-white group-hover:scale-105 transition" />
                 </div>
               </div>
             )}
@@ -908,7 +964,9 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
           id={`feed-fullscreen-btn-${post.id}`}
           onClick={(e) => {
             e.stopPropagation();
-            if (onOpenFullScreen) {
+            if (post.mediaType === 'video') {
+              handleTriggerOpenReel(e);
+            } else if (onOpenFullScreen) {
               onOpenFullScreen({
                 ...post,
                 mediaUrl: post.mediaUrl,
@@ -918,11 +976,11 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({
             }
           }}
           aria-label="Open full-screen viewer"
-          title="Open immersive full-screen viewer"
+          title={post.mediaType === 'video' ? 'Watch Reel' : 'Open immersive full-screen viewer'}
           className="absolute bottom-3 left-3 z-20 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md text-white transition active:scale-95 flex items-center gap-1.5 border border-white/15 text-[11px] font-medium shadow-md group"
         >
           <Maximize2 className="w-3.5 h-3.5 text-amber-300 group-hover:scale-110 transition" />
-          <span className="hidden sm:inline">Full Screen</span>
+          <span className="hidden sm:inline">{post.mediaType === 'video' ? 'Reels' : 'Full Screen'}</span>
         </button>
       </div>
 
