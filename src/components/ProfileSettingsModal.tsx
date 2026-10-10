@@ -34,6 +34,7 @@ import { AccountDeletionModal } from './AccountDeletionModal';
 import { verifyFirebaseConfig, FirebaseDiagnosticStatus } from '../services/firebase';
 import { purgeOfflineMediaStorage } from '../utils/persistentMediaStore';
 import { moderationService } from '../services/moderationService';
+import { JhalakLogo } from './JhalakLogo';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -129,6 +130,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <ChevronRight className="w-5 h-5 rotate-180" />
               </button>
             ) : null}
+            {subView === 'main' && (
+              <JhalakLogo size={22} showGlow={false} className="mr-0.5" />
+            )}
             <h2 className="font-bold text-base text-neutral-900 dark:text-white flex items-center gap-2">
               {subView === 'main' && t.settings}
               {subView === 'account' && 'Account Settings'}
@@ -504,6 +508,19 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 </div>
                 <ChevronRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition-transform" />
               </button>
+
+              {/* Jhalak Brand Footer */}
+              <div className="pt-4 pb-2 flex flex-col items-center justify-center gap-1.5 text-center">
+                <div className="flex items-center gap-2">
+                  <JhalakLogo size={20} showGlow={false} />
+                  <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                    Jhalak Reels: Made in India
+                  </span>
+                </div>
+                <p className="text-[10px] text-neutral-400">
+                  Version 2.4.0 • Google Play Store Verified App
+                </p>
+              </div>
             </div>
           )}
 

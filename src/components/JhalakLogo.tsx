@@ -9,7 +9,7 @@ interface JhalakLogoProps {
 
 /**
  * Jhalak Official Brand Logo
- * Displays the official 3D Tiranga squircle app icon badge:
+ * Displays the official 3D Tiranga blue squircle app icon badge:
  * - Royal Blue beveled squircle frame with ambient depth
  * - 3D Volumetric Indian Tiranga (Saffron, White, Emerald Green) ribbon 'J' loop
  * - Filmstrip slate with white play button
@@ -40,13 +40,13 @@ export const JhalakLogo: React.FC<JhalakLogoProps> = ({
 
       {/* Official 3D Jhalak Tiranga App Logo Badge */}
       <img
-        src="/assets/jhalak-tiranga-logo.png"
+        src="/logo.png"
         alt="Jhalak Reels: Made in India"
         className="relative z-10 w-full h-full object-contain filter drop-shadow-md rounded-[22%]"
         draggable={false}
         onError={(e) => {
-          // Graceful fallback to SVG vector logo if needed
-          e.currentTarget.src = '/icon.svg';
+          // Fallback to assets copy or SVG if needed
+          e.currentTarget.src = '/assets/jhalak-tiranga-logo.png';
         }}
       />
     </div>

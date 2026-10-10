@@ -68,7 +68,7 @@ export const GoogleWelcomeScreen: React.FC<GoogleWelcomeScreenProps> = ({
           <JhalakLogo size={38} showGlow={false} animate={true} />
           <div className="flex flex-col text-left">
             <span className="text-xl font-black tracking-tight text-white leading-tight">
-              Jhalak Reels:
+              Jhalak Reels
             </span>
             <span className="text-xs font-extrabold text-amber-400 tracking-wider uppercase leading-none">
               Made in India

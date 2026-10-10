@@ -218,6 +218,17 @@ app.get(['/manifest.json', '/manifest.webmanifest'], (req, res) => {
   }
 });
 
+// Serve public directory directly for static assets (logo, favicon, icons, etc.)
+app.use(express.static(path.resolve(__dirname, 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.ico') || filePath.endsWith('.png') || filePath.endsWith('.svg')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    }
+  },
+}));
+
 // Mount Vite or serve static dist in production
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';

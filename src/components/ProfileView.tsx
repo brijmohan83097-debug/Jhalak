@@ -36,6 +36,7 @@ import {
   createVideoFallbackDataUrl,
   createPhotoFallbackDataUrl,
 } from '../utils/imageCompressor';
+import { JhalakLogo } from './JhalakLogo';
 
 interface ProfileViewProps {
   user: User;
@@ -719,6 +720,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 {user.website.replace(/^https?:\/\//, '')}
               </a>
             )}
+            {/* Official Jhalak Reels Verified Creator Badge */}
+            <div className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-blue-900/20 via-neutral-900/40 to-emerald-950/20 dark:from-blue-950/40 dark:via-neutral-900/60 dark:to-emerald-950/40 border border-blue-500/25 dark:border-blue-400/25 shadow-xs">
+              <JhalakLogo size={20} showGlow={false} />
+              <span className="text-xs font-bold text-neutral-800 dark:text-neutral-100">
+                Jhalak Reels Creator
+              </span>
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-extrabold uppercase tracking-wider">
+                Made in India 🇮🇳
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1267,8 +1278,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </>
           )}
         </div>
-        <p className="text-[10px] text-neutral-400">
-          Jhalak Reels: Made in India • Google Play Store Verified App
+        <div className="flex items-center justify-center gap-2 mt-1">
+          <JhalakLogo size={22} showGlow={false} />
+          <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
+            Jhalak Reels: Made in India
+          </span>
+        </div>
+        <p className="text-[10px] text-neutral-500 dark:text-neutral-400">
+          Official Indian Short Video Platform • Google Play Store Verified App
         </p>
       </footer>
     </div>

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "prebuild": "node scripts/generate-brand-assets.cjs",
     "build": "vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",

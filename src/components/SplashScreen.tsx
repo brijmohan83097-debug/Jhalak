@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { JhalakLogo } from './JhalakLogo';
 import { Sparkles } from 'lucide-react';
 
 interface SplashScreenProps {
@@ -28,7 +27,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
       setProgress(pct);
     }, 30);
 
-    // 3. Begin exit transition at 2 seconds
+    // 3. Begin exit transition at duration
     const exitTimer = setTimeout(() => {
       setPhase('exiting');
       // 4. Fully unmount after exit transition completes (500ms transition)
@@ -64,16 +63,17 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
           : 'opacity-100 scale-100'
       }`}
       style={{
-        background: 'radial-gradient(ellipse 90% 80% at 50% 35%, #1f082e 0%, #0c0312 60%, #050108 100%)',
+        background: 'radial-gradient(ellipse 90% 85% at 50% 38%, #0C2B6D 0%, #06173D 52%, #02091C 100%)',
       }}
     >
-      {/* Ambient background glow orbs */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-gradient-to-tr from-rose-600/25 via-fuchsia-600/20 to-purple-600/15 blur-3xl pointer-events-none animate-pulse" />
-      <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full bg-gradient-to-br from-amber-500/15 via-rose-500/10 to-transparent blur-3xl pointer-events-none" />
+      {/* Ambient royal blue and tiranga background glow orbs */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-gradient-to-tr from-blue-600/35 via-indigo-600/25 to-sky-500/25 blur-3xl pointer-events-none animate-pulse" />
+      <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full bg-gradient-to-br from-amber-500/20 via-emerald-500/15 to-transparent blur-3xl pointer-events-none" />
 
-      {/* Top spacer */}
+      {/* Top spacer with Skip button */}
       <div className="w-full pt-12 flex justify-end px-6">
         <button
+          id="splash-skip-btn"
           onClick={() => {
             setPhase('exiting');
             setTimeout(() => {
@@ -81,36 +81,32 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
               onFinished?.();
             }, 300);
           }}
-          className="text-xs text-neutral-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-md"
+          className="text-xs text-neutral-300 hover:text-white transition-colors bg-white/10 hover:bg-white/20 px-3.5 py-1.5 rounded-full border border-white/15 backdrop-blur-md cursor-pointer"
         >
           Skip
         </button>
       </div>
 
-      {/* Center Brand Identity Container */}
-      <div className="flex flex-col items-center justify-center px-6 text-center max-w-sm -mt-4">
-        {/* Uploaded Square Tiranga 'J' Badge Logo Asset */}
+      {/* Center Brand Identity Container with the new blue 'Jhalak Reels' artwork */}
+      <div className="flex flex-col items-center justify-center px-6 text-center max-w-sm -mt-2">
+        {/* Uploaded Central Blue Jhalak Reels Artwork Badge */}
         <div className="relative mb-5 flex items-center justify-center">
-          <div className="absolute -inset-3 rounded-3xl bg-gradient-to-tr from-amber-500/35 via-blue-600/25 to-emerald-500/35 blur-xl animate-pulse" />
+          <div className="absolute -inset-4 rounded-3xl bg-gradient-to-tr from-amber-500/40 via-blue-500/30 to-emerald-500/40 blur-2xl animate-pulse" />
           <div className="relative transform transition-transform duration-700 hover:scale-105 flex items-center justify-center">
-            <JhalakLogo size={140} showGlow={true} animate={false} />
+            <img
+              src="/logo.png"
+              alt="Jhalak Reels: Made in India"
+              className="w-44 h-44 sm:w-48 sm:h-48 object-contain drop-shadow-2xl rounded-3xl"
+              draggable={false}
+              onError={(e) => {
+                e.currentTarget.src = '/assets/jhalak-tiranga-logo.png';
+              }}
+            />
           </div>
         </div>
 
-        {/* Brand Title: Jhalak Reels: Made in India in bold gold/white typography */}
-        <div className="mt-2 mb-6 text-center">
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight drop-shadow-lg flex flex-wrap items-center justify-center gap-x-2 text-center">
-            <span className="text-amber-300 font-black drop-shadow-sm">
-              Jhalak Reels:
-            </span>
-            <span className="text-white font-extrabold drop-shadow-sm">
-              Made in India
-            </span>
-          </h1>
-        </div>
-
         {/* Animated Loading Spinner & Progress Bar */}
-        <div className="flex flex-col items-center gap-3 mt-1">
+        <div className="flex flex-col items-center gap-3 mt-3">
           {/* Custom SVG Gradient Spinner */}
           <div className="relative w-9 h-9 flex items-center justify-center">
             <svg
@@ -131,7 +127,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
                 cx="20"
                 cy="20"
                 r="16"
-                stroke="rgba(255, 255, 255, 0.12)"
+                stroke="rgba(255, 255, 255, 0.15)"
                 strokeWidth="3.2"
               />
               <circle
@@ -150,7 +146,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
           </div>
 
           {/* Smooth Launch Progress Line */}
-          <div className="w-36 h-1.5 bg-white/10 rounded-full overflow-hidden mt-2 p-[1px]">
+          <div className="w-36 h-1.5 bg-white/15 rounded-full overflow-hidden mt-1 p-[1px]">
             <div
               className="h-full bg-gradient-to-r from-amber-400 via-white to-emerald-400 rounded-full transition-all duration-75 ease-out shadow-sm shadow-amber-500"
               style={{ width: `${progress}%` }}

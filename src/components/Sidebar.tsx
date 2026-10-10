@@ -105,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <JhalakLogo size={38} showGlow={false} animate={true} />
             <div className="flex flex-col text-left">
               <span className="font-extrabold text-base tracking-tight text-neutral-900 dark:text-white leading-tight">
-                Jhalak Reels:
+                Jhalak Reels
               </span>
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase leading-none">

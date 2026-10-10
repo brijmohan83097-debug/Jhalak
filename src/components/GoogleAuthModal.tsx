@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Shield, Loader2 } from 'lucide-react';
 import { signInWithGoogle, syncUserProfile } from '../services/firebase';
+import { JhalakLogo } from './JhalakLogo';
 
 export interface GoogleAccount {
   name: string;
@@ -127,7 +128,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         className="w-full max-w-sm bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
       >
         {/* Header with Google Logo & Close */}
-        <div className="p-6 pb-4 border-b border-neutral-100 dark:border-neutral-800 flex items-start justify-between">
+        <div className="p-6 pb-3 border-b border-neutral-100 dark:border-neutral-800 flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center shadow-xs">
               <svg className="w-6 h-6" viewBox="0 0 24 24">
@@ -166,6 +167,24 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Jhalak Reels Tiranga Brand Identity Strip */}
+        <div className="mx-5 my-3 px-3.5 py-2 rounded-2xl bg-gradient-to-r from-blue-900/15 via-neutral-900/10 to-emerald-950/15 dark:from-blue-950/30 dark:via-neutral-900/40 dark:to-emerald-950/30 border border-blue-500/20 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <JhalakLogo size={26} showGlow={false} />
+            <div>
+              <p className="text-xs font-bold text-neutral-900 dark:text-white leading-tight">
+                Jhalak Reels
+              </p>
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider leading-none">
+                Made in India
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            Verified
+          </span>
         </div>
 
         {/* Content Body */}

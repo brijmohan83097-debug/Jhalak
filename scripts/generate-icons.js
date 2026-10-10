@@ -43,16 +43,23 @@ const maskableSvg = `
 async function build() {
   console.log('Generating official Jhalak Tiranga PWA & App icons...');
 
-  // 1. icon.svg
+  // 1. icon.svg and logo.svg
   fs.writeFileSync(path.join(publicDir, 'icon.svg'), standardSvg.trim());
-  console.log('Created public/icon.svg');
+  fs.writeFileSync(path.join(publicDir, 'logo.svg'), standardSvg.trim());
+  fs.writeFileSync(path.join(assetsDir, 'logo.svg'), standardSvg.trim());
+  console.log('Created public/icon.svg and logo.svg');
 
-  // 2. pwa-512x512.png
-  await sharp(Buffer.from(standardSvg))
+  // 2. pwa-512x512.png, logo.png, jhalak-tiranga-logo.png (512x512)
+  const png512Buffer = await sharp(Buffer.from(standardSvg))
     .resize(512, 512)
     .png()
-    .toFile(path.join(publicDir, 'pwa-512x512.png'));
-  console.log('Created public/pwa-512x512.png');
+    .toBuffer();
+
+  fs.writeFileSync(path.join(publicDir, 'pwa-512x512.png'), png512Buffer);
+  fs.writeFileSync(path.join(publicDir, 'logo.png'), png512Buffer);
+  fs.writeFileSync(path.join(assetsDir, 'logo.png'), png512Buffer);
+  fs.writeFileSync(path.join(assetsDir, 'jhalak-tiranga-logo.png'), png512Buffer);
+  console.log('Created 512x512 icons: pwa-512x512.png, logo.png, jhalak-tiranga-logo.png');
 
   // 3. pwa-maskable-512x512.png
   await sharp(Buffer.from(maskableSvg))
@@ -75,37 +82,48 @@ async function build() {
     .toFile(path.join(publicDir, 'apple-touch-icon.png'));
   console.log('Created public/apple-touch-icon.png');
 
-  // 6. favicon-32x32.png
-  await sharp(Buffer.from(standardSvg))
+  // 6. favicon-32x32.png and favicon.ico / favicon.png
+  const favicon32Buffer = await sharp(Buffer.from(standardSvg))
     .resize(32, 32)
     .png()
-    .toFile(path.join(publicDir, 'favicon-32x32.png'));
-  console.log('Created public/favicon-32x32.png');
+    .toBuffer();
 
-  // 7. jhalak-tiranga-logo.png (512x512)
-  await sharp(Buffer.from(standardSvg))
-    .resize(512, 512)
-    .png()
-    .toFile(path.join(assetsDir, 'jhalak-tiranga-logo.png'));
-  console.log('Created public/assets/jhalak-tiranga-logo.png');
+  fs.writeFileSync(path.join(publicDir, 'favicon-32x32.png'), favicon32Buffer);
+  fs.writeFileSync(path.join(publicDir, 'favicon.ico'), favicon32Buffer);
+  fs.writeFileSync(path.join(publicDir, 'favicon.png'), favicon32Buffer);
+  console.log('Created public/favicon-32x32.png and favicon.ico');
 
   // Also sync to dist if dist exists
   const distDir = path.resolve('dist');
   if (fs.existsSync(distDir)) {
     const distAssets = path.join(distDir, 'assets');
     if (!fs.existsSync(distAssets)) fs.mkdirSync(distAssets, { recursive: true });
-    fs.copyFileSync(path.join(publicDir, 'icon.svg'), path.join(distDir, 'icon.svg'));
-    fs.copyFileSync(path.join(publicDir, 'pwa-512x512.png'), path.join(distDir, 'pwa-512x512.png'));
-    fs.copyFileSync(path.join(publicDir, 'pwa-maskable-512x512.png'), path.join(distDir, 'pwa-maskable-512x512.png'));
-    fs.copyFileSync(path.join(publicDir, 'pwa-192x192.png'), path.join(distDir, 'pwa-192x192.png'));
-    fs.copyFileSync(path.join(publicDir, 'apple-touch-icon.png'), path.join(distDir, 'apple-touch-icon.png'));
-    fs.copyFileSync(path.join(publicDir, 'favicon-32x32.png'), path.join(distDir, 'favicon-32x32.png'));
+
+    const filesToSync = [
+      'icon.svg',
+      'logo.svg',
+      'logo.png',
+      'pwa-512x512.png',
+      'pwa-maskable-512x512.png',
+      'pwa-192x192.png',
+      'apple-touch-icon.png',
+      'favicon-32x32.png',
+      'favicon.ico',
+      'favicon.png',
+    ];
+
+    for (const f of filesToSync) {
+      fs.copyFileSync(path.join(publicDir, f), path.join(distDir, f));
+    }
+
     fs.copyFileSync(path.join(assetsDir, 'jhalak-tiranga-logo.png'), path.join(distAssets, 'jhalak-tiranga-logo.png'));
     fs.copyFileSync(path.join(assetsDir, 'jhalak-tiranga-logo.svg'), path.join(distAssets, 'jhalak-tiranga-logo.svg'));
-    console.log('Synced all icons to dist/');
+    fs.copyFileSync(path.join(assetsDir, 'logo.png'), path.join(distAssets, 'logo.png'));
+    fs.copyFileSync(path.join(assetsDir, 'logo.svg'), path.join(distAssets, 'logo.svg'));
+    console.log('Synced all icons and logos to dist/');
   }
 
-  console.log('All official Jhalak Tiranga icons generated successfully!');
+  console.log('All official Jhalak Tiranga icons and logos generated successfully!');
 }
 
 build().catch((err) => {
